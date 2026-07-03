@@ -17,6 +17,70 @@ function CameraIcon({ className }: { className?: string }) {
   );
 }
 
+function FoodPlate({ enhanced }: { enhanced?: boolean }) {
+  const plate = enhanced ? "#FFFBF5" : "#D8D3C9";
+  const rim = enhanced ? "#F0E4D3" : "#B8B2A6";
+  const sauceShadow = enhanced ? "#B33A1C" : "#71685C";
+  const sauce = enhanced ? "#D94A26" : "#8A7A6A";
+  const noodle = enhanced ? "#F2B84B" : "#A79C87";
+  const basil = enhanced ? "#4C7A3B" : "#847E6E";
+  const tomato = enhanced ? "#E4432B" : "#9A8B7A";
+
+  return (
+    <svg
+      viewBox="0 0 240 240"
+      preserveAspectRatio="xMidYMid slice"
+      className="h-full w-full"
+    >
+      <rect width="240" height="240" fill={plate} />
+      <circle cx="120" cy="120" r="108" fill={plate} stroke={rim} strokeWidth="3" />
+      <ellipse cx="120" cy="130" rx="78" ry="60" fill={sauceShadow} opacity="0.5" />
+      <ellipse cx="120" cy="124" rx="76" ry="56" fill={sauce} />
+      <path
+        d="M60 110 Q100 90 140 110 T220 105"
+        stroke={noodle}
+        strokeWidth="9"
+        fill="none"
+        strokeLinecap="round"
+        opacity="0.85"
+      />
+      <path
+        d="M55 135 Q100 150 145 130 T215 140"
+        stroke={noodle}
+        strokeWidth="9"
+        fill="none"
+        strokeLinecap="round"
+        opacity="0.7"
+      />
+      <path
+        d="M65 155 Q105 170 150 152"
+        stroke={noodle}
+        strokeWidth="8"
+        fill="none"
+        strokeLinecap="round"
+        opacity="0.6"
+      />
+      <circle cx="95" cy="105" r="7" fill={tomato} />
+      <circle cx="155" cy="150" r="6" fill={tomato} />
+      <circle cx="145" cy="95" r="5" fill={tomato} />
+      <ellipse cx="110" cy="145" rx="6" ry="3" fill={basil} transform="rotate(30 110 145)" />
+      <ellipse cx="140" cy="120" rx="6" ry="3" fill={basil} transform="rotate(-20 140 120)" />
+      <ellipse cx="90" cy="130" rx="5" ry="2.5" fill={basil} transform="rotate(60 90 130)" />
+      {enhanced ? (
+        <>
+          <circle cx="100" cy="118" r="1.6" fill="#FFF7E6" />
+          <circle cx="132" cy="108" r="1.4" fill="#FFF7E6" />
+          <circle cx="150" cy="135" r="1.5" fill="#FFF7E6" />
+          <circle cx="115" cy="150" r="1.3" fill="#FFF7E6" />
+          <ellipse cx="95" cy="95" rx="40" ry="22" fill="white" opacity="0.18" />
+        </>
+      ) : (
+        <rect width="240" height="240" fill="#000000" opacity="0.08" />
+      )}
+    </svg>
+  );
+}
+
 function SparkleIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -177,13 +241,15 @@ export default function Home() {
               <div className="absolute -top-8 right-0 h-64 w-64 rounded-full bg-orange-300/40 blur-3xl" />
               <div className="absolute -bottom-8 left-0 h-56 w-56 rounded-full bg-red-300/30 blur-3xl" />
 
-              <div className="absolute left-2 top-12 h-64 w-48 -rotate-6 rounded-2xl bg-gradient-to-br from-stone-300 to-stone-400 shadow-xl ring-1 ring-black/5 sm:h-72 sm:w-56">
+              <div className="absolute left-2 top-12 h-64 w-48 -rotate-6 overflow-hidden rounded-2xl shadow-xl ring-1 ring-black/5 sm:h-72 sm:w-56">
+                <FoodPlate />
                 <div className="absolute bottom-4 left-4 rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-stone-600 shadow-sm">
                   Before
                 </div>
               </div>
 
-              <div className="absolute right-2 top-2 h-64 w-48 rotate-3 rounded-2xl bg-gradient-to-br from-amber-300 via-orange-400 to-red-500 shadow-2xl ring-1 ring-black/5 sm:h-72 sm:w-56">
+              <div className="absolute right-2 top-2 h-64 w-48 rotate-3 overflow-hidden rounded-2xl shadow-2xl ring-1 ring-black/5 sm:h-72 sm:w-56">
+                <FoodPlate enhanced />
                 <div className="absolute -right-3 -top-3 flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-lg">
                   <SparkleIcon className="h-5 w-5 text-orange-600" />
                 </div>
