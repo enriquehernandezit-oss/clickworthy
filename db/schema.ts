@@ -6,6 +6,7 @@ import {
   real,
   boolean,
   timestamp,
+  jsonb,
 } from 'drizzle-orm/pg-core';
 
 export const restaurants = pgTable('restaurants', {
@@ -53,5 +54,35 @@ export const payments = pgTable('payments', {
   amountCents: integer('amount_cents'),
   stripePaymentId: text('stripe_payment_id'),
   status: text('status'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// One row per /enhance checkout: the shared prompt, photo references, and
+// (once the webhook has run) the Claid enhancement results.
+export const enhancementOrders = pgTable('enhancement_orders', {
+  id: serial('id').primaryKey(),
+  stripeSessionId: text('stripe_session_id').notNull().unique(),
+  prompt: text('prompt').notNull(),
+  photoCount: integer('photo_count').notNull(),
+  totalCents: integer('total_cents').notNull(),
+  storageType: text('storage_type').notNull(), // 'r2' | 'postgres_blob'
+  // Array of { originalName, contentType, url } — url is either a public R2
+  // URL or an absolute link to /api/enhance/photo/[id] (see storageType).
+  photos: jsonb('photos').notNull(),
+  status: text('status').notNull().default('pending'), // pending | processing | completed | failed
+  // Array of { originalName, enhancedUrl, error } once the webhook has processed the order.
+  results: jsonb('results'),
+  createdAt: timestamp('created_at').defaultNow(),
+  completedAt: timestamp('completed_at'),
+});
+
+// Fallback blob storage for uploaded photos when R2 credentials aren't configured.
+// TODO: drop this table (and the postgres_blob storage path in lib/storage.ts)
+// once R2 is wired in everywhere — base64-in-Postgres is a stopgap only.
+export const enhancementPhotoBlobs = pgTable('enhancement_photo_blobs', {
+  id: serial('id').primaryKey(),
+  orderStripeSessionId: text('order_stripe_session_id').notNull(),
+  contentType: text('content_type').notNull(),
+  data: text('data').notNull(), // base64-encoded image bytes
   createdAt: timestamp('created_at').defaultNow(),
 });

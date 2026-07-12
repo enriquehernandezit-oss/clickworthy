@@ -1,3 +1,5 @@
+import Header from "./components/Header";
+
 const CONTACT_EMAIL = "contact@clickworthytool.com";
 
 function CameraIcon({ className }: { className?: string }) {
@@ -171,34 +173,7 @@ const pricingFeatures = [
 export default function Home() {
   return (
     <div className="flex min-h-full flex-col bg-stone-50 text-stone-900">
-      {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-stone-200/80 bg-stone-50/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
-          <a href="#" className="flex items-center gap-2">
-            <span className="h-3 w-3 rounded-sm bg-gradient-to-br from-orange-500 to-red-600" />
-            <span className="text-lg font-bold tracking-tight text-stone-900">
-              Clickworthy
-            </span>
-          </a>
-          <nav className="hidden items-center gap-8 text-sm font-medium text-stone-600 md:flex">
-            <a href="#how-it-works" className="transition-colors hover:text-stone-900">
-              How it works
-            </a>
-            <a href="#pricing" className="transition-colors hover:text-stone-900">
-              Pricing
-            </a>
-            <a href="#contact" className="transition-colors hover:text-stone-900">
-              Contact
-            </a>
-          </nav>
-          <a
-            href={`mailto:${CONTACT_EMAIL}`}
-            className="rounded-lg bg-stone-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-stone-800"
-          >
-            Get Started
-          </a>
-        </div>
-      </header>
+      <Header />
 
       <main className="flex-1">
         {/* Hero */}
@@ -209,7 +184,7 @@ export default function Home() {
                 <SparkleIcon className="h-3.5 w-3.5" />
                 AI photo enhancement
               </p>
-              <h1 className="text-4xl font-bold tracking-tight text-stone-900 sm:text-5xl lg:text-6xl">
+              <h1 className="text-4xl font-bold [text-wrap:balance] text-stone-900 [letter-spacing:-0.02em] sm:text-5xl lg:text-6xl lg:[letter-spacing:-0.03em]">
                 AI-Powered Photo Enhancement for Restaurants
               </h1>
               <p className="mt-6 max-w-xl text-lg leading-relaxed text-stone-600">
@@ -222,14 +197,14 @@ export default function Home() {
               <div className="mt-10 flex flex-col gap-4 sm:flex-row sm:items-center">
                 <a
                   href="#pricing"
-                  className="group inline-flex items-center justify-center gap-2 rounded-lg bg-orange-600 px-6 py-3.5 text-base font-semibold text-white shadow-sm transition-colors hover:bg-orange-700"
+                  className="btn-press group inline-flex items-center justify-center gap-2 rounded-lg bg-orange-600 px-6 py-3.5 text-base font-semibold text-white shadow-sm hover:bg-orange-700"
                 >
                   Get Started
-                  <ArrowRightIcon className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                  <ArrowRightIcon className="h-4 w-4 transition-transform duration-200 ease-[var(--ease-snappy)] group-hover:translate-x-0.5" />
                 </a>
                 <a
                   href="#how-it-works"
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-stone-300 bg-white px-6 py-3.5 text-base font-semibold text-stone-800 transition-colors hover:border-stone-400 hover:bg-stone-100"
+                  className="btn-press inline-flex items-center justify-center gap-2 rounded-lg border border-stone-300 bg-white px-6 py-3.5 text-base font-semibold text-stone-800 hover:border-stone-400 hover:bg-stone-100"
                 >
                   See how it works
                 </a>
@@ -339,7 +314,7 @@ export default function Home() {
 
                 <a
                   href={`mailto:${CONTACT_EMAIL}?subject=Get%20Started%20with%20Clickworthy`}
-                  className="mt-10 block w-full rounded-lg bg-orange-600 px-6 py-3.5 text-center text-base font-semibold text-white shadow-sm transition-colors hover:bg-orange-700"
+                  className="btn-press mt-10 block w-full rounded-lg bg-orange-600 px-6 py-3.5 text-center text-base font-semibold text-white shadow-sm hover:bg-orange-700"
                 >
                   Get Started
                 </a>
