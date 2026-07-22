@@ -40,6 +40,9 @@ export const config = {
   // How often to poll Gmail for replies.
   replyPollCron: process.env.WORKER_REPLY_POLL_CRON ?? "*/4 * * * *",
 
+  // How often to check for paid packages with uploaded photos to enhance.
+  packageCron: process.env.WORKER_PACKAGE_CRON ?? "*/1 * * * *",
+
   // Public origin of the web app, used to build magic-link URLs and (for the
   // Postgres-blob storage fallback) absolute photo URLs.
   appOrigin: process.env.APP_ORIGIN ?? "https://clickworthytool.com",

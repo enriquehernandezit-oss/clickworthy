@@ -118,6 +118,12 @@ export const magicLinks = pgTable('magic_links', {
   reviewStatus: text('review_status').default('pending_review'),
   packageSelected: text('package_selected'), // 'starter' | 'standard' | 'complete' | null until chosen
   stripeSessionId: text('stripe_session_id'),
+  paidAt: timestamp('paid_at'), // set by the Stripe webhook once the package is paid
+  // Uploaded originals awaiting enhancement: array of { name, url }.
+  packageOriginals: jsonb('package_originals'),
+  // Delivery data for the paid package: array of { name, originalUrl, enhancedUrl, error }.
+  packageResults: jsonb('package_results'),
+  packageStatus: text('package_status'), // null | processing | completed | failed (post-upload)
   expiresAt: timestamp('expires_at'),
   viewedAt: timestamp('viewed_at'),
   touch2SentAt: timestamp('touch2_sent_at'), // set once the approved sample + link email goes out

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { enhancementOrders } from "@/db/schema";
+import { enhancementOrders, magicLinks } from "@/db/schema";
 import { getStripe } from "@/lib/stripe";
 import { enhancePhoto } from "@/lib/claid";
 import { persistEnhancedFromUrl, type StoredPhoto } from "@/lib/storage";
@@ -46,6 +46,17 @@ export async function POST(request: NextRequest) {
   }
 
   const session = event.data.object as Stripe.Checkout.Session;
+
+  // Outreach package payment: no photos exist yet (the customer uploads them
+  // AFTER paying, on /l/[token]/upload). Just mark the link paid.
+  if (session.metadata?.type === "outreach" && session.metadata.token) {
+    await db
+      .update(magicLinks)
+      .set({ paidAt: new Date() })
+      .where(eq(magicLinks.token, session.metadata.token));
+    console.log(`[stripe-webhook] outreach package paid — link ${session.metadata.token}`);
+    return NextResponse.json({ received: true });
+  }
 
   const [order] = await db
     .select()

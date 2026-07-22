@@ -17,9 +17,11 @@ import { runSendOutreach } from "./jobs/sendOutreach";
 import { runReplyPoll } from "./jobs/pollReplies";
 import { runSendTouch2 } from "./jobs/sendTouch2";
 import { PROCESS_SAMPLE_QUEUE, runProcessFreeSample, type ProcessSampleJobData } from "./jobs/processFreeSample";
+import { runProcessPackages } from "./jobs/processPackage";
 
 const SEND_QUEUE = "send-outreach";
 const REPLY_QUEUE = "reply-cycle";
+const PACKAGE_QUEUE = "process-package";
 
 async function main() {
   const connectionString = requireKey("databaseUrl", "DATABASE_URL");
@@ -28,7 +30,7 @@ async function main() {
   boss.on("error", (err) => console.error("[pg-boss] error:", err));
 
   await boss.start();
-  for (const q of [SOURCE_QUEUE, ENRICH_QUEUE, SEND_QUEUE, REPLY_QUEUE, PROCESS_SAMPLE_QUEUE]) {
+  for (const q of [SOURCE_QUEUE, ENRICH_QUEUE, SEND_QUEUE, REPLY_QUEUE, PROCESS_SAMPLE_QUEUE, PACKAGE_QUEUE]) {
     await boss.createQueue(q);
   }
 
@@ -63,16 +65,23 @@ async function main() {
     for (const job of jobs) await runProcessFreeSample(job.data);
   });
 
+  // Paid-package enhancement — processes uploaded photos after payment.
+  await boss.work(PACKAGE_QUEUE, async (jobs) => {
+    for (let i = 0; i < jobs.length; i++) await runProcessPackages();
+  });
+
   // Crons (idempotent across restarts — pg-boss dedupes the schedule by queue).
   await boss.schedule(SOURCE_QUEUE, config.sourcingCron, {});
   await boss.schedule(SEND_QUEUE, config.sendCron, {});
   await boss.schedule(REPLY_QUEUE, config.replyPollCron, {});
+  await boss.schedule(PACKAGE_QUEUE, config.packageCron, {});
 
   console.log(
     `[worker] up.\n` +
       `  sourcing:   "${config.sourcingCron}"  cities: ${config.targetCities.join("; ")}\n` +
       `  send:       "${config.sendCron}"  (outreach ${process.env.OUTREACH_ENABLED === "true" ? "ENABLED" : "disabled"})\n` +
-      `  reply poll: "${config.replyPollCron}"` +
+      `  reply poll: "${config.replyPollCron}"\n` +
+      `  packages:   "${config.packageCron}"` +
       (config.dryRun ? "\n  [DRY RUN]" : "")
   );
 

@@ -1,0 +1,146 @@
+"use client";
+
+import { useState } from "react";
+import { PACKAGE_ORDER, PACKAGES, formatCents, type PackageId } from "@/lib/packages";
+import { funnelCopy, type Lang } from "./copy";
+
+export default function FunnelClient({
+  token,
+  language,
+  revenueImpactCopy,
+  originalUrl,
+  enhancedUrl,
+  qualifyingPhotoCount,
+}: {
+  token: string;
+  language: string;
+  revenueImpactCopy: string | null;
+  originalUrl: string | null;
+  enhancedUrl: string | null;
+  qualifyingPhotoCount: number;
+}) {
+  const copy = funnelCopy[(language as Lang) === "es" ? "es" : "en"];
+  const [showBefore, setShowBefore] = useState(false);
+  const [busy, setBusy] = useState<PackageId | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const checkout = async (pkg: PackageId) => {
+    setBusy(pkg);
+    setError(null);
+    try {
+      const res = await fetch("/api/outreach/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, package: pkg }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.url) {
+        setError(data.error ?? copy.error);
+        setBusy(null);
+        return;
+      }
+      window.location.assign(data.url);
+    } catch {
+      setError(copy.error);
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="mt-10 flex flex-col gap-14">
+      {/* Free before/after sample */}
+      <div className="flex flex-col gap-4">
+        <div className="relative mx-auto aspect-square w-full max-w-md overflow-hidden rounded-2xl border border-stone-200 shadow-sm">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={originalUrl ?? undefined}
+            alt={copy.before}
+            className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ease-[var(--ease-snappy)] ${
+              showBefore ? "opacity-100" : "opacity-0"
+            }`}
+          />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={enhancedUrl ?? undefined}
+            alt={copy.after}
+            className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ease-[var(--ease-snappy)] ${
+              showBefore ? "opacity-0" : "opacity-100"
+            }`}
+          />
+          <span className="absolute bottom-3 left-3 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-stone-800 shadow-sm">
+            {showBefore ? copy.before : copy.after}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowBefore((v) => !v)}
+          className="btn-press mx-auto rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-100"
+        >
+          {showBefore ? copy.toggleToAfter : copy.toggleToBefore}
+        </button>
+      </div>
+
+      {/* Revenue Impact Card */}
+      {revenueImpactCopy && (
+        <div className="rounded-2xl border border-orange-200 bg-orange-50 p-6 text-orange-950">
+          <p className="[text-wrap:pretty] leading-relaxed">{revenueImpactCopy}</p>
+        </div>
+      )}
+
+      {/* More-photos teaser */}
+      {qualifyingPhotoCount > 0 && (
+        <div className="text-center">
+          <h2 className="text-2xl font-bold [text-wrap:balance] [letter-spacing:-0.01em]">
+            {copy.morePhotosTitle(qualifyingPhotoCount)}
+          </h2>
+          <p className="mx-auto mt-3 max-w-xl [text-wrap:pretty] text-stone-600">{copy.morePhotosBody}</p>
+        </div>
+      )}
+
+      {/* Package selection */}
+      <div className="flex flex-col gap-5">
+        <h3 className="text-center text-sm font-semibold uppercase tracking-wide text-stone-500">
+          {copy.pickPackage}
+        </h3>
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+          {PACKAGE_ORDER.map((id) => {
+            const pkg = PACKAGES[id];
+            const featured = id === "standard";
+            return (
+              <div
+                key={id}
+                className={`flex flex-col rounded-2xl border bg-white p-6 shadow-sm ${
+                  featured ? "border-orange-300 ring-1 ring-orange-200" : "border-stone-200"
+                }`}
+              >
+                {featured && (
+                  <span className="mb-2 inline-block self-start rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-semibold text-orange-700">
+                    {copy.perfect}
+                  </span>
+                )}
+                <div className="text-sm font-semibold text-stone-900">{pkg.name}</div>
+                <div className="mt-2 text-3xl font-bold tracking-tight tabular-nums">
+                  {formatCents(pkg.priceCents)}
+                </div>
+                <div className="mt-1 text-sm text-stone-500">{pkg.blurb}</div>
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => checkout(id)}
+                  className={`btn-press mt-6 rounded-lg px-4 py-3 text-sm font-semibold disabled:opacity-60 ${
+                    featured
+                      ? "bg-orange-600 text-white hover:bg-orange-700"
+                      : "border border-stone-300 text-stone-800 hover:bg-stone-100"
+                  }`}
+                >
+                  {busy === id ? copy.starting : copy.choose}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        {error && <p className="text-center text-sm text-red-600">{error}</p>}
+      </div>
+    </div>
+  );
+}
