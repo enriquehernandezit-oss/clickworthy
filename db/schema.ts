@@ -120,6 +120,7 @@ export const magicLinks = pgTable('magic_links', {
   stripeSessionId: text('stripe_session_id'),
   expiresAt: timestamp('expires_at'),
   viewedAt: timestamp('viewed_at'),
+  touch2SentAt: timestamp('touch2_sent_at'), // set once the approved sample + link email goes out
   createdAt: timestamp('created_at').defaultNow(),
 });
 

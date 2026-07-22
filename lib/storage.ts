@@ -146,3 +146,21 @@ export async function persistEnhancedFromUrl(
   }
   return putToPostgresBlob(sessionId, buffer, contentType, appOrigin);
 }
+
+// Generic: persist raw image bytes under an arbitrary group/key and return a
+// durable URL. Used by the outreach flow (Phase 2) to store a restaurant's
+// emailed sample photo. `groupKey` groups related objects (e.g. a magic-link
+// token); `name` is the object's own filename within that group.
+export async function storeImageBytes(params: {
+  groupKey: string;
+  name: string;
+  bytes: Buffer;
+  contentType: string;
+  appOrigin: string;
+}): Promise<string> {
+  const { groupKey, name, bytes, contentType, appOrigin } = params;
+  if (resolveStorageType() === "r2") {
+    return putToR2(`outreach/${groupKey}/${name}`, new Uint8Array(bytes), contentType);
+  }
+  return putToPostgresBlob(groupKey, bytes, contentType, appOrigin);
+}

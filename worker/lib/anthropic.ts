@@ -103,6 +103,84 @@ export async function checkHospitalityGroup(
   }
 }
 
+export type Touch1Inputs = {
+  name: string;
+  city: string;
+  rating: number | null;
+  reviewCount: number | null;
+  language: string; // 'en' | 'es'
+  worstCategory: string | null; // e.g. "food" — the weakest photo category, if known
+};
+
+// Generates the Touch 1 cold-email BODY (no subject, no footer, no links) per
+// PROJECT_CONTEXT Section 9's 3-line structure: (1) specific photo observation,
+// (2) one financial signal tied to rating/city, (3) the free-sample offer.
+//
+// PLACEHOLDER: Jose owns the final Touch 1 copy. This generated version follows
+// the structure so the pipeline is testable end-to-end; swap in the approved
+// template when it exists.
+export async function generateTouch1Body(i: Touch1Inputs): Promise<string> {
+  const message = await getClient().messages.create({
+    model: config.claudeModel,
+    max_tokens: 300,
+    system:
+      "Write a 3-sentence cold email body to an independent restaurant owner about their online listing " +
+      "photos. Sentence 1: a specific, plausible observation about their food/menu photos (angle, lighting, " +
+      "or how they show up on Google/delivery apps). Sentence 2: one concrete financial signal tied to their " +
+      "rating and city (lost delivery clicks / revenue — be realistic, not hypey). Sentence 3 (verbatim intent): " +
+      "invite them to reply with a photo of one of their dishes to get a professionally enhanced version back, " +
+      "free, to see the difference. No greeting, no signature, no links, no subject line — just the 3 sentences. " +
+      `Write in ${i.language === "es" ? "Spanish" : "English"}.`,
+    messages: [
+      {
+        role: "user",
+        content:
+          `Restaurant: ${i.name}\nCity: ${i.city}\nRating: ${i.rating ?? "n/a"} stars\n` +
+          `Reviews: ${i.reviewCount ?? "n/a"}\nWeakest photo category: ${i.worstCategory ?? "food"}`,
+      },
+    ],
+  });
+  return firstText(message);
+}
+
+export type RevenueImpactInputs = {
+  name: string;
+  city: string;
+  rating: number | null;
+  reviewCount: number | null;
+  priceLevel: number | null;
+  deliveryEnabled: boolean;
+  avgPhotoScore: number | null;
+  language: string;
+};
+
+// The Revenue Impact Card: a personalized 3-sentence narrative shown on the
+// magic-link page (PROJECT_CONTEXT Section 9). Generated once at link creation
+// and stored.
+export async function generateRevenueImpactCopy(i: RevenueImpactInputs): Promise<string> {
+  const message = await getClient().messages.create({
+    model: config.claudeModel,
+    max_tokens: 300,
+    system:
+      "Write a 3-sentence personalized revenue-impact summary for a restaurant owner. " +
+      "Sentence 1: quantify what current photo quality is likely costing them in delivery clicks/revenue, " +
+      "using a rating-tier-based percentage. Sentence 2: show the upside with a realistic benchmark for " +
+      "similar restaurants in their city/tier. Sentence 3: frame the price as an obvious decision relative " +
+      "to the problem. Be concrete and credible (an owner might fact-check). No greeting or signature. " +
+      `Write in ${i.language === "es" ? "Spanish" : "English"}.`,
+    messages: [
+      {
+        role: "user",
+        content:
+          `Restaurant: ${i.name}\nCity: ${i.city}\nRating: ${i.rating ?? "n/a"}\n` +
+          `Reviews: ${i.reviewCount ?? "n/a"}\nPrice level: ${i.priceLevel ?? "n/a"}\n` +
+          `Delivery: ${i.deliveryEnabled}\nAvg photo score (2-6): ${i.avgPhotoScore ?? "n/a"}`,
+      },
+    ],
+  });
+  return firstText(message);
+}
+
 function clamp(n: number, lo: number, hi: number): number {
   if (typeof n !== "number" || Number.isNaN(n)) return lo;
   return Math.min(hi, Math.max(lo, Math.round(n)));

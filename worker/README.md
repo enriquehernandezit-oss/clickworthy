@@ -23,12 +23,42 @@ bun run worker
 |---|---|---|
 | `DATABASE_URL` | everything | internal `${{Postgres.DATABASE_URL}}` on Railway |
 | `GOOGLE_MAPS_API_KEY` | sourcing + photo fetch | Places API (New) enabled |
-| `ANTHROPIC_API_KEY` | photo scoring, group check | |
+| `ANTHROPIC_API_KEY` | scoring, group check, email copy | |
 | `NEVERBOUNCE_API_KEY` | email verification | |
-| `WORKER_DRY_RUN` | optional | `true` caps volume, no outbound (there is no outbound in Phase 1 yet) |
+| `CLAID_API_KEY` | free-sample enhancement | shared with the web app |
+| `GMAIL_SENDER` | sending + reading outreach | `mail@clickworthytool.com` |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Gmail auth | full service-account JSON key, one line (see below) |
+| `OUTREACH_ENABLED` | **live sending switch** | `true` to actually send cold email; anything else = log-only |
+| `OUTREACH_POSTAL_ADDRESS` | CAN-SPAM footer | real business mailing address |
+| `APP_ORIGIN` | magic-link URLs | e.g. `https://clickworthytool.com` |
+| `WORKER_DRY_RUN` | optional | `true` = log-only everywhere |
 | `WORKER_SOURCE_LIMIT` | optional | max restaurants per sourcing run (default 20) |
-| `WORKER_TARGET_CITIES` | optional | semicolon-separated, e.g. `Santo Domingo, Dominican Republic; Santiago, Dominican Republic` |
-| `WORKER_SOURCING_CRON` | optional | default `17 2 * * *` (local) |
+| `WORKER_TARGET_CITIES` | optional | semicolon-separated; default `Miami, FL; New York, NY; Chicago, IL; Los Angeles, CA` |
+| `WORKER_SOURCING_CRON` / `WORKER_SEND_CRON` / `WORKER_REPLY_POLL_CRON` | optional | cron overrides |
+
+### Gmail service account (one-time, Enrique's Workspace)
+
+Cold outreach is sent from `mail@clickworthytool.com` via a service account (not
+Resend — Resend's AUP forbids cold email; Gmail is also the Lemwarm-warmed mailbox).
+
+1. **GCP** → create a project → enable the **Gmail API** → create a **service
+   account** → add a **JSON key** (download it).
+2. **Workspace Admin** → Security → API controls → **Domain-wide delegation** →
+   add the service account's **Client ID** with scopes:
+   `https://www.googleapis.com/auth/gmail.send`,
+   `https://www.googleapis.com/auth/gmail.readonly`
+3. Set `GMAIL_SENDER=mail@clickworthytool.com` and paste the JSON key as
+   `GOOGLE_SERVICE_ACCOUNT_JSON` (single line).
+
+Until these are set, sending/reading are disabled and the worker logs what it
+*would* do — safe to run.
+
+### Admin review (web app, not worker)
+
+The `/admin` page (Basic Auth via `ADMIN_USER` / `ADMIN_PASSWORD` on the **web**
+service) shows the free-sample review queue. Approving a sample flips it to
+`approved`; the worker's Touch 2 job then emails it. Nothing reaches a prospect
+without a click here.
 
 ## Railway setup (second service)
 

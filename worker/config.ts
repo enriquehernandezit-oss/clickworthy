@@ -33,6 +33,16 @@ export const config = {
   // Cron for the nightly sourcing run (local time on Railway). Off-minute on
   // purpose so we're not hammering Google/Anthropic exactly on the hour.
   sourcingCron: process.env.WORKER_SOURCING_CRON ?? "17 2 * * *",
+
+  // Nightly Touch 1 send (after sourcing/enrichment has had time to run).
+  sendCron: process.env.WORKER_SEND_CRON ?? "23 14 * * *",
+
+  // How often to poll Gmail for replies.
+  replyPollCron: process.env.WORKER_REPLY_POLL_CRON ?? "*/4 * * * *",
+
+  // Public origin of the web app, used to build magic-link URLs and (for the
+  // Postgres-blob storage fallback) absolute photo URLs.
+  appOrigin: process.env.APP_ORIGIN ?? "https://clickworthytool.com",
 };
 
 export function requireKey(key: keyof typeof config, label: string): string {
