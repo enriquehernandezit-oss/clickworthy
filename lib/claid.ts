@@ -8,14 +8,11 @@
 //      enhance restoration to bring it up to a usable final resolution.
 //        POST https://api.claid.ai/v1/image/edit   { input, operations: { restorations: { upscale } } }
 //
-// The exact shape of step 1's request/response was confirmed against Claid's
-// docs (docs.claid.ai/image-ai-edit-api) at the time this was written. The
-// DONE/ERROR poll response shape was NOT directly documented anywhere we
-// could find — the parsing below is a best-effort based on the shape of
-// Claid's other async endpoints (v1/image/edit/async), with a few fallback
-// field paths. TODO: once CLAID_API_KEY is available, run one real photo
-// through this and confirm/adjust the response parsing against the actual
-// payload.
+// Both request and response shapes are confirmed against the live API (a real
+// test job was run and inspected). A DONE ai-edit poll returns:
+//   { data: { status: "DONE", result: { output_objects: [ { tmp_url, width,
+//     height, ... } ] } } }
+// Note output_objects is a plural ARRAY — that's the load-bearing detail.
 
 const CLAID_BASE_URL = "https://api.claid.ai/v1";
 const POLL_INTERVAL_MS = 2000;
@@ -48,7 +45,17 @@ async function submitAiEdit(apiKey: string, imageUrl: string, prompt: string): P
     headers: authHeaders(apiKey),
     body: JSON.stringify({
       input: imageUrl,
-      options: { prompt, model: "v2" },
+      options: {
+        prompt,
+        model: "v2",
+        // Live-API-verified ceilings: guidance_scale maxes at 10.0 and
+        // inference_steps at 50 (Claid's docs quote 12 / "max" — both rejected
+        // with a 400). Max both out: high guidance keeps the model faithful to
+        // the prompt (which forbids adding/removing objects), and we're at low
+        // volume so quality beats speed.
+        guidance_scale: 10,
+        inference_steps: 50,
+      },
     }),
   });
 
@@ -68,17 +75,27 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Best-effort extraction of a result image URL from a few plausible response
-// shapes — see the file-level comment on why this isn't pinned down exactly.
+// Pulls the enhanced image URL out of a DONE ai-edit poll response. Primary
+// path is data.result.output_objects[0].tmp_url (confirmed against the live
+// API); the older singular `output`/`output_object` paths are kept as
+// defensive fallbacks in case Claid varies the shape.
 function extractResultUrl(payload: unknown): string | null {
   const p = payload as Record<string, unknown> | null | undefined;
   const data = p?.data as Record<string, unknown> | undefined;
   const result = (data?.result ?? data) as Record<string, unknown> | undefined;
+
+  const outputObjects = result?.output_objects as Array<Record<string, unknown>> | undefined;
+  const first = Array.isArray(outputObjects) ? outputObjects[0] : undefined;
+  if (first) {
+    const url = first.tmp_url ?? first.url;
+    if (typeof url === "string") return url;
+  }
+
   const output =
     (result?.output as Record<string, unknown> | undefined) ??
     (result?.output_object as Record<string, unknown> | undefined);
-  const url = output?.tmp_url ?? output?.url;
-  return typeof url === "string" ? url : null;
+  const fallbackUrl = output?.tmp_url ?? output?.url;
+  return typeof fallbackUrl === "string" ? fallbackUrl : null;
 }
 
 async function pollAiEdit(apiKey: string, taskId: string): Promise<string> {

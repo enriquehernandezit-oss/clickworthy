@@ -5,13 +5,19 @@ import { db } from "@/db";
 import { enhancementOrders } from "@/db/schema";
 import { getStripe } from "@/lib/stripe";
 import { enhancePhoto } from "@/lib/claid";
-import type { StoredPhoto } from "@/lib/storage";
+import { persistEnhancedFromUrl, type StoredPhoto } from "@/lib/storage";
 
 type PhotoResult = {
   originalName: string;
   enhancedUrl: string | null;
   error: string | null;
 };
+
+function appOriginFrom(request: NextRequest): string {
+  const proto = request.headers.get("x-forwarded-proto") ?? request.nextUrl.protocol.replace(":", "");
+  const host = request.headers.get("host") ?? request.nextUrl.host;
+  return `${proto}://${host}`;
+}
 
 export async function POST(request: NextRequest) {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -66,10 +72,15 @@ export async function POST(request: NextRequest) {
   // TODO: move this to a background job/queue once order volume justifies it.
   const photos = order.photos as StoredPhoto[];
   const results: PhotoResult[] = [];
+  const appOrigin = appOriginFrom(request);
 
-  for (const photo of photos) {
+  for (let i = 0; i < photos.length; i++) {
+    const photo = photos[i];
     try {
-      const enhancedUrl = await enhancePhoto(photo.url, order.prompt);
+      // Claid returns a tmp_url that expires in ~24h — download and re-store it
+      // to our own durable storage so the customer's results don't rot.
+      const claidUrl = await enhancePhoto(photo.url, order.prompt);
+      const enhancedUrl = await persistEnhancedFromUrl(order.stripeSessionId, i, claidUrl, appOrigin);
       results.push({ originalName: photo.originalName, enhancedUrl, error: null });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

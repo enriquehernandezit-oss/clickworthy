@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# design-skill tool artifacts (emilkowalski/skills — local reference, not app code)
+.agents/
+skills-lock.json
