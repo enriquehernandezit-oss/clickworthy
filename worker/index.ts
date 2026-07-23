@@ -18,10 +18,12 @@ import { runReplyPoll } from "./jobs/pollReplies";
 import { runSendTouch2 } from "./jobs/sendTouch2";
 import { PROCESS_SAMPLE_QUEUE, runProcessFreeSample, type ProcessSampleJobData } from "./jobs/processFreeSample";
 import { runProcessPackages } from "./jobs/processPackage";
+import { runWeeklyStats } from "./jobs/weeklyStats";
 
 const SEND_QUEUE = "send-outreach";
 const REPLY_QUEUE = "reply-cycle";
 const PACKAGE_QUEUE = "process-package";
+const STATS_QUEUE = "weekly-stats";
 
 async function main() {
   const connectionString = requireKey("databaseUrl", "DATABASE_URL");
@@ -30,8 +32,28 @@ async function main() {
   boss.on("error", (err) => console.error("[pg-boss] error:", err));
 
   await boss.start();
-  for (const q of [SOURCE_QUEUE, ENRICH_QUEUE, SEND_QUEUE, REPLY_QUEUE, PROCESS_SAMPLE_QUEUE, PACKAGE_QUEUE]) {
-    await boss.createQueue(q);
+
+  // Per-queue retry policy. The per-item fan-out jobs (enrichment, free-sample
+  // enhancement) retry with backoff since they hit flaky external APIs and are
+  // safe to re-run. The cron-triggered batch queues use no job-level retry —
+  // they simply run again on the next tick, avoiding overlapping double-runs.
+  const RETRY = { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 900 };
+  const NO_RETRY = { retryLimit: 0, expireInSeconds: 1800 };
+  const queueConfig: Record<string, object> = {
+    [SOURCE_QUEUE]: NO_RETRY,
+    [ENRICH_QUEUE]: RETRY,
+    [SEND_QUEUE]: NO_RETRY,
+    [REPLY_QUEUE]: NO_RETRY,
+    [PROCESS_SAMPLE_QUEUE]: RETRY,
+    [PACKAGE_QUEUE]: NO_RETRY,
+    [STATS_QUEUE]: NO_RETRY,
+  };
+  for (const [q, cfg] of Object.entries(queueConfig)) {
+    // createQueue only applies options on first creation; updateQueue enforces
+    // the policy every boot, so changing retry config takes effect on existing
+    // queues too.
+    await boss.createQueue(q, cfg);
+    await boss.updateQueue(q, cfg);
   }
 
   // Sourcing — one batch job per run; fans out enrichment jobs.
@@ -70,11 +92,17 @@ async function main() {
     for (let i = 0; i < jobs.length; i++) await runProcessPackages();
   });
 
+  // Weekly pipeline report.
+  await boss.work(STATS_QUEUE, async (jobs) => {
+    for (let i = 0; i < jobs.length; i++) await runWeeklyStats();
+  });
+
   // Crons (idempotent across restarts — pg-boss dedupes the schedule by queue).
   await boss.schedule(SOURCE_QUEUE, config.sourcingCron, {});
   await boss.schedule(SEND_QUEUE, config.sendCron, {});
   await boss.schedule(REPLY_QUEUE, config.replyPollCron, {});
   await boss.schedule(PACKAGE_QUEUE, config.packageCron, {});
+  await boss.schedule(STATS_QUEUE, config.statsCron, {});
 
   console.log(
     `[worker] up.\n` +

@@ -6,6 +6,7 @@ import { enhancementOrders, magicLinks } from "@/db/schema";
 import { getStripe } from "@/lib/stripe";
 import { enhancePhoto } from "@/lib/claid";
 import { persistEnhancedFromUrl, type StoredPhoto } from "@/lib/storage";
+import { sendAlert } from "@/lib/alerts";
 
 type PhotoResult = {
   originalName: string;
@@ -65,9 +66,12 @@ export async function POST(request: NextRequest) {
     .limit(1);
 
   if (!order) {
-    console.error(
-      `[stripe-webhook] No enhancement order found for completed session ${session.id}. ` +
-        "TODO: this should alert us — a customer paid but we have no photos/prompt on file."
+    console.error(`[stripe-webhook] No enhancement order for completed session ${session.id}.`);
+    // A customer paid but we have no photos/prompt on file — needs a human now.
+    await sendAlert(
+      "Paid order with no record",
+      `Stripe session ${session.id} completed but no enhancement order or outreach link matched it. ` +
+        "A customer was charged and we have nothing to fulfill."
     );
     return NextResponse.json({ received: true });
   }
@@ -95,8 +99,6 @@ export async function POST(request: NextRequest) {
       results.push({ originalName: photo.originalName, enhancedUrl, error: null });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      // TODO: this should email/alert us in production — a paid order with a
-      // failed photo should never fail silently.
       console.error(
         `[stripe-webhook] Claid enhancement failed for "${photo.originalName}" ` +
           `(order ${order.id}, session ${session.id}):`,
@@ -106,7 +108,16 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const anySucceeded = results.some((r) => r.enhancedUrl !== null);
+  const failed = results.filter((r) => r.enhancedUrl === null);
+  const anySucceeded = results.length > failed.length;
+
+  // A paid /enhance order with any failed photo needs a human — they paid.
+  if (failed.length > 0) {
+    await sendAlert(
+      "Paid /enhance order had photo failures",
+      `Order ${order.id} (session ${session.id}): ${failed.length}/${results.length} photos failed to enhance.`
+    );
+  }
 
   await db
     .update(enhancementOrders)

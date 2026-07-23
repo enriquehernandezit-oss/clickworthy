@@ -31,6 +31,9 @@ bun run worker
 | `OUTREACH_ENABLED` | **live sending switch** | `true` to actually send cold email; anything else = log-only |
 | `OUTREACH_POSTAL_ADDRESS` | CAN-SPAM footer | real business mailing address |
 | `APP_ORIGIN` | magic-link URLs | e.g. `https://clickworthytool.com` |
+| `RESEND_API_KEY` | operator alerts + weekly report | shared with the web app |
+| `ALERT_EMAIL_TO` | who gets alerts/reports | your inbox |
+| `ALERT_EMAIL_FROM` | alert sender | default `alerts@clickworthytool.com` (verify the domain in Resend) |
 | `WORKER_DRY_RUN` | optional | `true` = log-only everywhere |
 | `WORKER_SOURCE_LIMIT` | optional | max restaurants per sourcing run (default 20) |
 | `WORKER_TARGET_CITIES` | optional | semicolon-separated; default `Miami, FL; New York, NY; Chicago, IL; Los Angeles, CA` |

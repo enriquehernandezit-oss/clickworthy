@@ -10,12 +10,14 @@
 
 import { and, desc, eq, gte, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { restaurants, outreachJobs } from "@/db/schema";
+import { restaurants, outreachJobs, suppressions } from "@/db/schema";
+import { sendAlert } from "@/lib/alerts";
 import { config } from "../config";
 import { sendEmail } from "../lib/gmail";
 import { generateTouch1Body } from "../lib/anthropic";
 import { composeTouch1 } from "../lib/outreachEmail";
 import { isSuppressed } from "../lib/suppression";
+import { withRetry } from "../lib/retry";
 
 const RAMP_START = 20;
 const RAMP_STEP = 5;
@@ -46,6 +48,39 @@ async function sentToday(): Promise<number> {
   return n ?? 0;
 }
 
+// Deliverability guard: if too many recent recipients opted out or bounced,
+// something is off (bad list, spammy copy) — auto-pause sending and alert
+// rather than keep burning the domain's reputation. Only kicks in once there's
+// a meaningful sample.
+const SUPPRESSION_SAMPLE_MIN = 20;
+const SUPPRESSION_RATE_MAX = 0.08; // 8%
+
+async function deliverabilityHealthy(): Promise<boolean> {
+  const weekAgo = new Date(Date.now() - 7 * 86_400_000);
+  const [{ sends }] = await db
+    .select({ sends: sql<number>`count(*)::int` })
+    .from(outreachJobs)
+    .where(and(eq(outreachJobs.touchNumber, 1), gte(outreachJobs.sentAt, weekAgo)));
+  if ((sends ?? 0) < SUPPRESSION_SAMPLE_MIN) return true; // not enough data yet
+
+  const [{ supp }] = await db
+    .select({ supp: sql<number>`count(*)::int` })
+    .from(suppressions)
+    .where(gte(suppressions.createdAt, weekAgo));
+
+  const rate = (supp ?? 0) / (sends ?? 1);
+  if (rate > SUPPRESSION_RATE_MAX) {
+    await sendAlert(
+      "Outreach auto-paused — high opt-out/bounce rate",
+      `Suppression rate over the last 7 days is ${(rate * 100).toFixed(1)}% ` +
+        `(${supp}/${sends}), above the ${SUPPRESSION_RATE_MAX * 100}% threshold. ` +
+        "Touch 1 sending is paused this run. Review the list and copy before resuming."
+    );
+    return false;
+  }
+  return true;
+}
+
 export async function runSendOutreach(): Promise<void> {
   const cap = await dailyCap();
   const already = await sentToday();
@@ -57,6 +92,12 @@ export async function runSendOutreach(): Promise<void> {
       `(sending ${enabled ? "ENABLED" : "DISABLED — log only"})`
   );
   if (remaining === 0) return;
+
+  // Auto-pause if the domain's opt-out/bounce rate has spiked.
+  if (enabled && !(await deliverabilityHealthy())) {
+    console.warn("[send] paused this run — deliverability guard tripped.");
+    return;
+  }
 
   const candidates = await db
     .select()
@@ -95,7 +136,10 @@ export async function runSendOutreach(): Promise<void> {
     }
 
     try {
-      const sent = await sendEmail({ to: email, subject, body, fromName: "Clickworthy" });
+      const sent = await withRetry(() => sendEmail({ to: email, subject, body, fromName: "Clickworthy" }), {
+        label: `gmail touch1 ${email}`,
+        attempts: 2,
+      });
       await db.insert(outreachJobs).values({
         restaurantId: r.id,
         touchNumber: 1,

@@ -11,6 +11,7 @@ import { magicLinks, restaurants, outreachJobs } from "@/db/schema";
 import { config } from "../config";
 import { sendEmail } from "../lib/gmail";
 import { composeTouch2 } from "../lib/outreachEmail";
+import { withRetry } from "../lib/retry";
 
 export async function runSendTouch2(): Promise<void> {
   const enabled = process.env.OUTREACH_ENABLED === "true" && !config.dryRun;
@@ -44,7 +45,10 @@ export async function runSendTouch2(): Promise<void> {
     }
 
     try {
-      const sent = await sendEmail({ to: r.email, subject, body, fromName: "Clickworthy" });
+      const sent = await withRetry(() => sendEmail({ to: r.email!, subject, body, fromName: "Clickworthy" }), {
+        label: `gmail touch2 ${r.email}`,
+        attempts: 2,
+      });
       await db.update(magicLinks).set({ touch2SentAt: new Date() }).where(eq(magicLinks.id, link.id));
       await db.insert(outreachJobs).values({
         restaurantId: r.id,

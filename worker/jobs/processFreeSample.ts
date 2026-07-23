@@ -11,8 +11,10 @@ import { db } from "@/db";
 import { magicLinks } from "@/db/schema";
 import { enhancePhoto } from "@/lib/claid";
 import { persistEnhancedFromUrl } from "@/lib/storage";
+import { sendAlert } from "@/lib/alerts";
 import { config } from "../config";
 import { FINALIZED_ENHANCEMENT_PROMPT } from "../lib/prompts";
+import { withRetry } from "../lib/retry";
 
 export const PROCESS_SAMPLE_QUEUE = "process-free-sample";
 
@@ -26,14 +28,21 @@ export async function runProcessFreeSample(data: ProcessSampleJobData): Promise<
   }
 
   try {
-    const claidUrl = await enhancePhoto(link.freeSampleOriginalUrl, FINALIZED_ENHANCEMENT_PROMPT);
+    const claidUrl = await withRetry(
+      () => enhancePhoto(link.freeSampleOriginalUrl!, FINALIZED_ENHANCEMENT_PROMPT),
+      { label: `claid sample ${link.token}` }
+    );
     const durableUrl = await persistEnhancedFromUrl(link.token, 0, claidUrl, config.appOrigin);
 
     await db.update(magicLinks).set({ freeSampleEnhancedUrl: durableUrl }).where(eq(magicLinks.id, link.id));
     console.log(`[sample] enhanced sample ready for review — link ${link.token}`);
   } catch (err) {
-    // TODO(Phase 4): alert us via Resend — a reply came in but we couldn't
-    // produce the sample, so a warm lead is stuck.
-    console.error(`[sample] enhancement failed for link ${link.token}:`, err instanceof Error ? err.message : err);
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[sample] enhancement failed for link ${link.token}:`, message);
+    // A reply came in but we couldn't produce the sample — a warm lead is stuck.
+    await sendAlert(
+      "Free-sample enhancement failed",
+      `Magic link ${link.token} received a reply photo but Claid enhancement failed after retries.\n\n${message}`
+    );
   }
 }
