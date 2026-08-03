@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { magicLinks } from "@/db/schema";
+import { magicLinks, restaurants } from "@/db/schema";
 import { enhancePhoto } from "@/lib/claid";
 import { persistEnhancedFromUrl, storeImageBytes } from "@/lib/storage";
+import { sendOrderDeliveredEmail } from "@/lib/customerEmail";
 import { FINALIZED_ENHANCEMENT_PROMPT } from "@/worker/lib/prompts";
 
 // Paid-order production actions (behind Basic Auth). A paid package lands as
@@ -35,6 +36,21 @@ export async function POST(request: NextRequest) {
 
   if (action === "deliver") {
     await db.update(magicLinks).set({ packageStatus: "completed" }).where(eq(magicLinks.id, id));
+
+    // Tell the customer — their delivery page was gated on this status, so
+    // without this email they'd have no way to know it's ready.
+    if (link.restaurantId != null) {
+      const [r] = await db.select().from(restaurants).where(eq(restaurants.id, link.restaurantId)).limit(1);
+      if (r?.email) {
+        await sendOrderDeliveredEmail({
+          to: r.email,
+          restaurantName: r.name,
+          language: r.language ?? "en",
+          deliveryUrl: `${appOrigin.replace(/\/$/, "")}/l/${link.token}/upload`,
+        });
+      }
+    }
+
     return NextResponse.json({ ok: true, packageStatus: "completed" });
   }
 
