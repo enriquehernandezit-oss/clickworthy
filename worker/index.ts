@@ -3,8 +3,8 @@
 //   - nightly cron: source leads (Google Places -> filters -> DB)
 //   - per-restaurant enrichment (email, group check, photo scoring)
 //   - nightly cron: send Touch 1 cold email (gated by OUTREACH_ENABLED)
-//   - every few minutes: poll Gmail for replies + send approved Touch 2s
-//   - enhance emailed free-sample photos (Claid), held for human review
+//   - every few minutes: poll Gmail for replies, send the one-time bump, and
+//     send approved Touch 2s. Photo editing is done by hand in /admin.
 //
 // pg-boss (Postgres-backed) provides both the queue and the cron, so there's
 // no Redis/extra infrastructure. Queues must be created before use in v12.
@@ -16,7 +16,7 @@ import { ENRICH_QUEUE, runEnrichment, type EnrichJobData } from "./jobs/enrichRe
 import { runSendOutreach } from "./jobs/sendOutreach";
 import { runReplyPoll } from "./jobs/pollReplies";
 import { runSendTouch2 } from "./jobs/sendTouch2";
-import { PROCESS_SAMPLE_QUEUE, runProcessFreeSample, type ProcessSampleJobData } from "./jobs/processFreeSample";
+import { runSendBumps } from "./jobs/sendBumps";
 import { runProcessPackages } from "./jobs/processPackage";
 import { runWeeklyStats } from "./jobs/weeklyStats";
 
@@ -44,7 +44,6 @@ async function main() {
     [ENRICH_QUEUE]: RETRY,
     [SEND_QUEUE]: NO_RETRY,
     [REPLY_QUEUE]: NO_RETRY,
-    [PROCESS_SAMPLE_QUEUE]: RETRY,
     [PACKAGE_QUEUE]: NO_RETRY,
     [STATS_QUEUE]: NO_RETRY,
   };
@@ -74,17 +73,13 @@ async function main() {
     for (let i = 0; i < jobs.length; i++) await runSendOutreach();
   });
 
-  // Reply cycle — poll Gmail for replies, then send any approved Touch 2s.
+  // Reply cycle — poll Gmail for replies (+ bump), then send any approved Touch 2s.
   await boss.work(REPLY_QUEUE, async (jobs) => {
     for (let i = 0; i < jobs.length; i++) {
-      await runReplyPoll(boss);
+      await runReplyPoll();
+      await runSendBumps();
       await runSendTouch2();
     }
-  });
-
-  // Free-sample enhancement — one job per emailed photo.
-  await boss.work<ProcessSampleJobData>(PROCESS_SAMPLE_QUEUE, async (jobs) => {
-    for (const job of jobs) await runProcessFreeSample(job.data);
   });
 
   // Paid-package enhancement — processes uploaded photos after payment.

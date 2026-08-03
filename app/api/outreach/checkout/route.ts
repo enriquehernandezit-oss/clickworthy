@@ -28,6 +28,13 @@ export async function POST(request: NextRequest) {
   }
 
   const pkg = PACKAGES[body.package];
+
+  // Retainer tier is sold on a call, not self-serve — reject any attempt to
+  // check out directly (the client hides its button, but never trust that).
+  if (!pkg.checkoutEnabled) {
+    return NextResponse.json({ error: "This plan is set up on a quick call, not online checkout." }, { status: 400 });
+  }
+
   const appOrigin = appOriginFrom(request);
 
   let session;
@@ -43,7 +50,7 @@ export async function POST(request: NextRequest) {
             currency: "usd",
             unit_amount: pkg.priceCents,
             product_data: {
-              name: `Clickworthy ${pkg.name} — ${pkg.blurb}`,
+              name: `Clickworthy ${pkg.name.en} — ${pkg.blurb.en}`,
             },
           },
         },

@@ -78,33 +78,48 @@ export type SentMessage = { id: string; threadId: string };
 
 // Sends a plaintext email. Returns Gmail's message + thread ids (stored so we
 // can later match inbound replies back to the outreach they answer).
+// Pass `threadId` + `inReplyTo` (the original RFC Message-ID) to reply in-thread.
 export async function sendEmail(params: {
   to: string;
   subject: string;
   body: string;
   fromName?: string;
+  threadId?: string;
+  inReplyTo?: string | null;
 }): Promise<SentMessage> {
   const sender = process.env.GMAIL_SENDER!;
   const from = params.fromName ? `${params.fromName} <${sender}>` : sender;
 
-  const mime = [
+  const headers = [
     `From: ${from}`,
     `To: ${params.to}`,
     `Subject: ${params.subject}`,
     "MIME-Version: 1.0",
     'Content-Type: text/plain; charset="UTF-8"',
-    "",
-    params.body,
-  ].join("\r\n");
+  ];
+  if (params.inReplyTo) {
+    headers.push(`In-Reply-To: ${params.inReplyTo}`, `References: ${params.inReplyTo}`);
+  }
+  const mime = [...headers, "", params.body].join("\r\n");
 
   const res = await authedFetch("/messages/send", {
     method: "POST",
-    body: JSON.stringify({ raw: encodeMessage(mime) }),
+    body: JSON.stringify({ raw: encodeMessage(mime), ...(params.threadId ? { threadId: params.threadId } : {}) }),
   });
   if (!res.ok) throw new Error(`Gmail send failed (${res.status}): ${await res.text()}`);
 
   const body = (await res.json()) as { id: string; threadId: string };
   return { id: body.id, threadId: body.threadId };
+}
+
+// Fetches a sent/received message's RFC 2822 Message-ID header (for threading a
+// reply via In-Reply-To). Returns null if unavailable.
+export async function getRfcMessageId(gmailMessageId: string): Promise<string | null> {
+  const res = await authedFetch(`/messages/${gmailMessageId}?format=metadata&metadataHeaders=Message-ID`);
+  if (!res.ok) return null;
+  const body = (await res.json()) as { payload?: { headers?: { name: string; value: string }[] } };
+  const h = body.payload?.headers?.find((x) => x.name.toLowerCase() === "message-id");
+  return h?.value ?? null;
 }
 
 // --- Reply reading ---------------------------------------------------------

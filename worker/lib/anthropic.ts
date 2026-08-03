@@ -29,6 +29,7 @@ export type PhotoScore = {
   score: number; // 2–6 (PROJECT_CONTEXT Section 8)
   category: string; // "food" | "menu" | "interior" | "exterior" | "other"
   enhancementValue: number; // 2–6: how much a professional enhance would help
+  dish: string | null; // the dish shown, if this is a food photo (e.g. "birria tacos") — for the cold email
 };
 
 // Scores one owner-uploaded listing photo. Bytes are passed in-memory (never
@@ -40,10 +41,12 @@ export async function scorePhoto(bytes: Buffer, contentType: string): Promise<Ph
     max_tokens: 200,
     system:
       "You are a restaurant-photo quality grader. Rate an owner-uploaded listing photo on a 2–6 scale " +
-      "(2 = poor: dark, blurry, badly composed; 6 = already professional). Also give the category and how " +
-      "much a professional AI enhancement (lighting/color/sharpness, no scene changes) would improve it. " +
+      "(2 = poor: dark, blurry, badly composed; 6 = already professional). Give the category, how much a " +
+      "professional AI enhancement (lighting/color/sharpness, no scene changes) would improve it, and — if " +
+      'it is a food photo — name the specific dish shown in a few words (e.g. "birria tacos", "ribeye steak"); ' +
+      "otherwise dish is null. " +
       'Respond ONLY with JSON: {"score": <2-6 int>, "category": "food"|"menu"|"interior"|"exterior"|"other", ' +
-      '"enhancementValue": <2-6 int>}.',
+      '"enhancementValue": <2-6 int>, "dish": "<short dish name>"|null}.',
     messages: [
       {
         role: "user",
@@ -63,16 +66,20 @@ export async function scorePhoto(bytes: Buffer, contentType: string): Promise<Ph
     score: clamp(parsed.score, 2, 6),
     category: parsed.category || "other",
     enhancementValue: clamp(parsed.enhancementValue, 2, 6),
+    dish: typeof parsed.dish === "string" && parsed.dish.trim() ? parsed.dish.trim() : null,
   };
 }
 
 export type HospitalityGroupResult = {
   isGroup: boolean;
   reasoning: string;
+  ownerFirstName: string | null; // best-effort, for the cold email greeting; null if unknown
 };
 
 // Uses Claude + web search to decide whether a restaurant is part of a
-// hospitality group / chain (a hard-filter disqualifier). The web_search tool
+// hospitality group / chain (a hard-filter disqualifier), and — same search,
+// no extra call — to grab the owner's first name if it's easy to find (for the
+// cold-email greeting; null when not confidently known). The web_search tool
 // lets it reason about ambiguous cases ("Boka" the group vs. a lone "Boka").
 export async function checkHospitalityGroup(
   name: string,
@@ -80,26 +87,37 @@ export async function checkHospitalityGroup(
 ): Promise<HospitalityGroupResult> {
   const message = await getClient().messages.create({
     model: config.claudeModel,
-    max_tokens: 400,
+    max_tokens: 500,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }],
     system:
-      "Decide whether a given restaurant is part of a larger hospitality/restaurant group or a chain " +
-      "(multiple locations, a parent company, or a franchise). A single independently-owned restaurant is NOT " +
-      "a group even if the name sounds corporate. Search the web if unsure. " +
-      'End your reply with a JSON object on its own: {"isGroup": <bool>, "reasoning": "<one sentence>"}.',
+      "For a given restaurant, decide two things and search the web if unsure. " +
+      "(1) Is it part of a larger hospitality/restaurant group or a chain (multiple locations, parent company, " +
+      "or franchise)? A single independently-owned restaurant is NOT a group even if the name sounds corporate. " +
+      "(2) What is the OWNER's first name? Only give it if you find it confidently (bio, press, 'owner' mention); " +
+      "otherwise null. Never guess a name. " +
+      'End your reply with a JSON object on its own: {"isGroup": <bool>, "reasoning": "<one sentence>", ' +
+      '"ownerFirstName": "<first name>"|null}.',
     messages: [
-      { role: "user", content: `Restaurant: "${name}" in ${city}. Is it part of a hospitality group or chain?` },
+      { role: "user", content: `Restaurant: "${name}" in ${city}. Is it a group/chain, and who owns it?` },
     ],
   });
 
   const text = firstText(message);
   try {
-    return parseJsonObject<HospitalityGroupResult>(text);
+    const parsed = parseJsonObject<HospitalityGroupResult>(text);
+    return {
+      isGroup: Boolean(parsed.isGroup),
+      reasoning: parsed.reasoning ?? "",
+      ownerFirstName:
+        typeof parsed.ownerFirstName === "string" && parsed.ownerFirstName.trim()
+          ? parsed.ownerFirstName.trim()
+          : null,
+    };
   } catch {
     // If the model didn't emit clean JSON, fail open (treat as NOT a group) so
     // we don't silently drop independents — but log the raw reply for review.
     console.warn(`[anthropic] hospitality-group parse fallback for "${name}": ${text.slice(0, 160)}`);
-    return { isGroup: false, reasoning: "unparseable model reply; defaulted to independent" };
+    return { isGroup: false, reasoning: "unparseable model reply; defaulted to independent", ownerFirstName: null };
   }
 }
 

@@ -9,17 +9,16 @@
 // row and skip threads already marked replied.
 
 import { randomBytes } from "node:crypto";
-import type { PgBoss } from "pg-boss";
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants, outreachJobs, magicLinks } from "@/db/schema";
+import { sendAlert } from "@/lib/alerts";
 import { config } from "../config";
 import { listInboxMessages, getMessage, getAttachmentBytes } from "../lib/gmail";
 import { isOptOut } from "../lib/outreachEmail";
 import { addSuppression } from "../lib/suppression";
 import { storeImageBytes } from "@/lib/storage";
 import { generateRevenueImpactCopy } from "../lib/anthropic";
-import { PROCESS_SAMPLE_QUEUE, type ProcessSampleJobData } from "./processFreeSample";
 
 function parseFromEmail(from: string): string {
   const m = from.match(/<([^>]+)>/);
@@ -30,7 +29,7 @@ function token(): string {
   return randomBytes(24).toString("hex");
 }
 
-export async function runReplyPoll(boss: PgBoss): Promise<void> {
+export async function runReplyPoll(): Promise<void> {
   let messages: { id: string; threadId: string }[];
   try {
     messages = await listInboxMessages();
@@ -113,22 +112,24 @@ export async function runReplyPoll(boss: PgBoss): Promise<void> {
       console.warn(`[poll] revenue copy failed for ${restaurant.name}:`, err instanceof Error ? err.message : err);
     }
 
-    const [link] = await db
-      .insert(magicLinks)
-      .values({
-        token: linkToken,
-        restaurantId: restaurant.id,
-        revenueImpactCopy: revenueCopy,
-        freeSampleOriginalUrl: originalUrl,
-        qualifyingPhotoCount: Math.max(0, (restaurant.photoCount ?? 1) - 1),
-        reviewStatus: "pending_review",
-        expiresAt: new Date(Date.now() + 30 * 86_400_000), // 30-day link
-      })
-      .returning({ id: magicLinks.id });
+    await db.insert(magicLinks).values({
+      token: linkToken,
+      restaurantId: restaurant.id,
+      revenueImpactCopy: revenueCopy,
+      freeSampleOriginalUrl: originalUrl,
+      qualifyingPhotoCount: Math.max(0, (restaurant.photoCount ?? 1) - 1),
+      // Awaits a human: Enrique/Jose edit the photo by hand in /admin (optionally
+      // starting from a one-click Claid pass), upload the finished version, and
+      // approve — which is what sends Touch 2. No auto-enhancement.
+      reviewStatus: "awaiting_edit",
+      expiresAt: new Date(Date.now() + 30 * 86_400_000), // 30-day link
+    });
 
-    // Queue the Claid enhancement of the sample.
-    const data: ProcessSampleJobData = { magicLinkId: link.id };
-    await boss.send(PROCESS_SAMPLE_QUEUE, data);
-    console.log(`[poll] sample received from ${restaurant.name} -> magic link ${linkToken} (pending review)`);
+    // Notify us so the same-day turnaround actually happens.
+    await sendAlert(
+      "New reply — photo ready to edit",
+      `${restaurant.name} (${sender}) replied with a photo. Edit it in /admin and approve to send it back.`
+    );
+    console.log(`[poll] sample received from ${restaurant.name} -> ${linkToken} (awaiting edit)`);
   }
 }

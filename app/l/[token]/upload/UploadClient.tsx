@@ -4,7 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { funnelCopy, type Lang } from "../copy";
 
 type PackageResult = { name: string; originalUrl: string; enhancedUrl: string | null; error: string | null };
-type Status = "processing" | "completed" | "failed" | null;
+// processing = Claid first pass · ready_for_review = our team finishing by hand ·
+// completed = delivered (admin pressed "Deliver order"). The customer only ever
+// sees their photos once status is `completed`.
+type Status = "processing" | "ready_for_review" | "completed" | "failed" | null;
+
+const IN_PROGRESS = (s: Status) => s === "processing" || s === "ready_for_review";
 
 type UploadedPhoto = { id: string; file: File; previewUrl: string };
 
@@ -34,9 +39,11 @@ export default function UploadClient({
   const [status, setStatus] = useState<Status>(initialStatus);
   const [results, setResults] = useState<PackageResult[] | null>(initialResults);
 
-  // Poll for completion while processing.
+  // Poll while the order is still being produced (Claid pass or human finishing),
+  // until it's delivered. The wait can be days, so this only advances the page
+  // if the customer happens to have it open — delivery isn't gated on polling.
   useEffect(() => {
-    if (status !== "processing") return;
+    if (!IN_PROGRESS(status)) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
@@ -44,17 +51,18 @@ export default function UploadClient({
         const res = await fetch(`/api/outreach/status?token=${encodeURIComponent(token)}`);
         const data = await res.json();
         if (cancelled) return;
-        if (data.status && data.status !== "processing") {
+        if (data.status === "completed" || data.status === "failed") {
           setResults(data.results ?? null);
           setStatus(data.status);
           return;
         }
+        setStatus(data.status ?? status);
       } catch {
         /* keep polling */
       }
-      timer = setTimeout(poll, 3000);
+      timer = setTimeout(poll, 5000);
     };
-    timer = setTimeout(poll, 3000);
+    timer = setTimeout(poll, 5000);
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -64,7 +72,7 @@ export default function UploadClient({
   if (status === "completed" || status === "failed") {
     return <Delivery copy={copy} results={results} />;
   }
-  if (status === "processing") {
+  if (IN_PROGRESS(status)) {
     return (
       <div className="flex flex-col items-center gap-4 rounded-xl border border-stone-200 bg-white px-6 py-16 text-center">
         <Spinner className="h-8 w-8 text-orange-600" />

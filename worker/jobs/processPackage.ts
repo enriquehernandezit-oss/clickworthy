@@ -35,22 +35,20 @@ async function processOne(linkId: number, token: string, originals: Original[]):
   }
 
   const succeeded = results.filter((r) => r.enhancedUrl !== null).length;
-  const anySucceeded = succeeded > 0;
+  // This is only a first pass — Enrique/Jose finish and approve each photo in
+  // /admin before it's delivered. Never auto-delivers to the paid customer.
   await db
     .update(magicLinks)
-    .set({ packageResults: results, packageStatus: anySucceeded ? "completed" : "failed" })
+    .set({ packageResults: results, packageStatus: "ready_for_review" })
     .where(eq(magicLinks.id, linkId));
 
-  console.log(`[package] link ${token}: ${succeeded}/${results.length} enhanced`);
+  console.log(`[package] link ${token}: ${succeeded}/${results.length} first-passed → ready for review`);
 
-  // A paid package with ANY failed photo needs a human — the customer paid.
-  if (succeeded < results.length) {
-    await sendAlert(
-      "Paid package had photo failures",
-      `Link ${token}: ${succeeded}/${results.length} photos enhanced. ` +
-        `Failed: ${results.filter((r) => !r.enhancedUrl).map((r) => r.name).join(", ")}`
-    );
-  }
+  await sendAlert(
+    "Paid order ready to finish",
+    `Link ${token}: ${succeeded}/${results.length} photos got a Claid first pass. ` +
+      "Finish + approve them in /admin, then deliver."
+  );
 }
 
 export async function runProcessPackages(): Promise<void> {

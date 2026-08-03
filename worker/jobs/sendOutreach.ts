@@ -14,12 +14,13 @@ import { restaurants, outreachJobs, suppressions } from "@/db/schema";
 import { sendAlert } from "@/lib/alerts";
 import { config } from "../config";
 import { sendEmail } from "../lib/gmail";
-import { generateTouch1Body } from "../lib/anthropic";
 import { composeTouch1 } from "../lib/outreachEmail";
 import { isSuppressed } from "../lib/suppression";
 import { withRetry } from "../lib/retry";
 
-const RAMP_START = 20;
+// Domain has been warming on Lemwarm ~1 month, so we start at 30/day rather
+// than the cautious 20, still ramping toward the cap.
+const RAMP_START = 30;
 const RAMP_STEP = 5;
 const RAMP_CAP = 50;
 
@@ -119,19 +120,27 @@ export async function runSendOutreach(): Promise<void> {
       continue;
     }
 
+    // The approved Touch 1 hinges on a real signature dish — skip anyone the
+    // enricher couldn't find one for (they wait as needs_manual_email).
+    if (!r.signatureDish) {
+      await db
+        .update(restaurants)
+        .set({ enrichmentStatus: "needs_manual_email" })
+        .where(eq(restaurants.id, r.id));
+      continue;
+    }
+
     const language = r.language ?? "en";
-    const generatedBody = await generateTouch1Body({
-      name: r.name,
-      city: r.city ?? "",
-      rating: r.rating,
-      reviewCount: r.reviewCount,
+    const { subject, body } = composeTouch1({
+      restaurantName: r.name,
+      firstName: r.contactFirstName,
+      dish: r.signatureDish,
       language,
-      worstCategory: null,
+      subjectVariant: r.id,
     });
-    const { subject, body } = composeTouch1({ restaurantName: r.name, generatedBody, language });
 
     if (!enabled) {
-      console.log(`[send] (dry) -> ${email} | ${subject}`);
+      console.log(`[send] (dry) -> ${email} | ${subject}\n${body}\n`);
       continue;
     }
 

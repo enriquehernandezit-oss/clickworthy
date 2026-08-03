@@ -30,6 +30,10 @@ export const restaurants = pgTable('restaurants', {
   photoCount: integer('photo_count'), // owner-uploaded photo count from Google (priority signal, never a filter)
   avgPhotoScore: real('avg_photo_score'), // mean Claude Vision score across scored photos
   emailSource: text('email_source'), // 'website' | 'manual' | null — where `email` came from
+  // Personalization for the cold email (derived in enrichment):
+  signatureDish: text('signature_dish'), // a real standout dish, from Claude Vision — the #1 reply-rate lever
+  contactFirstName: text('contact_first_name'), // best-effort owner name; null -> generic greeting
+  isNewOpening: boolean('is_new_opening').default(false), // hints the Grand Opening package
   // Pipeline lifecycle: sourced -> enriched -> queued -> contacted (or needs_manual_email / rejected)
   enrichmentStatus: text('enrichment_status').default('sourced'),
   lastContactedAt: timestamp('last_contacted_at'),
@@ -111,11 +115,15 @@ export const magicLinks = pgTable('magic_links', {
   revenueImpactCopy: text('revenue_impact_copy'), // pre-generated Claude narrative
   // The one free sample: the customer's emailed original + its Claid-enhanced result.
   freeSampleOriginalUrl: text('free_sample_original_url'),
-  freeSampleEnhancedUrl: text('free_sample_enhanced_url'),
+  // Optional Claid "first pass" rough (a human downloads it, finishes editing,
+  // and re-uploads the finished version to freeSampleEnhancedUrl).
+  freeSampleFirstPassUrl: text('free_sample_first_pass_url'),
+  freeSampleEnhancedUrl: text('free_sample_enhanced_url'), // the FINISHED, human-approved photo
   qualifyingPhotoCount: integer('qualifying_photo_count'), // blurred-count teaser on the page
-  // Human-in-the-loop gate: the AI-enhanced sample must be approved before the
-  // Touch 2 email + magic link go out. pending_review -> approved | rejected.
-  reviewStatus: text('review_status').default('pending_review'),
+  // Human-in-the-loop gate. A reply lands as `awaiting_edit`; Enrique/Jose edit
+  // by hand (optionally from a Claid first pass), upload the finished photo, and
+  // approve. awaiting_edit -> approved | rejected. Approving is what sends Touch 2.
+  reviewStatus: text('review_status').default('awaiting_edit'),
   packageSelected: text('package_selected'), // 'starter' | 'standard' | 'complete' | null until chosen
   stripeSessionId: text('stripe_session_id'),
   paidAt: timestamp('paid_at'), // set by the Stripe webhook once the package is paid
@@ -123,7 +131,9 @@ export const magicLinks = pgTable('magic_links', {
   packageOriginals: jsonb('package_originals'),
   // Delivery data for the paid package: array of { name, originalUrl, enhancedUrl, error }.
   packageResults: jsonb('package_results'),
-  packageStatus: text('package_status'), // null | processing | completed | failed (post-upload)
+  // null | processing (Claid first pass running) | ready_for_review (human finishes
+  // + approves each photo in /admin) | completed (delivered) | failed.
+  packageStatus: text('package_status'),
   expiresAt: timestamp('expires_at'),
   viewedAt: timestamp('viewed_at'),
   touch2SentAt: timestamp('touch2_sent_at'), // set once the approved sample + link email goes out

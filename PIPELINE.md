@@ -23,7 +23,7 @@ flowchart TD
     S5["5. Free sample<br/>store photo · Revenue Impact Card · Claid enhance"]
     S6["6. Review (YOU, /admin)<br/>approve / reject before/after"]
     S7["7. Touch 2 email (worker)<br/>enhanced photo + magic link"]
-    S8["8. Funnel page (customer, /l/token)<br/>Revenue Card · before/after · packages $35/$50/$65"]
+    S8["8. Funnel page (customer, /l/token)<br/>Revenue Card · before/after · Glow-Up $499 / Grand Opening $899 / Always Fresh $249·mo"]
     S9["9. Stripe Checkout → paid"]
     S10["10. Upload photos → worker enhances → delivery"]
 
@@ -54,7 +54,7 @@ flowchart TD
 5. **Free sample** — `worker/jobs/processFreeSample.ts`. Claid enhances the emailed photo (finalized prompt), stored durably. Stays `pending_review`.
 6. **Review** — `app/admin`. You see before/after + Revenue Impact Card and **approve or reject**. Nothing reaches the prospect without this.
 7. **Touch 2** — `worker/jobs/sendTouch2.ts`. Approved samples → email the enhanced photo + a link to `/l/[token]`.
-8. **Funnel** — `app/l/[token]`. Revenue Impact Card → free before/after → "N more photos" teaser → package tiers ($35 / $50 / $65, bilingual en/es) → Stripe.
+8. **Funnel** — `app/l/[token]`. Revenue Impact Card → free before/after → "N more photos" teaser → high-ticket tiers (Menu Glow-Up $499, Grand Opening $899 one-time; Always Fresh $249/mo sold by call, bilingual en/es) → Stripe for the one-time tiers.
 9. **Payment** — `app/api/outreach/checkout` (server-side price) → Stripe → the shared webhook marks the link paid.
 10. **Delivery** — `app/l/[token]/upload` → customer uploads up to the package limit → `worker/jobs/processPackage.ts` (cron every 1 min) enhances via Claid → page auto-updates to a download grid.
 

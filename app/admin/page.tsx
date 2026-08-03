@@ -1,34 +1,36 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants, outreachJobs, magicLinks } from "@/db/schema";
-import ReviewActions from "./ReviewActions";
+import SampleActions from "./SampleActions";
+import PackageActions from "./PackageActions";
 
 // Live internal dashboard — always render fresh (never statically prerender,
 // which would try to hit the DB at build time).
 export const dynamic = "force-dynamic";
+
+type PackageResult = { name: string; originalUrl: string; enhancedUrl: string | null; error: string | null };
 
 async function getStats() {
   const byStatus = await db
     .select({ status: restaurants.enrichmentStatus, n: sql<number>`count(*)::int` })
     .from(restaurants)
     .groupBy(restaurants.enrichmentStatus);
-
   const [{ touch1 }] = await db
     .select({ touch1: sql<number>`count(*) filter (where ${outreachJobs.touchNumber} = 1)::int` })
     .from(outreachJobs);
   const [{ replies }] = await db
     .select({ replies: sql<number>`count(*) filter (where ${outreachJobs.repliedAt} is not null)::int` })
     .from(outreachJobs);
-
   return { byStatus, touch1: touch1 ?? 0, replies: replies ?? 0 };
 }
 
-async function getReviewQueue() {
+async function getSampleQueue() {
   return db
     .select({
       id: magicLinks.id,
       token: magicLinks.token,
       original: magicLinks.freeSampleOriginalUrl,
+      firstPass: magicLinks.freeSampleFirstPassUrl,
       enhanced: magicLinks.freeSampleEnhancedUrl,
       revenueCopy: magicLinks.revenueImpactCopy,
       restaurantName: restaurants.name,
@@ -36,14 +38,26 @@ async function getReviewQueue() {
     })
     .from(magicLinks)
     .leftJoin(restaurants, eq(magicLinks.restaurantId, restaurants.id))
-    .where(eq(magicLinks.reviewStatus, "pending_review"))
+    .where(eq(magicLinks.reviewStatus, "awaiting_edit"))
+    .orderBy(desc(magicLinks.createdAt));
+}
+
+async function getPackageQueue() {
+  return db
+    .select({
+      id: magicLinks.id,
+      token: magicLinks.token,
+      results: magicLinks.packageResults,
+      restaurantName: restaurants.name,
+    })
+    .from(magicLinks)
+    .leftJoin(restaurants, eq(magicLinks.restaurantId, restaurants.id))
+    .where(eq(magicLinks.packageStatus, "ready_for_review"))
     .orderBy(desc(magicLinks.createdAt));
 }
 
 export default async function AdminPage() {
-  const [stats, queue] = await Promise.all([getStats(), getReviewQueue()]);
-  const readyForReview = queue.filter((q) => q.enhanced);
-  const awaitingEnhancement = queue.filter((q) => !q.enhanced);
+  const [stats, samples, packages] = await Promise.all([getStats(), getSampleQueue(), getPackageQueue()]);
 
   return (
     <div className="min-h-screen bg-stone-50 px-6 py-10 text-stone-900">
@@ -71,56 +85,71 @@ export default async function AdminPage() {
           </div>
         </section>
 
-        {/* Review queue */}
+        {/* Free-sample production queue */}
         <section className="mt-10">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">
-            Sample review ({readyForReview.length} ready
-            {awaitingEnhancement.length > 0 ? `, ${awaitingEnhancement.length} enhancing` : ""})
+            New replies — needs editing ({samples.length})
           </h2>
-
-          {readyForReview.length === 0 && (
-            <p className="mt-3 text-sm text-stone-500">Nothing awaiting review right now.</p>
-          )}
-
+          {samples.length === 0 && <p className="mt-3 text-sm text-stone-500">Nothing to edit right now.</p>}
           <div className="mt-4 flex flex-col gap-6">
-            {readyForReview.map((item) => (
+            {samples.map((item) => (
               <div key={item.id} className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm">
                 <div className="flex items-baseline justify-between gap-4">
                   <h3 className="font-semibold">{item.restaurantName ?? "(unknown restaurant)"}</h3>
                   <span className="text-xs text-stone-500">{item.city}</span>
                 </div>
-
-                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <figure className="flex flex-col gap-1">
-                    <figcaption className="text-xs font-medium text-stone-500">Before</figcaption>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={item.original ?? undefined}
-                      alt="original"
-                      className="aspect-square w-full rounded-lg border border-stone-200 object-cover"
-                    />
-                  </figure>
-                  <figure className="flex flex-col gap-1">
-                    <figcaption className="text-xs font-medium text-stone-500">After (AI enhanced)</figcaption>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={item.enhanced ?? undefined}
-                      alt="enhanced"
-                      className="aspect-square w-full rounded-lg border border-stone-200 object-cover"
-                    />
-                  </figure>
+                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <Figure label="Original (they sent)" src={item.original} />
+                  <Figure label="Claid first pass (optional)" src={item.firstPass} />
+                  <Figure label="Finished (uploaded)" src={item.enhanced} />
                 </div>
-
                 {item.revenueCopy && (
                   <p className="mt-4 rounded-lg bg-stone-50 p-3 text-sm text-stone-600">{item.revenueCopy}</p>
                 )}
-
-                <ReviewActions magicLinkId={item.id} />
+                <SampleActions magicLinkId={item.id} hasFinished={Boolean(item.enhanced)} />
               </div>
             ))}
           </div>
         </section>
+
+        {/* Paid-order production queue */}
+        <section className="mt-12">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">
+            Paid orders — finish &amp; deliver ({packages.length})
+          </h2>
+          {packages.length === 0 && <p className="mt-3 text-sm text-stone-500">No paid orders waiting.</p>}
+          <div className="mt-4 flex flex-col gap-6">
+            {packages.map((pkg) => {
+              const results = (pkg.results as PackageResult[] | null) ?? [];
+              return (
+                <div key={pkg.id} className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-baseline justify-between gap-4">
+                    <h3 className="font-semibold">{pkg.restaurantName ?? "(unknown)"}</h3>
+                    <span className="text-xs text-stone-500">{results.length} photos</span>
+                  </div>
+                  <PackageActions magicLinkId={pkg.id} results={results} />
+                </div>
+              );
+            })}
+          </div>
+        </section>
       </div>
     </div>
+  );
+}
+
+function Figure({ label, src }: { label: string; src: string | null }) {
+  return (
+    <figure className="flex flex-col gap-1">
+      <figcaption className="text-xs font-medium text-stone-500">{label}</figcaption>
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={src} alt={label} className="aspect-square w-full rounded-lg border border-stone-200 object-cover" />
+      ) : (
+        <div className="flex aspect-square w-full items-center justify-center rounded-lg border border-dashed border-stone-200 text-xs text-stone-400">
+          —
+        </div>
+      )}
+    </figure>
   );
 }

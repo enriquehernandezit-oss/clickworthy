@@ -37,7 +37,14 @@ export async function runSendTouch2(): Promise<void> {
 
     const language = r.language ?? "en";
     const magicLinkUrl = `${config.appOrigin.replace(/\/$/, "")}/l/${link.token}`;
-    const { subject, body } = composeTouch2({ restaurantName: r.name, magicLinkUrl, language });
+    const { subject, body } = composeTouch2({
+      restaurantName: r.name,
+      firstName: r.contactFirstName,
+      dish: r.signatureDish ?? (language === "es" ? "plato" : "dish"),
+      funnelUrl: magicLinkUrl,
+      bookingUrl: process.env.NEXT_PUBLIC_BOOKING_URL ?? null,
+      language,
+    });
 
     if (!enabled) {
       console.log(`[touch2] (dry) -> ${r.email} | ${magicLinkUrl}`);
