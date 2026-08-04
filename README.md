@@ -1,36 +1,61 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Clickworthy
 
-## Getting Started
+Photo enhancement for independent US restaurants (Miami, New York, Chicago, LA).
+We enhance a restaurant's **real** dish photos — we never generate food.
 
-First, run the development server:
+Two revenue paths:
+
+- **Self-serve one-time photos** — what the public landing page sells. Upload,
+  pay per photo ($3.00 → $1.80 sliding), get them back. → `/enhance`
+- **High-ticket packages** — sold *only* through cold outreach, never shown
+  publicly: Menu Glow-Up $499 · Grand Opening $899 · Always Fresh $249/mo.
+
+## Docs
+
+| File | What's in it |
+|---|---|
+| [PIPELINE.md](PIPELINE.md) | How the whole system works, end to end |
+| [HANDOFF.md](HANDOFF.md) | Current status, what's still needed to go live |
+| [AGENTS.md](AGENTS.md) | Conventions for AI coding agents in this repo |
+| [.env.example](.env.example) | Every environment variable, annotated |
+| [worker/README.md](worker/README.md) | Worker deploy + env setup |
+
+## Running locally
+
+Requires [Bun](https://bun.sh) and a Postgres database.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+bun install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Copy `.env.example` to `.env.local` and fill in what you have — the app runs
+without most keys (features that need a missing key fail soft and log).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+bun run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The worker is a separate process:
 
-## Learn More
+```bash
+bun run worker
+```
 
-To learn more about Next.js, take a look at the following resources:
+Useful flags: `WORKER_DRY_RUN=true` logs what the worker *would* send without
+sending. Cold outreach is additionally gated behind `OUTREACH_ENABLED=true`, so
+it stays off until you deliberately turn it on.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Stack
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Next.js 16 (App Router) · TypeScript · Bun · PostgreSQL + Drizzle · pg-boss
+(Postgres-backed queue/cron, no Redis) · Tailwind v4 · Claid.ai · Claude Sonnet ·
+Gmail API · Stripe · Resend · NeverBounce · Google Places · Cloudflare R2.
 
-## Deploy on Vercel
+Deployed on **Railway** as two services from this one repo: `web` (Next.js) and
+`worker` (start command `bun run worker`).
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Admin
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`/admin` — behind HTTP Basic Auth (`ADMIN_USER` / `ADMIN_PASSWORD`). Fails closed
+if either is unset. Browse leads, read every email sent, edit and approve free
+samples, finish and deliver paid orders, manage the do-not-contact list.
