@@ -7,7 +7,7 @@ import { and, eq, isNull, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants, outreachJobs } from "@/db/schema";
 import { config } from "../config";
-import { sendEmail, getRfcMessageId } from "../lib/gmail";
+import { sendEmail, getThreadingInfo } from "../lib/gmail";
 import { composeBump } from "../lib/outreachEmail";
 import { isSuppressed } from "../lib/suppression";
 import { withRetry } from "../lib/retry";
@@ -63,13 +63,22 @@ export async function runSendBumps(): Promise<void> {
     }
 
     try {
-      const inReplyTo = row.messageId ? await getRfcMessageId(row.messageId) : null;
-      // Same thread, no new subject line — reply to the original Touch 1.
+      const { messageId: inReplyTo, subject: originalSubject } = row.messageId
+        ? await getThreadingInfo(row.messageId)
+        : { messageId: null, subject: null };
+      // Same thread as the original Touch 1: threadId + In-Reply-To/References
+      // handle Gmail-to-Gmail threading; a proper "Re: ..." subject (rather than
+      // empty) keeps it threaded in non-Gmail clients too, which key off Subject.
+      const subject = originalSubject
+        ? originalSubject.toLowerCase().startsWith("re:")
+          ? originalSubject
+          : `Re: ${originalSubject}`
+        : "";
       const sent = await withRetry(
         () =>
           sendEmail({
             to: r.email!,
-            subject: "", // Gmail keeps the thread's subject when threadId is set
+            subject,
             body,
             fromName: "Clickworthy",
             threadId: row.threadId ?? undefined,

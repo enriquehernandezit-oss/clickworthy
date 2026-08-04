@@ -121,46 +121,6 @@ export async function checkHospitalityGroup(
   }
 }
 
-export type Touch1Inputs = {
-  name: string;
-  city: string;
-  rating: number | null;
-  reviewCount: number | null;
-  language: string; // 'en' | 'es'
-  worstCategory: string | null; // e.g. "food" — the weakest photo category, if known
-};
-
-// Generates the Touch 1 cold-email BODY (no subject, no footer, no links) per
-// PROJECT_CONTEXT Section 9's 3-line structure: (1) specific photo observation,
-// (2) one financial signal tied to rating/city, (3) the free-sample offer.
-//
-// PLACEHOLDER: Jose owns the final Touch 1 copy. This generated version follows
-// the structure so the pipeline is testable end-to-end; swap in the approved
-// template when it exists.
-export async function generateTouch1Body(i: Touch1Inputs): Promise<string> {
-  const message = await getClient().messages.create({
-    model: config.claudeModel,
-    max_tokens: 300,
-    system:
-      "Write a 3-sentence cold email body to an independent restaurant owner about their online listing " +
-      "photos. Sentence 1: a specific, plausible observation about their food/menu photos (angle, lighting, " +
-      "or how they show up on Google/delivery apps). Sentence 2: one concrete financial signal tied to their " +
-      "rating and city (lost delivery clicks / revenue — be realistic, not hypey). Sentence 3 (verbatim intent): " +
-      "invite them to reply with a photo of one of their dishes to get a professionally enhanced version back, " +
-      "free, to see the difference. No greeting, no signature, no links, no subject line — just the 3 sentences. " +
-      `Write in ${i.language === "es" ? "Spanish" : "English"}.`,
-    messages: [
-      {
-        role: "user",
-        content:
-          `Restaurant: ${i.name}\nCity: ${i.city}\nRating: ${i.rating ?? "n/a"} stars\n` +
-          `Reviews: ${i.reviewCount ?? "n/a"}\nWeakest photo category: ${i.worstCategory ?? "food"}`,
-      },
-    ],
-  });
-  return firstText(message);
-}
-
 export type RevenueImpactInputs = {
   name: string;
   city: string;
@@ -173,18 +133,25 @@ export type RevenueImpactInputs = {
 };
 
 // The Revenue Impact Card: a personalized 3-sentence narrative shown on the
-// magic-link page (PROJECT_CONTEXT Section 9). Generated once at link creation
-// and stored.
+// magic-link page right after a restaurant's free sample. Generated once at
+// link creation and stored. Positioning (locked): Clickworthy isn't a photo
+// service — it helps restaurants shift orders off delivery apps onto their own
+// channels, where they keep 100% instead of paying commission. Lead with that
+// bleed, not with "your photos look bad."
 export async function generateRevenueImpactCopy(i: RevenueImpactInputs): Promise<string> {
   const message = await getClient().messages.create({
     model: config.claudeModel,
     max_tokens: 300,
     system:
-      "Write a 3-sentence personalized revenue-impact summary for a restaurant owner. " +
-      "Sentence 1: quantify what current photo quality is likely costing them in delivery clicks/revenue, " +
-      "using a rating-tier-based percentage. Sentence 2: show the upside with a realistic benchmark for " +
-      "similar restaurants in their city/tier. Sentence 3: frame the price as an obvious decision relative " +
-      "to the problem. Be concrete and credible (an owner might fact-check). No greeting or signature. " +
+      "Write a 3-sentence personalized revenue-impact summary for a restaurant owner, shown right after they " +
+      "received their free enhanced photo. Sentence 1: name what delivery-app commission is likely costing " +
+      "them — apps charge 15-30% per order, often 30-40% effective once promos/fees stack, while their own " +
+      "website, Google profile, and Instagram keep 100%; tie it to their price level/rating tier, be concrete " +
+      "but not hypey. Sentence 2: connect it to their photos specifically — their delivery listing currently " +
+      "outshines their own channels, which is backwards, and that's fixable. Sentence 3: frame getting the " +
+      "rest of their menu enhanced as the obvious next step. Compliance rule: we ENHANCE real photos, never " +
+      '"generate" food — never use the phrase "AI-generated." Be credible (an owner might fact-check the ' +
+      "numbers). No greeting or signature. " +
       `Write in ${i.language === "es" ? "Spanish" : "English"}.`,
     messages: [
       {

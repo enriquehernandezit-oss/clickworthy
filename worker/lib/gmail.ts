@@ -112,14 +112,19 @@ export async function sendEmail(params: {
   return { id: body.id, threadId: body.threadId };
 }
 
-// Fetches a sent/received message's RFC 2822 Message-ID header (for threading a
-// reply via In-Reply-To). Returns null if unavailable.
-export async function getRfcMessageId(gmailMessageId: string): Promise<string | null> {
-  const res = await authedFetch(`/messages/${gmailMessageId}?format=metadata&metadataHeaders=Message-ID`);
-  if (!res.ok) return null;
+// Fetches a sent/received message's RFC 2822 Message-ID + Subject headers (for
+// threading a reply via In-Reply-To, and for a correct "Re: ..." subject line —
+// Gmail's own UI threads purely on threadId, but other mail clients still rely
+// on Subject matching, so an empty/mismatched subject can break threading
+// outside Gmail). Returns nulls if the message can't be fetched.
+export async function getThreadingInfo(
+  gmailMessageId: string
+): Promise<{ messageId: string | null; subject: string | null }> {
+  const res = await authedFetch(`/messages/${gmailMessageId}?format=metadata&metadataHeaders=Message-ID&metadataHeaders=Subject`);
+  if (!res.ok) return { messageId: null, subject: null };
   const body = (await res.json()) as { payload?: { headers?: { name: string; value: string }[] } };
-  const h = body.payload?.headers?.find((x) => x.name.toLowerCase() === "message-id");
-  return h?.value ?? null;
+  const header = (name: string) => body.payload?.headers?.find((x) => x.name.toLowerCase() === name)?.value ?? null;
+  return { messageId: header("message-id"), subject: header("subject") };
 }
 
 // --- Reply reading ---------------------------------------------------------
