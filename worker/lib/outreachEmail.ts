@@ -4,12 +4,16 @@
 // link-free and price-free — the only ask is a reply.
 
 function senderName(): string {
-  return process.env.OUTREACH_SENDER_NAME ?? "Enrique";
+  // `||` (not `??`) deliberately — an env var present but set to "" should
+  // fall back too, same as if it were unset.
+  return process.env.OUTREACH_SENDER_NAME || "Enrique";
 }
 
 // CAN-SPAM requires a valid physical postal address in every commercial email.
+// Falls back to an obvious placeholder (not a silently blank line) so an
+// empty-string env var is caught by reading the email, not missed entirely.
 function postalAddress(): string {
-  return process.env.OUTREACH_POSTAL_ADDRESS ?? "Clickworthy — [set OUTREACH_POSTAL_ADDRESS]";
+  return process.env.OUTREACH_POSTAL_ADDRESS || "Clickworthy — [set OUTREACH_POSTAL_ADDRESS]";
 }
 
 function greeting(firstName: string | null, language: string): string {
@@ -23,7 +27,7 @@ function complianceFooter(language: string): string {
   if (language === "es") {
     return (
       `\n\n—\nClickworthy · ${postalAddress()}\n` +
-      `Si prefieres no recibir más mensajes, responde con STOP y no volveremos a escribirte.`
+      `Si prefiere no recibir más mensajes, responda con STOP y no volveremos a escribirle.`
     );
   }
   return (
@@ -48,7 +52,7 @@ export function composeTouch1(params: {
 
   const subject =
     language === "es"
-      ? [`la foto de tu ${dish}`, `una pregunta sobre las fotos de ${restaurantName}`, `el ${dish} de ${restaurantName}`][v]
+      ? [`la foto de su ${dish}`, `una pregunta sobre las fotos de ${restaurantName}`, `el ${dish} de ${restaurantName}`][v]
       : [`your ${dish} photo`, `quick question about ${restaurantName}'s photos`, `the ${dish} at ${restaurantName}`][v];
 
   const body =
@@ -103,23 +107,23 @@ export function composeTouch2(params: {
 }): OutreachEmail {
   const { firstName, dish, funnelUrl, bookingUrl, language } = params;
 
-  const subject = language === "es" ? `tu ${dish}, mejorado` : `your ${dish}, enhanced`;
+  const subject = language === "es" ? `su ${dish}, mejorado` : `your ${dish}, enhanced`;
 
   const talkLine = bookingUrl
     ? language === "es"
-      ? `\n\nO si prefieres hablar primero: ${bookingUrl} — 15 minutos, sin discurso de ventas.`
+      ? `\n\nO si prefiere hablar primero: ${bookingUrl} — 15 minutos, sin discurso de ventas.`
       : `\n\nOr if you'd rather talk first: ${bookingUrl} — 15 minutes, no pitch marathon.`
     : "";
 
   const body =
     language === "es"
       ? `${greeting(firstName, language)}\n\n` +
-        `Aquí está — tu ${dish}, mejorado. La misma foto que enviaste, nada inventado.\n\n` +
-        `Esa foto es tuya. Úsala donde quieras, sin costo, sin trampa.\n\n` +
-        `Ahora, la parte que pocos dueños han calculado: las apps de delivery se quedan con 15–30% de cada orden — más bien 30–40% cuando suman promociones y cargos — mientras que tu propio sitio web, perfil de Google e Instagram te pagan el 100%. Pero en la mayoría de los restaurantes, las apps se ven mejor que los canales propios. Y por eso la gente ordena por ahí.\n\n` +
-        `Eso es lo que arreglamos. Tomamos tus 20–30 platos principales, los mejoramos como el de arriba, y te los entregamos listos para tu sitio web, Google Business Profile, Instagram y Yelp — para que tus propios canales vendan más que tu página de DoorDash. Un fotógrafo cobra $1,200–$3,500 por una sesión así. Nosotros lo hacemos por una fracción, con fotos que ya tienes o que tomas con tu celular.\n\n` +
-        `Todo está aquí, incluyendo tu antes y después: ${funnelUrl}${talkLine}\n\n` +
-        `De cualquier forma, disfruta la foto.\n\n` +
+        `Aquí está — su ${dish}, mejorado. La misma foto que envió, nada inventado.\n\n` +
+        `Esa foto es suya. Úsela donde quiera, sin costo, sin trampa.\n\n` +
+        `Ahora, la parte que pocos dueños han calculado: las apps de delivery se quedan con 15–30% de cada orden — más bien 30–40% cuando suman promociones y cargos — mientras que su propio sitio web, perfil de Google e Instagram le pagan el 100%. Pero en la mayoría de los restaurantes, las apps se ven mejor que los canales propios. Y por eso la gente ordena por ahí.\n\n` +
+        `Eso es lo que arreglamos. Tomamos sus 20–30 platos principales, los mejoramos como el de arriba, y se los entregamos listos para su sitio web, Google Business Profile, Instagram y Yelp — para que sus propios canales vendan más que su página de DoorDash. Un fotógrafo cobra $1,200–$3,500 por una sesión así. Nosotros lo hacemos por una fracción, con fotos que ya tiene o que toma con su celular.\n\n` +
+        `Todo está aquí, incluyendo su antes y después: ${funnelUrl}${talkLine}\n\n` +
+        `De cualquier forma, disfrute la foto.\n\n` +
         `${senderName()}\nClickworthy`
       : `${greeting(firstName, language)}\n\n` +
         `Here it is — your ${dish}, enhanced. Same photo you sent, nothing invented.\n\n` +
