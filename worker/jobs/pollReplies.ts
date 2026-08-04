@@ -38,7 +38,7 @@ export async function runReplyPoll(): Promise<void> {
     return;
   }
 
-  for (const { threadId } of messages) {
+  for (const { id: messageId, threadId } of messages) {
     // Find the Touch 1 outreach for this thread that hasn't been marked replied.
     const [job] = await db
       .select()
@@ -53,7 +53,10 @@ export async function runReplyPoll(): Promise<void> {
       .limit(1);
     if (!job || job.restaurantId == null) continue;
 
-    const full = await getMessage(threadId).catch(() => null);
+    // Fetch by message id, NOT thread id — a thread's id equals its FIRST
+    // message's id (our own Touch 1), so fetching by threadId would silently
+    // pull our own outbound email instead of the customer's reply.
+    const full = await getMessage(messageId).catch(() => null);
     if (!full) continue;
 
     const sender = parseFromEmail(full.from);
@@ -82,7 +85,7 @@ export async function runReplyPoll(): Promise<void> {
     const linkToken = token();
     let originalUrl: string;
     try {
-      const bytes = await getAttachmentBytes(threadId, image.attachmentId);
+      const bytes = await getAttachmentBytes(messageId, image.attachmentId);
       originalUrl = await storeImageBytes({
         groupKey: linkToken,
         name: `original-${image.filename}`,
