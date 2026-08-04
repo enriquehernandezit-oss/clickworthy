@@ -20,14 +20,18 @@ export async function runWeeklyStats(): Promise<void> {
     .from(outreachJobs)
     .where(and(eq(outreachJobs.touchNumber, 1), gte(outreachJobs.sentAt, weekAgo)));
 
+  // gte(), not an interpolated sql`` template — passing a Date into a raw
+  // template hands the driver an object it can't serialize, and the whole
+  // report throws.
   const [{ replied }] = await db
-    .select({ replied: sql<number>`count(*) filter (where ${outreachJobs.repliedAt} >= ${weekAgo})::int` })
-    .from(outreachJobs);
+    .select({ replied: sql<number>`count(*)::int` })
+    .from(outreachJobs)
+    .where(gte(outreachJobs.repliedAt, weekAgo));
 
   const [{ pendingReview }] = await db
     .select({ pendingReview: sql<number>`count(*)::int` })
     .from(magicLinks)
-    .where(eq(magicLinks.reviewStatus, "pending_review"));
+    .where(eq(magicLinks.reviewStatus, "awaiting_edit"));
 
   const [{ paid }] = await db
     .select({ paid: sql<number>`count(*) filter (where ${magicLinks.paidAt} is not null)::int` })

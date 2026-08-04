@@ -1,155 +1,115 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, eq, gte, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { restaurants, outreachJobs, magicLinks } from "@/db/schema";
-import SampleActions from "./SampleActions";
-import PackageActions from "./PackageActions";
+import { restaurants, outreachJobs, magicLinks, suppressions, enhancementOrders } from "@/db/schema";
+import { SectionHeading, StatChip } from "./ui";
 
 // Live internal dashboard — always render fresh (never statically prerender,
 // which would try to hit the DB at build time).
 export const dynamic = "force-dynamic";
 
-type PackageResult = { name: string; originalUrl: string; enhancedUrl: string | null; error: string | null };
-
-async function getStats() {
+async function getPipeline() {
   const byStatus = await db
     .select({ status: restaurants.enrichmentStatus, n: sql<number>`count(*)::int` })
     .from(restaurants)
     .groupBy(restaurants.enrichmentStatus);
-  const [{ touch1 }] = await db
-    .select({ touch1: sql<number>`count(*) filter (where ${outreachJobs.touchNumber} = 1)::int` })
-    .from(outreachJobs);
-  const [{ replies }] = await db
-    .select({ replies: sql<number>`count(*) filter (where ${outreachJobs.repliedAt} is not null)::int` })
-    .from(outreachJobs);
-  return { byStatus, touch1: touch1 ?? 0, replies: replies ?? 0 };
+  const [{ total }] = await db.select({ total: sql<number>`count(*)::int` }).from(restaurants);
+  return { byStatus, total: total ?? 0 };
 }
 
-async function getSampleQueue() {
-  return db
-    .select({
-      id: magicLinks.id,
-      token: magicLinks.token,
-      original: magicLinks.freeSampleOriginalUrl,
-      firstPass: magicLinks.freeSampleFirstPassUrl,
-      enhanced: magicLinks.freeSampleEnhancedUrl,
-      revenueCopy: magicLinks.revenueImpactCopy,
-      restaurantName: restaurants.name,
-      city: restaurants.city,
-    })
-    .from(magicLinks)
-    .leftJoin(restaurants, eq(magicLinks.restaurantId, restaurants.id))
-    .where(eq(magicLinks.reviewStatus, "awaiting_edit"))
-    .orderBy(desc(magicLinks.createdAt));
+// Last-7-days numbers. Mirrors worker/jobs/weeklyStats.ts so the dashboard and
+// the weekly email never disagree. `weekAgo` is built here, not in the
+// component body, to stay clear of the react-compiler purity rule.
+async function getWeekly() {
+  const weekAgo = new Date(Date.now() - 7 * 86_400_000);
+
+  const [{ sent }] = await db
+    .select({ sent: sql<number>`count(*)::int` })
+    .from(outreachJobs)
+    .where(and(eq(outreachJobs.touchNumber, 1), gte(outreachJobs.sentAt, weekAgo)));
+
+  // Use gte() rather than interpolating the Date into a raw sql`` template —
+  // the template passes the Date object straight to the driver, which throws.
+  const [{ replied }] = await db
+    .select({ replied: sql<number>`count(*)::int` })
+    .from(outreachJobs)
+    .where(gte(outreachJobs.repliedAt, weekAgo));
+
+  const [{ supp }] = await db
+    .select({ supp: sql<number>`count(*)::int` })
+    .from(suppressions)
+    .where(gte(suppressions.createdAt, weekAgo));
+
+  const replyRate = (sent ?? 0) > 0 ? `${(((replied ?? 0) / (sent ?? 1)) * 100).toFixed(1)}%` : "n/a";
+  return { sent: sent ?? 0, replied: replied ?? 0, replyRate, supp: supp ?? 0 };
 }
 
-async function getPackageQueue() {
-  return db
-    .select({
-      id: magicLinks.id,
-      token: magicLinks.token,
-      results: magicLinks.packageResults,
-      restaurantName: restaurants.name,
-    })
-    .from(magicLinks)
-    .leftJoin(restaurants, eq(magicLinks.restaurantId, restaurants.id))
-    .where(eq(magicLinks.packageStatus, "ready_for_review"))
-    .orderBy(desc(magicLinks.createdAt));
+async function getWork() {
+  const [{ awaitingEdit }] = await db
+    .select({ awaitingEdit: sql<number>`count(*) filter (where ${magicLinks.reviewStatus} = 'awaiting_edit')::int` })
+    .from(magicLinks);
+  const [{ readyForReview }] = await db
+    .select({ readyForReview: sql<number>`count(*) filter (where ${magicLinks.packageStatus} = 'ready_for_review')::int` })
+    .from(magicLinks);
+  const [{ paid }] = await db
+    .select({ paid: sql<number>`count(*) filter (where ${magicLinks.paidAt} is not null)::int` })
+    .from(magicLinks);
+  const [{ selfServe }] = await db
+    .select({ selfServe: sql<number>`count(*)::int` })
+    .from(enhancementOrders)
+    .where(isNotNull(enhancementOrders.id));
+
+  return {
+    awaitingEdit: awaitingEdit ?? 0,
+    readyForReview: readyForReview ?? 0,
+    paid: paid ?? 0,
+    selfServe: selfServe ?? 0,
+  };
 }
 
-export default async function AdminPage() {
-  const [stats, samples, packages] = await Promise.all([getStats(), getSampleQueue(), getPackageQueue()]);
+export default async function AdminOverviewPage() {
+  const [pipeline, weekly, work] = await Promise.all([getPipeline(), getWeekly(), getWork()]);
 
   return (
-    <div className="min-h-screen bg-stone-50 px-6 py-10 text-stone-900">
-      <div className="mx-auto max-w-5xl">
-        <h1 className="text-2xl font-bold tracking-tight">Clickworthy Admin</h1>
-
-        {/* Pipeline stats */}
-        <section className="mt-8">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">Pipeline</h2>
-          <div className="mt-3 flex flex-wrap gap-3">
-            {stats.byStatus.map((s) => (
-              <div key={s.status ?? "unknown"} className="rounded-lg border border-stone-200 bg-white px-4 py-3">
-                <div className="text-xl font-bold tabular-nums">{s.n}</div>
-                <div className="text-xs text-stone-500">{s.status ?? "unknown"}</div>
-              </div>
-            ))}
-            <div className="rounded-lg border border-stone-200 bg-white px-4 py-3">
-              <div className="text-xl font-bold tabular-nums">{stats.touch1}</div>
-              <div className="text-xs text-stone-500">touch 1 sent</div>
-            </div>
-            <div className="rounded-lg border border-stone-200 bg-white px-4 py-3">
-              <div className="text-xl font-bold tabular-nums">{stats.replies}</div>
-              <div className="text-xs text-stone-500">replies</div>
-            </div>
-          </div>
-        </section>
-
-        {/* Free-sample production queue */}
-        <section className="mt-10">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">
-            New replies — needs editing ({samples.length})
-          </h2>
-          {samples.length === 0 && <p className="mt-3 text-sm text-stone-500">Nothing to edit right now.</p>}
-          <div className="mt-4 flex flex-col gap-6">
-            {samples.map((item) => (
-              <div key={item.id} className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm">
-                <div className="flex items-baseline justify-between gap-4">
-                  <h3 className="font-semibold">{item.restaurantName ?? "(unknown restaurant)"}</h3>
-                  <span className="text-xs text-stone-500">{item.city}</span>
-                </div>
-                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-                  <Figure label="Original (they sent)" src={item.original} />
-                  <Figure label="Claid first pass (optional)" src={item.firstPass} />
-                  <Figure label="Finished (uploaded)" src={item.enhanced} />
-                </div>
-                {item.revenueCopy && (
-                  <p className="mt-4 rounded-lg bg-stone-50 p-3 text-sm text-stone-600">{item.revenueCopy}</p>
-                )}
-                <SampleActions magicLinkId={item.id} hasFinished={Boolean(item.enhanced)} />
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* Paid-order production queue */}
-        <section className="mt-12">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">
-            Paid orders — finish &amp; deliver ({packages.length})
-          </h2>
-          {packages.length === 0 && <p className="mt-3 text-sm text-stone-500">No paid orders waiting.</p>}
-          <div className="mt-4 flex flex-col gap-6">
-            {packages.map((pkg) => {
-              const results = (pkg.results as PackageResult[] | null) ?? [];
-              return (
-                <div key={pkg.id} className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm">
-                  <div className="flex items-baseline justify-between gap-4">
-                    <h3 className="font-semibold">{pkg.restaurantName ?? "(unknown)"}</h3>
-                    <span className="text-xs text-stone-500">{results.length} photos</span>
-                  </div>
-                  <PackageActions magicLinkId={pkg.id} results={results} />
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      </div>
-    </div>
-  );
-}
-
-function Figure({ label, src }: { label: string; src: string | null }) {
-  return (
-    <figure className="flex flex-col gap-1">
-      <figcaption className="text-xs font-medium text-stone-500">{label}</figcaption>
-      {src ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={label} className="aspect-square w-full rounded-lg border border-stone-200 object-cover" />
-      ) : (
-        <div className="flex aspect-square w-full items-center justify-center rounded-lg border border-dashed border-stone-200 text-xs text-stone-400">
-          —
+    <>
+      <section>
+        <SectionHeading>Needs your attention</SectionHeading>
+        <div className="mt-3 flex flex-wrap gap-3">
+          <StatChip value={work.awaitingEdit} label="replies to edit" href="/admin/samples" />
+          <StatChip value={work.readyForReview} label="orders to finish" href="/admin/orders" />
         </div>
-      )}
-    </figure>
+      </section>
+
+      <section className="mt-10">
+        <SectionHeading>Last 7 days</SectionHeading>
+        <div className="mt-3 flex flex-wrap gap-3">
+          <StatChip value={weekly.sent} label="touch 1 sent" href="/admin/outreach" />
+          <StatChip value={weekly.replied} label="replies" href="/admin/outreach?status=replied" />
+          <StatChip value={weekly.replyRate} label="reply rate" />
+          <StatChip value={weekly.supp} label="new suppressions" href="/admin/suppressions" />
+        </div>
+      </section>
+
+      <section className="mt-10">
+        <SectionHeading>Pipeline ({pipeline.total} restaurants)</SectionHeading>
+        <div className="mt-3 flex flex-wrap gap-3">
+          {pipeline.byStatus.map((s) => (
+            <StatChip
+              key={s.status ?? "unknown"}
+              value={s.n}
+              label={s.status ?? "unknown"}
+              href={s.status ? `/admin/restaurants?status=${encodeURIComponent(s.status)}` : "/admin/restaurants"}
+            />
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-10">
+        <SectionHeading>Revenue</SectionHeading>
+        <div className="mt-3 flex flex-wrap gap-3">
+          <StatChip value={work.paid} label="packages paid (all time)" href="/admin/orders" />
+          <StatChip value={work.selfServe} label="self-serve orders" href="/admin/orders" />
+        </div>
+      </section>
+    </>
   );
 }
