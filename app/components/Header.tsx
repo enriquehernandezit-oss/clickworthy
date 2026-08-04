@@ -1,7 +1,5 @@
 import Link from "next/link";
 
-const CONTACT_EMAIL = "contact@clickworthytool.com";
-
 // Shared across every route so the brand/nav stay identical everywhere.
 // Nav links point at the landing page's anchors (via "/#...") so they work
 // correctly from routes other than "/", like /enhance.
@@ -26,12 +24,12 @@ export default function Header() {
             Contact
           </Link>
         </nav>
-        <a
-          href={`mailto:${CONTACT_EMAIL}`}
+        <Link
+          href="/enhance"
           className="btn-press rounded-lg bg-stone-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-stone-800"
         >
           Get Started
-        </a>
+        </Link>
       </div>
     </header>
   );

@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Clickworthy — AI-Powered Photo Enhancement for Restaurants",
+  title: "Clickworthy — Professional Photo Enhancement for Restaurants",
   description:
-    "We identify restaurants with underperforming photos on Google Maps and other listing platforms, and enhance them using AI to help attract more customers online.",
+    "Upload the dish photos you already have and get them back professionally enhanced — ready for your website, Google Business Profile, Instagram, and Yelp. Your real dishes, from $1.80 a photo.",
 };
 
 export default function RootLayout({

@@ -1,11 +1,24 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import Header from "./components/Header";
-import { PACKAGE_ORDER, PACKAGES, formatCents } from "@/lib/packages";
+import { pricePerPhotoCents, totalPriceCents, formatCents } from "@/lib/pricing";
 
 const CONTACT_EMAIL = "contact@clickworthytool.com";
-const BOOKING_URL = process.env.NEXT_PUBLIC_BOOKING_URL;
+
+// Everything price-facing is derived from lib/pricing.ts — the same module the
+// checkout route prices against — so the landing can never quote a number the
+// customer isn't actually charged.
+const STEP_CENTS = pricePerPhotoCents(1) - pricePerPhotoCents(2);
+// First quantity where the per-photo price bottoms out (the "N+" tier).
+const FLOOR_QTY = (() => {
+  const floor = pricePerPhotoCents(Number.MAX_SAFE_INTEGER);
+  for (let q = 1; q < 100; q++) if (pricePerPhotoCents(q) === floor) return q;
+  return 1;
+})();
+const TIER_QUANTITIES = [1, 5, 10, FLOOR_QTY];
+const CALC_MAX = 30;
 
 type Lang = "en" | "es";
 
@@ -51,56 +64,70 @@ const COPY = {
   en: {
     switchTo: "ES",
     heroBadge: "For independent restaurants",
-    heroTitle: "You pay DoorDash 30% to make your food look good on their app.",
+    heroTitle: "Your menu photos, professionally enhanced.",
     heroSub:
-      "Your own website, Google profile, and Instagram are the only places you keep 100% of the order. We make your real dishes look better than your delivery listing — so more customers order direct.",
-    heroCta: "Send us one dish photo — free",
-    heroNote: "We enhance it and send it back within a day. No cost, no catch.",
+      "Upload the photos you already have — even phone shots. We enhance your real dishes so your own website, Google profile, and Instagram finally look better than your delivery listing.",
+    heroCta: "Enhance my photos",
+    heroNote: (from: string) => `From ${from} a photo. No subscription, no minimum — you pay once for exactly what you upload.`,
     before: "Before",
     after: "After",
     howTitle: "How it works",
-    howSub: "Start with one photo. No commitment.",
+    howSub: "Upload today, get them back ready to post.",
     how: [
-      { t: "Reply with one dish photo", d: "Even a phone shot — any dish on your menu." },
-      { t: "We enhance it, free", d: "Your real dish, professionally enhanced — same food, same plate, the way it looks in person. Back within a day." },
-      { t: "Love it? We do your whole menu", d: "We enhance your top dishes and deliver them sized for your website, Google, Instagram, and Yelp." },
+      { t: "Upload your dish photos", d: "Any photo you already have — a phone shot works. Add as many dishes as you like." },
+      { t: "Pay per photo", d: "The more photos you add, the less each one costs. You see the exact total before you pay a cent." },
+      { t: "Get them back, ready to post", d: "Your real dishes, enhanced and ready for your website, Google Business Profile, Instagram, and Yelp." },
     ],
-    offerTitle: "Then, the whole menu",
-    offerSub: "A photographer charges $1,200–$3,500 for a shoot like this. We work from photos you already have.",
-    anchor: "vs. $1,200–$3,500 for a photographer",
-    popular: "Most popular",
-    bookCall: "Book a 15-min call",
-    startFree: "Every project starts with a free sample.",
-    guaranteeTitle: "Love it, or your money back.",
-    guaranteeBody: "If the enhanced photos don't beat what you have now, you don't pay. Delivered within 5 business days.",
+    priceTitle: "Simple per-photo pricing",
+    priceSub: (base: string, step: string, floor: string) =>
+      `Starts at ${base} a photo and drops ${step} with every photo you add, down to ${floor}. No packages, no contracts.`,
+    perPhoto: "per photo",
+    onePhoto: "1 photo",
+    nPhotos: (n: number) => `${n} photos`,
+    nPlusPhotos: (n: number) => `${n}+ photos`,
+    bestValue: "Best value",
+    calcTitle: "What would yours cost?",
+    calcLabel: "Number of photos",
+    calcTotal: "Total",
+    calcCta: (n: number) => `Enhance ${n} ${n === 1 ? "photo" : "photos"}`,
+    guaranteeTitle: "Not happy? You don't pay.",
+    guaranteeBody:
+      "If the enhanced photos don't beat what you have now, email us and we'll refund you. Your real dishes — same food, same plate, never invented.",
     contactTitle: "Questions? Reach out anytime.",
     footer: "Real restaurant photos, professionally enhanced.",
   },
   es: {
     switchTo: "EN",
     heroBadge: "Para restaurantes independientes",
-    heroTitle: "Le paga 30% a DoorDash para que su comida se vea bien en la app de ellos.",
+    heroTitle: "Las fotos de su menú, mejoradas profesionalmente.",
     heroSub:
-      "Su propio sitio web, perfil de Google e Instagram son los únicos lugares donde se queda con el 100% de la orden. Hacemos que sus platos reales se vean mejor que en su listado de delivery — para que más clientes ordenen directo.",
-    heroCta: "Envíenos una foto de un plato — gratis",
-    heroNote: "La mejoramos y se la devolvemos en un día. Sin costo, sin compromiso.",
+      "Suba las fotos que ya tiene — aunque sean del celular. Mejoramos sus platos reales para que su propio sitio web, perfil de Google e Instagram por fin se vean mejor que su listado de delivery.",
+    heroCta: "Mejorar mis fotos",
+    heroNote: (from: string) => `Desde ${from} por foto. Sin suscripción, sin mínimo — paga una sola vez por lo que suba.`,
     before: "Antes",
     after: "Después",
     howTitle: "Cómo funciona",
-    howSub: "Empiece con una foto. Sin compromiso.",
+    howSub: "Suba sus fotos hoy y recíbalas listas para publicar.",
     how: [
-      { t: "Responda con la foto de un plato", d: "Aunque sea del celular — cualquier plato de su menú." },
-      { t: "La mejoramos, gratis", d: "Su plato real, mejorado profesionalmente — la misma comida, el mismo plato, como se ve en persona. En un día." },
-      { t: "¿Le encanta? Hacemos todo el menú", d: "Mejoramos sus mejores platos y se los entregamos listos para su sitio, Google, Instagram y Yelp." },
+      { t: "Suba las fotos de sus platos", d: "Cualquier foto que ya tenga — una del celular sirve. Agregue todos los platos que quiera." },
+      { t: "Pague por foto", d: "Mientras más fotos agregue, menos cuesta cada una. Ve el total exacto antes de pagar." },
+      { t: "Recíbalas listas para publicar", d: "Sus platos reales, mejorados y listos para su sitio web, Google Business Profile, Instagram y Yelp." },
     ],
-    offerTitle: "Después, todo el menú",
-    offerSub: "Un fotógrafo cobra $1,200–$3,500 por una sesión así. Nosotros trabajamos con fotos que ya tiene.",
-    anchor: "vs. $1,200–$3,500 de un fotógrafo",
-    popular: "Más popular",
-    bookCall: "Agende una llamada de 15 min",
-    startFree: "Cada proyecto empieza con una muestra gratis.",
-    guaranteeTitle: "Le encanta, o le devolvemos su dinero.",
-    guaranteeBody: "Si las fotos mejoradas no superan lo que tiene ahora, no paga. Entregado en 5 días hábiles.",
+    priceTitle: "Precio simple, por foto",
+    priceSub: (base: string, step: string, floor: string) =>
+      `Empieza en ${base} por foto y baja ${step} con cada foto que agregue, hasta ${floor}. Sin paquetes, sin contratos.`,
+    perPhoto: "por foto",
+    onePhoto: "1 foto",
+    nPhotos: (n: number) => `${n} fotos`,
+    nPlusPhotos: (n: number) => `${n}+ fotos`,
+    bestValue: "Mejor precio",
+    calcTitle: "¿Cuánto le costaría?",
+    calcLabel: "Cantidad de fotos",
+    calcTotal: "Total",
+    calcCta: (n: number) => `Mejorar ${n} ${n === 1 ? "foto" : "fotos"}`,
+    guaranteeTitle: "¿No le gusta? No paga.",
+    guaranteeBody:
+      "Si las fotos mejoradas no superan lo que tiene ahora, escríbanos y le devolvemos su dinero. Sus platos reales — la misma comida, el mismo plato, nada inventado.",
     contactTitle: "¿Preguntas? Escríbanos cuando quiera.",
     footer: "Fotos reales de restaurantes, mejoradas profesionalmente.",
   },
@@ -108,6 +135,7 @@ const COPY = {
 
 export default function Home() {
   const [lang, setLang] = useState<Lang>("en");
+  const [qty, setQty] = useState(10);
   const c = COPY[lang];
 
   return (
@@ -138,13 +166,15 @@ export default function Home() {
               </h1>
               <p className="mt-6 max-w-xl text-lg [text-wrap:pretty] leading-relaxed text-stone-600">{c.heroSub}</p>
               <div className="mt-10 flex flex-col gap-3">
-                <a
-                  href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("Free sample photo")}`}
+                <Link
+                  href="/enhance"
                   className="btn-press inline-flex items-center justify-center rounded-lg bg-orange-600 px-6 py-3.5 text-base font-semibold text-white shadow-sm hover:bg-orange-700 sm:self-start"
                 >
                   {c.heroCta}
-                </a>
-                <p className="text-sm text-stone-500">{c.heroNote}</p>
+                </Link>
+                <p className="text-sm text-stone-500">
+                  {c.heroNote(formatCents(pricePerPhotoCents(FLOOR_QTY)))}
+                </p>
               </div>
             </div>
 
@@ -189,61 +219,85 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Offer */}
+        {/* Pricing */}
         <section id="pricing" className="border-t border-stone-200 bg-stone-50">
           <div className="mx-auto max-w-7xl px-6 py-24 lg:px-8 lg:py-28">
             <div className="mx-auto max-w-2xl text-center">
-              <h2 className="text-3xl font-bold [text-wrap:balance] tracking-tight sm:text-4xl">{c.offerTitle}</h2>
-              <p className="mt-4 text-lg [text-wrap:pretty] text-stone-600">{c.offerSub}</p>
+              <h2 className="text-3xl font-bold [text-wrap:balance] tracking-tight sm:text-4xl">{c.priceTitle}</h2>
+              <p className="mt-4 text-lg [text-wrap:pretty] text-stone-600">
+                {c.priceSub(
+                  formatCents(pricePerPhotoCents(1)),
+                  formatCents(STEP_CENTS),
+                  formatCents(pricePerPhotoCents(FLOOR_QTY))
+                )}
+              </p>
             </div>
 
-            <div className="mt-14 grid grid-cols-1 gap-6 md:grid-cols-3">
-              {PACKAGE_ORDER.map((id) => {
-                const pkg = PACKAGES[id];
-                const featured = id === "glow_up";
+            {/* Sliding-scale tiers */}
+            <div className="mt-14 grid grid-cols-2 gap-4 md:grid-cols-4 md:gap-6">
+              {TIER_QUANTITIES.map((q, i) => {
+                const best = i === TIER_QUANTITIES.length - 1;
                 return (
                   <div
-                    key={id}
-                    className={`flex flex-col rounded-2xl border bg-white p-7 shadow-sm ${
-                      featured ? "border-orange-300 ring-1 ring-orange-200" : "border-stone-200"
+                    key={q}
+                    className={`flex flex-col rounded-2xl border bg-white p-6 shadow-sm ${
+                      best ? "border-orange-300 ring-1 ring-orange-200" : "border-stone-200"
                     }`}
                   >
-                    {featured && (
+                    {best && (
                       <span className="mb-2 inline-block self-start rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-semibold text-orange-700">
-                        {c.popular}
+                        {c.bestValue}
                       </span>
                     )}
-                    <div className="text-sm font-semibold">{pkg.name[lang]}</div>
-                    <div className="mt-2 flex items-baseline gap-1.5">
-                      <span className="text-3xl font-bold tracking-tight tabular-nums">{formatCents(pkg.priceCents)}</span>
-                      <span className="text-sm text-stone-500">{pkg.billingNote[lang]}</span>
+                    <div className="text-sm font-semibold text-stone-600">
+                      {q === 1 ? c.onePhoto : best ? c.nPlusPhotos(q) : c.nPhotos(q)}
                     </div>
-                    <p className="mt-3 text-sm [text-wrap:pretty] leading-relaxed text-stone-600">{pkg.blurb[lang]}</p>
-                    {featured && <p className="mt-3 text-xs font-medium text-stone-400">{c.anchor}</p>}
-                    {!pkg.checkoutEnabled && BOOKING_URL && (
-                      <a
-                        href={BOOKING_URL}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn-press mt-6 rounded-lg border border-stone-300 px-4 py-2.5 text-center text-sm font-semibold text-stone-800 hover:bg-stone-100"
-                      >
-                        {c.bookCall}
-                      </a>
-                    )}
+                    <div className="mt-2 text-3xl font-bold tracking-tight tabular-nums">
+                      {formatCents(pricePerPhotoCents(q))}
+                    </div>
+                    <div className="mt-1 text-sm text-stone-500">{c.perPhoto}</div>
                   </div>
                 );
               })}
             </div>
 
-            <p className="mt-8 text-center text-sm text-stone-500">
-              {c.startFree}{" "}
-              <a
-                href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent("Free sample photo")}`}
-                className="font-semibold text-orange-600 underline-offset-2 hover:underline"
+            {/* Live calculator */}
+            <div className="mx-auto mt-12 max-w-2xl rounded-2xl border border-stone-200 bg-white p-7 shadow-sm">
+              <h3 className="text-center text-lg font-semibold">{c.calcTitle}</h3>
+
+              <label htmlFor="qty" className="mt-6 block text-sm font-medium text-stone-600">
+                {c.calcLabel}: <span className="font-semibold tabular-nums text-stone-900">{qty}</span>
+              </label>
+              <input
+                id="qty"
+                type="range"
+                min={1}
+                max={CALC_MAX}
+                value={qty}
+                onChange={(e) => setQty(Number(e.target.value))}
+                className="mt-3 w-full accent-orange-600"
+              />
+
+              <div className="mt-6 flex items-end justify-between gap-4 border-t border-stone-200 pt-6">
+                <div>
+                  <div className="text-2xl font-bold tabular-nums">{formatCents(pricePerPhotoCents(qty))}</div>
+                  <div className="text-sm text-stone-500">{c.perPhoto}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-3xl font-bold tracking-tight tabular-nums text-orange-600">
+                    {formatCents(totalPriceCents(qty))}
+                  </div>
+                  <div className="text-sm text-stone-500">{c.calcTotal}</div>
+                </div>
+              </div>
+
+              <Link
+                href="/enhance"
+                className="btn-press mt-6 block rounded-lg bg-orange-600 px-6 py-3 text-center text-base font-semibold text-white shadow-sm hover:bg-orange-700"
               >
-                {c.heroCta}
-              </a>
-            </p>
+                {c.calcCta(qty)}
+              </Link>
+            </div>
 
             {/* Guarantee */}
             <div className="mx-auto mt-12 max-w-2xl rounded-2xl border border-orange-200 bg-orange-50 p-6 text-center text-orange-950">
@@ -263,13 +317,6 @@ export default function Home() {
             >
               {CONTACT_EMAIL}
             </a>
-            {BOOKING_URL && (
-              <div className="mt-6">
-                <a href={BOOKING_URL} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-stone-300 underline-offset-4 hover:text-white hover:underline">
-                  {c.bookCall} →
-                </a>
-              </div>
-            )}
           </div>
         </section>
       </main>

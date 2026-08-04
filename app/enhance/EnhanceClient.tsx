@@ -150,7 +150,8 @@ function UploadForm({ cancelled }: { cancelled: boolean }) {
           </h1>
           <p className="max-w-2xl text-base [text-wrap:pretty] leading-relaxed text-stone-600">
             Upload your food, menu, and interior photos, describe how you&apos;d like them
-            enhanced, and get AI-enhanced versions back — ready to download.
+            enhanced, and get them back professionally enhanced — your real dishes, ready
+            to download.
           </p>
         </div>
 
