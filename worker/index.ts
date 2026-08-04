@@ -18,6 +18,7 @@ import { runReplyPoll } from "./jobs/pollReplies";
 import { runSendTouch2 } from "./jobs/sendTouch2";
 import { runSendBumps } from "./jobs/sendBumps";
 import { runProcessPackages } from "./jobs/processPackage";
+import { runProcessEnhancementOrders } from "./jobs/processEnhancementOrders";
 import { runWeeklyStats } from "./jobs/weeklyStats";
 
 const SEND_QUEUE = "send-outreach";
@@ -82,9 +83,14 @@ async function main() {
     }
   });
 
-  // Paid-package enhancement — processes uploaded photos after payment.
+  // Paid work, both revenue paths: outreach-package uploads get their Claid
+  // first pass, and self-serve /enhance orders are enhanced here rather than
+  // inside the Stripe webhook (which would time out and be retried).
   await boss.work(PACKAGE_QUEUE, async (jobs) => {
-    for (let i = 0; i < jobs.length; i++) await runProcessPackages();
+    for (let i = 0; i < jobs.length; i++) {
+      await runProcessPackages();
+      await runProcessEnhancementOrders();
+    }
   });
 
   // Weekly pipeline report.

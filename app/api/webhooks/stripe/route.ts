@@ -1,25 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { enhancementOrders, magicLinks } from "@/db/schema";
 import { getStripe } from "@/lib/stripe";
-import { enhancePhoto } from "@/lib/claid";
-import { persistEnhancedFromUrl, type StoredPhoto } from "@/lib/storage";
 import { sendAlert } from "@/lib/alerts";
 
-type PhotoResult = {
-  originalName: string;
-  enhancedUrl: string | null;
-  error: string | null;
-};
-
-function appOriginFrom(request: NextRequest): string {
-  const proto = request.headers.get("x-forwarded-proto") ?? request.nextUrl.protocol.replace(":", "");
-  const host = request.headers.get("host") ?? request.nextUrl.host;
-  return `${proto}://${host}`;
-}
-
+// Verifies Stripe's signature, records the payment, and returns fast. The slow
+// enhancement work happens in the worker — see processEnhancementOrders.ts.
 export async function POST(request: NextRequest) {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
@@ -76,57 +64,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ received: true });
   }
 
-  await db
+  // Hand off to the worker and return immediately. Claid takes ~1 min per photo
+  // and Stripe only waits ~30s before treating the webhook as failed and
+  // re-delivering the event, so enhancing here would time out on even a
+  // one-photo order — and the retry would re-run the whole batch, paying Claid
+  // twice. `worker/jobs/processEnhancementOrders.ts` picks the order up within
+  // a minute.
+  //
+  // Only 'pending' advances to 'processing': Stripe retries and duplicate
+  // deliveries of the same event must not knock a completed order back into
+  // the queue and re-enhance it.
+  const advanced = await db
     .update(enhancementOrders)
     .set({ status: "processing" })
-    .where(eq(enhancementOrders.id, order.id));
+    .where(and(eq(enhancementOrders.id, order.id), eq(enhancementOrders.status, "pending")))
+    .returning({ id: enhancementOrders.id });
 
-  // NOTE: this runs the whole enhancement pipeline synchronously inside the
-  // webhook request. For a handful of photos this is fine; for larger orders
-  // Stripe's webhook timeout may be hit before we finish, causing a retry.
-  // TODO: move this to a background job/queue once order volume justifies it.
-  const photos = order.photos as StoredPhoto[];
-  const results: PhotoResult[] = [];
-  const appOrigin = appOriginFrom(request);
-
-  for (let i = 0; i < photos.length; i++) {
-    const photo = photos[i];
-    try {
-      // Claid returns a tmp_url that expires in ~24h — download and re-store it
-      // to our own durable storage so the customer's results don't rot.
-      const claidUrl = await enhancePhoto(photo.url, order.prompt);
-      const enhancedUrl = await persistEnhancedFromUrl(order.stripeSessionId, i, claidUrl, appOrigin);
-      results.push({ originalName: photo.originalName, enhancedUrl, error: null });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(
-        `[stripe-webhook] Claid enhancement failed for "${photo.originalName}" ` +
-          `(order ${order.id}, session ${session.id}):`,
-        message
-      );
-      results.push({ originalName: photo.originalName, enhancedUrl: null, error: message });
-    }
-  }
-
-  const failed = results.filter((r) => r.enhancedUrl === null);
-  const anySucceeded = results.length > failed.length;
-
-  // A paid /enhance order with any failed photo needs a human — they paid.
-  if (failed.length > 0) {
-    await sendAlert(
-      "Paid /enhance order had photo failures",
-      `Order ${order.id} (session ${session.id}): ${failed.length}/${results.length} photos failed to enhance.`
+  if (advanced.length === 0) {
+    console.log(
+      `[stripe-webhook] order ${order.id} already ${order.status} — ignoring duplicate delivery of ${session.id}`
     );
+    return NextResponse.json({ received: true });
   }
 
-  await db
-    .update(enhancementOrders)
-    .set({
-      status: anySucceeded ? "completed" : "failed",
-      results,
-      completedAt: new Date(),
-    })
-    .where(eq(enhancementOrders.id, order.id));
-
+  console.log(`[stripe-webhook] order ${order.id} paid — queued for enhancement`);
   return NextResponse.json({ received: true });
 }

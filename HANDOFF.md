@@ -116,9 +116,6 @@ See `.env.example` for the full annotated list.
 ---
 
 ## Known technical TODOs / gaps
-- The `/enhance` Stripe webhook enhances photos **inline** — a large order could
-  hit Stripe's webhook timeout. Should become a queued worker job (the outreach
-  package flow already does this correctly; `/enhance` doesn't yet).
 - **Touch 2 is not threaded** onto the customer's reply (sent as a new email).
   The Touch 1.5 bump *is* threaded correctly and shows the pattern to copy.
 - Deliverability auto-pause uses opt-out/bounce **proxy** signals, not real

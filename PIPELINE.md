@@ -78,15 +78,23 @@ flowchart TD
     E1["1. Upload photos + custom prompt<br/>live price (server-recomputed)"]
     E2["2. /api/create-checkout-session<br/>moderate prompt · price · store photos"]
     E3["3. Stripe Checkout → paid"]
-    E4["4. Webhook: Claid enhances each photo<br/>(customer's prompt) · durable storage"]
-    E5["5. Results page — before/after + download"]
-    E1 --> E2 --> E3 --> E4 --> E5
+    E4["4. Webhook marks the order 'processing'<br/>and returns immediately"]
+    E5["5. Worker (every 1 min) Claid-enhances each photo<br/>(customer's prompt) · durable storage"]
+    E6["6. Results page — before/after + download<br/>(polls until ready)"]
+    E1 --> E2 --> E3 --> E4 --> E5 --> E6
 ```
 
 This is what the **public landing page sells** — anyone can use it directly, no
 outreach needed. Sliding price ($3.00/photo down to a $1.80 floor at 13+),
-Claude moderates the free-text prompt, price is always recalculated server-side,
-and the Stripe webhook runs the enhancement.
+Claude moderates the free-text prompt, and price is always recalculated
+server-side.
+
+The webhook deliberately does **no** enhancement work: Claid takes ~1 min per
+photo and Stripe re-delivers a webhook it hasn't heard back from in ~30s, so
+enhancing inline would time out and the retry would re-run the whole batch at
+double the Claid cost. The webhook only flips `pending → processing` (and only
+from `pending`, so duplicate deliveries are harmless);
+`worker/jobs/processEnhancementOrders.ts` does the work.
 
 The high-ticket packages are deliberately **not** shown here or on the landing —
 they exist only inside the outreach funnel.
