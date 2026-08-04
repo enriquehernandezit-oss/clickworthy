@@ -127,6 +127,29 @@ export async function getThreadingInfo(
   return { messageId: header("message-id"), subject: header("subject") };
 }
 
+// Fetches the RFC Message-ID + Subject of the NEWEST message in a thread —
+// i.e. the customer's own reply, once they've written back. Replying with
+// In-Reply-To pointing at their message (rather than at our original) is what
+// makes Touch 2 read as a genuine answer to them instead of a new broadcast.
+// Returns nulls if the thread can't be read, so callers can fall back to
+// sending standalone rather than not sending at all.
+export async function getThreadTail(
+  threadId: string
+): Promise<{ messageId: string | null; subject: string | null }> {
+  const res = await authedFetch(
+    `/threads/${threadId}?format=metadata&metadataHeaders=Message-ID&metadataHeaders=Subject`
+  );
+  if (!res.ok) return { messageId: null, subject: null };
+  const body = (await res.json()) as {
+    messages?: { payload?: { headers?: { name: string; value: string }[] } }[];
+  };
+  const last = body.messages?.[body.messages.length - 1];
+  if (!last) return { messageId: null, subject: null };
+  const header = (name: string) =>
+    last.payload?.headers?.find((x) => x.name.toLowerCase() === name)?.value ?? null;
+  return { messageId: header("message-id"), subject: header("subject") };
+}
+
 // --- Reply reading ---------------------------------------------------------
 
 export type GmailMessageMeta = {

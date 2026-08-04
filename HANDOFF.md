@@ -116,8 +116,6 @@ See `.env.example` for the full annotated list.
 ---
 
 ## Known technical TODOs / gaps
-- **Touch 2 is not threaded** onto the customer's reply (sent as a new email).
-  The Touch 1.5 bump *is* threaded correctly and shows the pattern to copy.
 - Deliverability auto-pause uses opt-out/bounce **proxy** signals, not real
   Google Postmaster Tools data.
 - `/enhance` results page is reachable by anyone with the session-id URL (no

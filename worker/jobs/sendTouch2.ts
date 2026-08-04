@@ -5,13 +5,38 @@
 // Gated by OUTREACH_ENABLED like Touch 1 — even though this is a solicited
 // message, we keep all Gmail sending behind one switch during testing.
 
-import { and, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { magicLinks, restaurants, outreachJobs } from "@/db/schema";
 import { config } from "../config";
-import { sendEmail } from "../lib/gmail";
+import { sendEmail, getThreadTail } from "../lib/gmail";
 import { composeTouch2 } from "../lib/outreachEmail";
 import { withRetry } from "../lib/retry";
+
+// The conversation this restaurant is already in. Touch 1 and the bump share a
+// thread, so the most recent job with a thread id points at the right one.
+// Returns nulls on any failure — a missing thread must never block delivery of
+// a photo someone is waiting for; we just send it standalone instead.
+async function threadToReplyInto(
+  restaurantId: number
+): Promise<{ threadId: string | null; inReplyTo: string | null }> {
+  const [prior] = await db
+    .select({ threadId: outreachJobs.gmailThreadId })
+    .from(outreachJobs)
+    .where(and(eq(outreachJobs.restaurantId, restaurantId), isNotNull(outreachJobs.gmailThreadId)))
+    .orderBy(desc(outreachJobs.sentAt))
+    .limit(1);
+
+  if (!prior?.threadId) return { threadId: null, inReplyTo: null };
+
+  try {
+    const { messageId } = await getThreadTail(prior.threadId);
+    return { threadId: prior.threadId, inReplyTo: messageId };
+  } catch (err) {
+    console.warn(`[touch2] thread lookup failed for ${prior.threadId}:`, err instanceof Error ? err.message : err);
+    return { threadId: prior.threadId, inReplyTo: null };
+  }
+}
 
 export async function runSendTouch2(): Promise<void> {
   const enabled = process.env.OUTREACH_ENABLED === "true" && !config.dryRun;
@@ -52,10 +77,22 @@ export async function runSendTouch2(): Promise<void> {
     }
 
     try {
-      const sent = await withRetry(() => sendEmail({ to: r.email!, subject, body, fromName: "Clickworthy" }), {
-        label: `gmail touch2 ${r.email}`,
-        attempts: 2,
-      });
+      // Land in the thread they replied in. The approved Touch 2 subject is
+      // kept as-is (it's locked copy) — In-Reply-To/References carry the
+      // threading, and Gmail additionally honours threadId directly.
+      const { threadId, inReplyTo } = await threadToReplyInto(r.id);
+      const sent = await withRetry(
+        () =>
+          sendEmail({
+            to: r.email!,
+            subject,
+            body,
+            fromName: "Clickworthy",
+            threadId: threadId ?? undefined,
+            inReplyTo,
+          }),
+        { label: `gmail touch2 ${r.email}`, attempts: 2 }
+      );
       await db.update(magicLinks).set({ touch2SentAt: new Date() }).where(eq(magicLinks.id, link.id));
       await db.insert(outreachJobs).values({
         restaurantId: r.id,
