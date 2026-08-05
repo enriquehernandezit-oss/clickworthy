@@ -9,6 +9,7 @@ import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { magicLinks, restaurants, outreachJobs } from "@/db/schema";
 import { config } from "../config";
+import { getSetting } from "@/lib/settings";
 import { sendEmail, getThreadTail } from "../lib/gmail";
 import { composeTouch2 } from "../lib/outreachEmail";
 import { withRetry } from "../lib/retry";
@@ -39,6 +40,10 @@ async function threadToReplyInto(
 }
 
 export async function runSendTouch2(): Promise<void> {
+  if (await getSetting("outreach_paused")) {
+    console.warn("[touch2] outreach_paused — skipping.");
+    return;
+  }
   const enabled = process.env.OUTREACH_ENABLED === "true" && !config.dryRun;
 
   const ready = await db

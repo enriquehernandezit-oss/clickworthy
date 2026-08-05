@@ -7,6 +7,7 @@ import { and, eq, isNull, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants, outreachJobs } from "@/db/schema";
 import { config } from "../config";
+import { getSetting } from "@/lib/settings";
 import { sendEmail, getThreadingInfo } from "../lib/gmail";
 import { composeBump } from "../lib/outreachEmail";
 import { isSuppressed } from "../lib/suppression";
@@ -15,6 +16,10 @@ import { withRetry } from "../lib/retry";
 const BUMP_AFTER_DAYS = 3;
 
 export async function runSendBumps(): Promise<void> {
+  if (await getSetting("outreach_paused")) {
+    console.warn("[bump] outreach_paused — skipping.");
+    return;
+  }
   const enabled = process.env.OUTREACH_ENABLED === "true" && !config.dryRun;
   const cutoff = new Date(Date.now() - BUMP_AFTER_DAYS * 86_400_000);
 

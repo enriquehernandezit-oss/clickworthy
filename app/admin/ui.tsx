@@ -37,6 +37,8 @@ const BADGE_TONES: Record<string, string> = {
   sent: "bg-green-50 text-green-700 ring-green-200",
   replied: "bg-orange-50 text-orange-700 ring-orange-200",
   bumped: "bg-amber-50 text-amber-700 ring-amber-200",
+  draft: "bg-blue-50 text-blue-700 ring-blue-200",
+  cancelled: "bg-stone-100 text-stone-500 ring-stone-200",
   approved: "bg-green-50 text-green-700 ring-green-200",
   completed: "bg-green-50 text-green-700 ring-green-200",
   awaiting_edit: "bg-orange-50 text-orange-700 ring-orange-200",

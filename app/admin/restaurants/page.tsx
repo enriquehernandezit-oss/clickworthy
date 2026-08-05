@@ -29,6 +29,7 @@ async function getRestaurants(status: string, q: string, page: number) {
       priorityScore: restaurants.priorityScore,
       language: restaurants.language,
       suppressed: restaurants.suppressed,
+      held: restaurants.held,
       website: restaurants.website,
     })
     .from(restaurants)
@@ -126,6 +127,7 @@ export default async function RestaurantsPage({
                       {r.city ?? "—"}
                       {r.language === "es" && " · ES"}
                       {r.suppressed && <span className="ml-1 font-medium text-red-600">· suppressed</span>}
+                      {r.held && <span className="ml-1 font-medium text-amber-600">· held</span>}
                     </div>
                     {r.website && (
                       <a
@@ -154,6 +156,7 @@ export default async function RestaurantsPage({
                       email={r.email}
                       suppressed={Boolean(r.suppressed)}
                       needsEmail={r.enrichmentStatus === "needs_manual_email"}
+                      held={Boolean(r.held)}
                     />
                   </td>
                 </tr>

@@ -44,6 +44,9 @@ async function getWeekly() {
 }
 
 async function getWork() {
+  const [{ drafts }] = await db
+    .select({ drafts: sql<number>`count(*) filter (where ${outreachJobs.status} = 'draft')::int` })
+    .from(outreachJobs);
   const [{ awaitingEdit }] = await db
     .select({ awaitingEdit: sql<number>`count(*) filter (where ${magicLinks.reviewStatus} = 'awaiting_edit')::int` })
     .from(magicLinks);
@@ -59,6 +62,7 @@ async function getWork() {
     .where(isNotNull(enhancementOrders.id));
 
   return {
+    drafts: drafts ?? 0,
     awaitingEdit: awaitingEdit ?? 0,
     readyForReview: readyForReview ?? 0,
     paid: paid ?? 0,
@@ -74,6 +78,7 @@ export default async function AdminOverviewPage() {
       <section>
         <SectionHeading>Needs your attention</SectionHeading>
         <div className="mt-3 flex flex-wrap gap-3">
+          <StatChip value={work.drafts} label="drafts to review" href="/admin/outreach?status=draft" />
           <StatChip value={work.awaitingEdit} label="replies to edit" href="/admin/samples" />
           <StatChip value={work.readyForReview} label="orders to finish" href="/admin/orders" />
         </div>

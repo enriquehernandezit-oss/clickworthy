@@ -10,11 +10,13 @@ export default function RestaurantActions({
   email,
   suppressed,
   needsEmail,
+  held,
 }: {
   restaurantId: number;
   email: string | null;
   suppressed: boolean;
   needsEmail: boolean;
+  held: boolean;
 }) {
   const router = useRouter();
   const [value, setValue] = useState(email ?? "");
@@ -85,6 +87,25 @@ export default function RestaurantActions({
             className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 disabled:opacity-50"
           >
             {busy === "suppress" ? "Working…" : "Suppress"}
+          </button>
+        )}
+        {held ? (
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => post("unhold")}
+            className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50"
+          >
+            {busy === "unhold" ? "Working…" : "Unhold"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => post("hold")}
+            className="rounded-lg border border-amber-300 px-3 py-1.5 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-50 disabled:opacity-50"
+          >
+            {busy === "hold" ? "Working…" : "Hold"}
           </button>
         )}
         {needsEmail && !email && <span className="text-xs text-amber-700">needs an email to send</span>}

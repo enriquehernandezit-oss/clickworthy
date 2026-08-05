@@ -54,5 +54,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, suppressed: false });
   }
 
+  // Hold pulls a restaurant out of Touch-1 drafting without suppressing it (still
+  // fine for replies/samples). Unhold makes it draftable again next run.
+  if (action === "hold") {
+    await db.update(restaurants).set({ held: true }).where(eq(restaurants.id, id));
+    return NextResponse.json({ ok: true, held: true });
+  }
+  if (action === "unhold") {
+    await db.update(restaurants).set({ held: false }).where(eq(restaurants.id, id));
+    return NextResponse.json({ ok: true, held: false });
+  }
+
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });
 }
