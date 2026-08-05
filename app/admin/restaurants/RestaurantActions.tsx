@@ -11,12 +11,14 @@ export default function RestaurantActions({
   suppressed,
   needsEmail,
   held,
+  rejected,
 }: {
   restaurantId: number;
   email: string | null;
   suppressed: boolean;
   needsEmail: boolean;
   held: boolean;
+  rejected?: boolean;
 }) {
   const router = useRouter();
   const [value, setValue] = useState(email ?? "");
@@ -106,6 +108,16 @@ export default function RestaurantActions({
             className="rounded-lg border border-amber-300 px-3 py-1.5 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-50 disabled:opacity-50"
           >
             {busy === "hold" ? "Working…" : "Hold"}
+          </button>
+        )}
+        {rejected && (
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => post("requeue")}
+            className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50"
+          >
+            {busy === "requeue" ? "Working…" : "Requeue"}
           </button>
         )}
         {needsEmail && !email && <span className="text-xs text-amber-700">needs an email to send</span>}

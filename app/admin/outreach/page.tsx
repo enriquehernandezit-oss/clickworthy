@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { outreachJobs, restaurants } from "@/db/schema";
 import { Badge, Card, EmptyState, Pager, SectionHeading, fmtDateTime } from "../ui";
 import DraftActions, { ApproveAllButton } from "./DraftActions";
+import UnapproveButton from "./UnapproveButton";
 
 // Top: Touch-1 drafts awaiting your approval (nothing sends until you approve).
 // Below: the full log of every email the pipeline has sent, with exact bodies.
@@ -208,6 +209,8 @@ export default async function OutreachPage({
                   </pre>
                 </details>
               )}
+
+              {job.status === "approved" && !job.sentAt && <UnapproveButton outreachJobId={job.id} />}
 
               {job.replyBody && (
                 <details className="mt-2" open>

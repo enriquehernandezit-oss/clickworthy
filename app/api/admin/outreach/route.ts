@@ -39,6 +39,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, status: "approved" });
   }
 
+  // Pull an approved (but not-yet-sent) draft back to draft, so it stops before
+  // the next send run without needing the global pause.
+  if (action === "unapprove") {
+    if (job.status !== "approved" || job.sentAt) {
+      return NextResponse.json({ error: `Can only un-approve an unsent approved draft (this is ${job.status}).` }, { status: 409 });
+    }
+    await db.update(outreachJobs).set({ status: "draft", approvedAt: null }).where(eq(outreachJobs.id, id));
+    return NextResponse.json({ ok: true, status: "draft" });
+  }
+
   if (action === "redraft") {
     if (job.status !== "draft" && job.status !== "approved") {
       return NextResponse.json({ error: `Can only redraft a draft/approved row (this is ${job.status}).` }, { status: 409 });

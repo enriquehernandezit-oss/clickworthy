@@ -10,6 +10,7 @@ const TABS = [
   ["/admin/samples", "Samples"],
   ["/admin/orders", "Orders"],
   ["/admin/suppressions", "Suppressions"],
+  ["/admin/controls", "Controls"],
 ] as const;
 
 export default function AdminNav() {

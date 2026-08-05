@@ -83,5 +83,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, reviewStatus: "rejected" });
   }
 
+  // Undo a rejection — puts the reply back in the edit queue. Rejecting used to
+  // be a permanent one-click loss of a lead that replied with a photo.
+  if (action === "unreject") {
+    if (link.reviewStatus !== "rejected") {
+      return NextResponse.json({ error: `Only a rejected sample can be restored (this is ${link.reviewStatus}).` }, { status: 409 });
+    }
+    await db.update(magicLinks).set({ reviewStatus: "awaiting_edit" }).where(eq(magicLinks.id, id));
+    return NextResponse.json({ ok: true, reviewStatus: "awaiting_edit" });
+  }
+
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });
 }

@@ -137,8 +137,10 @@ async function draftBatch(autosend: boolean): Promise<void> {
         eq(restaurants.suppressed, false),
         eq(restaurants.held, false),
         isNotNull(restaurants.email),
-        // No existing touch-1 row (drafted, approved, or sent) — don't double-draft.
-        sql`not exists (select 1 from ${outreachJobs} o where o.restaurant_id = ${restaurants.id} and o.touch_number = 1)`
+        // No LIVE touch-1 row (drafted/approved/sent) — don't double-draft. A
+        // `cancelled` row is excluded so un-holding a restaurant whose draft was
+        // cancelled at send time can produce a fresh Touch 1.
+        sql`not exists (select 1 from ${outreachJobs} o where o.restaurant_id = ${restaurants.id} and o.touch_number = 1 and o.status <> 'cancelled')`
       )
     )
     .orderBy(sql`${restaurants.priorityScore} desc nulls last`)

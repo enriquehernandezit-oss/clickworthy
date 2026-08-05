@@ -35,19 +35,26 @@ async function processOne(linkId: number, token: string, originals: Original[]):
   }
 
   const succeeded = results.filter((r) => r.enhancedUrl !== null).length;
-  // This is only a first pass — Enrique/Jose finish and approve each photo in
-  // /admin before it's delivered. Never auto-delivers to the paid customer.
+  // If EVERY photo failed the first pass, mark the order `failed` — otherwise it
+  // shows up as "ready to finish" with N blank tiles and the customer's upload
+  // page polls forever. A partial success still goes to review (a human finishes
+  // the blanks). Never auto-delivers to the paid customer.
+  const allFailed = succeeded === 0 && results.length > 0;
   await db
     .update(magicLinks)
-    .set({ packageResults: results, packageStatus: "ready_for_review" })
+    .set({ packageResults: results, packageStatus: allFailed ? "failed" : "ready_for_review" })
     .where(eq(magicLinks.id, linkId));
 
-  console.log(`[package] link ${token}: ${succeeded}/${results.length} first-passed → ready for review`);
+  console.log(
+    `[package] link ${token}: ${succeeded}/${results.length} first-passed → ${allFailed ? "FAILED" : "ready for review"}`
+  );
 
   await sendAlert(
-    "Paid order ready to finish",
-    `Link ${token}: ${succeeded}/${results.length} photos got a Claid first pass. ` +
-      "Finish + approve them in /admin, then deliver."
+    allFailed ? "Paid order FAILED — every photo errored" : "Paid order ready to finish",
+    allFailed
+      ? `Link ${token}: all ${results.length} photos failed the Claid first pass. Check the errors in /admin and retry or refund.`
+      : `Link ${token}: ${succeeded}/${results.length} photos got a Claid first pass. ` +
+        "Finish + approve them in /admin, then deliver."
   );
 }
 

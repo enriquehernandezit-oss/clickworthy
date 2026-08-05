@@ -1,6 +1,7 @@
 import { and, eq, ilike, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants } from "@/db/schema";
+import Link from "next/link";
 import RestaurantActions from "./RestaurantActions";
 import { Badge, EmptyState, Pager, SectionHeading } from "../ui";
 
@@ -97,9 +98,9 @@ export default async function RestaurantsPage({
           Filter
         </button>
         {(status !== "all" || q) && (
-          <a href="/admin/restaurants" className="py-2 text-sm font-medium text-stone-500 hover:text-stone-800">
+          <Link href="/admin/restaurants" className="py-2 text-sm font-medium text-stone-500 hover:text-stone-800">
             Clear
-          </a>
+          </Link>
         )}
       </form>
 
@@ -122,7 +123,9 @@ export default async function RestaurantsPage({
               {list.map((r) => (
                 <tr key={r.id} className="border-b border-stone-100 align-top">
                   <td className="px-3 py-3">
-                    <div className="font-medium">{r.name}</div>
+                    <Link href={`/admin/restaurants/${r.id}`} className="font-medium text-stone-900 hover:text-orange-700 hover:underline">
+                      {r.name}
+                    </Link>
                     <div className="text-xs text-stone-500">
                       {r.city ?? "—"}
                       {r.language === "es" && " · ES"}
@@ -157,6 +160,7 @@ export default async function RestaurantsPage({
                       suppressed={Boolean(r.suppressed)}
                       needsEmail={r.enrichmentStatus === "needs_manual_email"}
                       held={Boolean(r.held)}
+                      rejected={r.enrichmentStatus === "rejected"}
                     />
                   </td>
                 </tr>

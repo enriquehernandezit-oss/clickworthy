@@ -46,6 +46,55 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, suppressed: true });
   }
 
+  // Inline dossier edit: fix Vision-derived fields (dish/name/language) and/or
+  // the email. Empty dish/first-name clears to null; email is only touched when
+  // provided, and keeps the needs_manual_email -> queued release rule.
+  if (action === "set_fields") {
+    const patch: Record<string, unknown> = {};
+
+    if (form.has("signatureDish")) {
+      const v = String(form.get("signatureDish") ?? "").trim();
+      patch.signatureDish = v || null;
+    }
+    if (form.has("contactFirstName")) {
+      const v = String(form.get("contactFirstName") ?? "").trim();
+      patch.contactFirstName = v || null;
+    }
+    if (form.has("language")) {
+      const v = String(form.get("language") ?? "");
+      if (v !== "en" && v !== "es") return NextResponse.json({ error: "Language must be en or es" }, { status: 400 });
+      patch.language = v;
+    }
+    if (form.has("email")) {
+      const email = String(form.get("email") ?? "").trim().toLowerCase();
+      if (email) {
+        if (!EMAIL_RE.test(email)) return NextResponse.json({ error: "That doesn't look like an email." }, { status: 400 });
+        patch.email = email;
+        patch.emailSource = "manual";
+      }
+    }
+
+    if (Object.keys(patch).length === 0) return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+
+    // Release a needs_manual_email row back to queued once BOTH blockers are
+    // cleared — it can be held on a missing email OR a missing signature dish
+    // (worker/jobs/sendOutreach.ts). The old code only requeued via the email
+    // branch, so fixing just the dish left the row stuck.
+    if (row.enrichmentStatus === "needs_manual_email") {
+      const effEmail = (patch.email as string | undefined) ?? row.email;
+      const effDish = "signatureDish" in patch ? (patch.signatureDish as string | null) : row.signatureDish;
+      if (effEmail && effDish) patch.enrichmentStatus = "queued";
+    }
+    await db.update(restaurants).set(patch).where(eq(restaurants.id, id));
+    return NextResponse.json({ ok: true });
+  }
+
+  // Put a rejected / needs_manual_email restaurant back in line to be drafted.
+  if (action === "requeue") {
+    await db.update(restaurants).set({ enrichmentStatus: "queued" }).where(eq(restaurants.id, id));
+    return NextResponse.json({ ok: true, enrichmentStatus: "queued" });
+  }
+
   if (action === "unsuppress") {
     await db.update(restaurants).set({ suppressed: false }).where(eq(restaurants.id, id));
     if (row.email) {

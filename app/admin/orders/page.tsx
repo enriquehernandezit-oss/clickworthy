@@ -4,6 +4,7 @@ import { magicLinks, restaurants, enhancementOrders } from "@/db/schema";
 import { PACKAGES, isPackageId, formatCents as formatPackageCents } from "@/lib/packages";
 import { formatCents as formatPhotoCents } from "@/lib/pricing";
 import PackageActions from "../PackageActions";
+import RetryOrderButton from "./RetryOrderButton";
 import { Badge, Card, EmptyState, Pager, SectionHeading, fmtDate } from "../ui";
 
 // Orders across BOTH revenue paths: outreach packages (sold through the
@@ -171,6 +172,7 @@ export default async function OrdersPage({
                   <th className="px-3 py-2 font-semibold">Total</th>
                   <th className="px-3 py-2 font-semibold">Created</th>
                   <th className="px-3 py-2 font-semibold">Completed</th>
+                  <th className="px-3 py-2 font-semibold"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -184,6 +186,9 @@ export default async function OrdersPage({
                     <td className="px-3 py-2 tabular-nums font-medium">{formatPhotoCents(row.totalCents)}</td>
                     <td className="px-3 py-2 tabular-nums text-stone-600">{fmtDate(row.createdAt)}</td>
                     <td className="px-3 py-2 tabular-nums text-stone-600">{fmtDate(row.completedAt)}</td>
+                    <td className="px-3 py-2">
+                      {row.status === "failed" && <RetryOrderButton orderId={row.id} />}
+                    </td>
                   </tr>
                 ))}
               </tbody>

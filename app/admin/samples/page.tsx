@@ -2,6 +2,7 @@ import { desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { magicLinks, restaurants } from "@/db/schema";
 import SampleActions from "../SampleActions";
+import UnrejectButton from "./UnrejectButton";
 import { Badge, Card, EmptyState, Figure, Pager, SectionHeading, fmtDate } from "../ui";
 
 // Free-sample production: the work queue (replies awaiting a human edit) plus
@@ -112,6 +113,7 @@ export default async function SamplesPage({
                   <th className="px-3 py-2 font-semibold">Sample sent</th>
                   <th className="px-3 py-2 font-semibold">Viewed</th>
                   <th className="px-3 py-2 font-semibold">Paid</th>
+                  <th className="px-3 py-2 font-semibold"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -140,6 +142,9 @@ export default async function SamplesPage({
                     <td className="px-3 py-2 tabular-nums text-stone-600">{fmtDate(row.touch2SentAt)}</td>
                     <td className="px-3 py-2 tabular-nums text-stone-600">{fmtDate(row.viewedAt)}</td>
                     <td className="px-3 py-2 tabular-nums text-stone-600">{fmtDate(row.paidAt)}</td>
+                    <td className="px-3 py-2">
+                      {row.reviewStatus === "rejected" && <UnrejectButton magicLinkId={row.id} />}
+                    </td>
                   </tr>
                 ))}
               </tbody>

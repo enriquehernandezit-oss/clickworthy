@@ -82,17 +82,22 @@ function PhotoRow({
   const fileRef = useRef<HTMLInputElement>(null);
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-stone-200 p-3">
-      <div className="aspect-square overflow-hidden rounded bg-stone-100">
+      <div className={`aspect-square overflow-hidden rounded ${result.error ? "bg-red-50" : "bg-stone-100"}`}>
         {result.enhancedUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={result.enhancedUrl} alt={result.name} className="h-full w-full object-cover" />
+        ) : result.error ? (
+          <div className="flex h-full flex-col items-center justify-center gap-1 px-2 text-center">
+            <span className="text-xs font-semibold text-red-700">Claid failed</span>
+            <span className="line-clamp-3 text-[10px] leading-tight text-red-600">{result.error}</span>
+          </div>
         ) : (
           <div className="flex h-full items-center justify-center px-2 text-center text-xs text-stone-400">
             not finished
           </div>
         )}
       </div>
-      <span className="truncate text-xs text-stone-500">{result.name}</span>
+      <span className="truncate text-xs text-stone-500" title={result.name}>{result.name}</span>
       <div className="flex gap-2">
         <button
           type="button"
