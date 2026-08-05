@@ -1,17 +1,20 @@
-// Touch 1 send job (nightly). Picks the highest-priority queued restaurants
-// that have a contactable email, respects a daily volume ramp, and sends the
-// cold email via Gmail. Recording each send in `outreachJobs` (with Gmail
-// message + thread ids) is what lets the reply poller match replies later.
+// Touch 1 job (nightly). Two phases in one run:
+//   1. draftBatch()   — pick the highest-priority queued restaurants and write
+//                       a DRAFT outreach row (composed email, not sent). A human
+//                       approves drafts in /admin. When outreach_autosend is on,
+//                       drafts are written already-approved so phase 2 sends them.
+//   2. sendApproved() — send every approved-but-unsent draft via Gmail, respecting
+//                       the daily ramp, the pause switch, and the deliverability guard.
 //
-// SAFETY: sending is OFF unless OUTREACH_ENABLED=true. With it off (the default)
-// this logs exactly what it WOULD send and changes nothing — so the pipeline is
-// fully testable before real cold email goes out, and before Jose's approved
-// Touch 1 copy replaces the generated placeholder.
+// SAFETY layers: WORKER_DRY_RUN makes both phases inert (log only, no writes);
+// OUTREACH_ENABLED gates real Gmail sending (drafting still runs so you can review
+// real drafts first); the outreach_paused DB setting is a panic button on sending.
 
-import { and, desc, eq, gte, isNotNull, sql } from "drizzle-orm";
+import { and, asc, eq, gte, isNotNull, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants, outreachJobs, suppressions } from "@/db/schema";
 import { sendAlert } from "@/lib/alerts";
+import { getSetting } from "@/lib/settings";
 import { config } from "../config";
 import { sendEmail } from "../lib/gmail";
 import { composeTouch1 } from "../lib/outreachEmail";
@@ -23,6 +26,9 @@ import { withRetry } from "../lib/retry";
 const RAMP_START = 30;
 const RAMP_STEP = 5;
 const RAMP_CAP = 50;
+
+// Exposed so the worker can report the live ramp in its boot-info snapshot.
+export const RAMP = { start: RAMP_START, step: RAMP_STEP, cap: RAMP_CAP };
 
 function startOfToday(): Date {
   // Note: Date.now()/new Date() are fine at runtime in the worker (this is not a
@@ -83,22 +89,44 @@ async function deliverabilityHealthy(): Promise<boolean> {
 }
 
 export async function runSendOutreach(): Promise<void> {
+  const autosend = await getSetting("outreach_autosend");
+  await draftBatch(autosend);
+  await sendApproved();
+}
+
+// How many touch-1 rows are already drafted or approved-but-unsent — the review
+// pile. Subtracting these from the cap keeps the pile bounded at ~cap so it
+// can't grow without limit while approvals lag.
+async function pendingCount(): Promise<number> {
+  const [{ n }] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(outreachJobs)
+    .where(
+      and(
+        eq(outreachJobs.touchNumber, 1),
+        isNull(outreachJobs.sentAt),
+        sql`${outreachJobs.status} in ('draft','approved')`
+      )
+    );
+  return n ?? 0;
+}
+
+// Phase 1: compose drafts for the top queued restaurants. Writes nothing in a
+// dry run (fixes the old quirk where suppress/needs_manual_email mutations still
+// fired). Restaurants stay `queued` while drafted — the NOT EXISTS guard below
+// stops a second run from drafting them again.
+async function draftBatch(autosend: boolean): Promise<void> {
   const cap = await dailyCap();
   const already = await sentToday();
-  const remaining = Math.max(0, cap - already);
+  const pending = await pendingCount();
+  const room = Math.max(0, cap - already - pending);
 
-  const enabled = process.env.OUTREACH_ENABLED === "true" && !config.dryRun;
   console.log(
-    `[send] daily cap ${cap}, already sent ${already}, remaining ${remaining} ` +
-      `(sending ${enabled ? "ENABLED" : "DISABLED — log only"})`
+    `[draft] cap ${cap}, sent today ${already}, pending ${pending}, drafting up to ${room}` +
+      (config.dryRun ? " [DRY RUN — no writes]" : "") +
+      (autosend ? " [AUTOSEND — drafts self-approve]" : "")
   );
-  if (remaining === 0) return;
-
-  // Auto-pause if the domain's opt-out/bounce rate has spiked.
-  if (enabled && !(await deliverabilityHealthy())) {
-    console.warn("[send] paused this run — deliverability guard tripped.");
-    return;
-  }
+  if (room === 0) return;
 
   const candidates = await db
     .select()
@@ -107,26 +135,30 @@ export async function runSendOutreach(): Promise<void> {
       and(
         eq(restaurants.enrichmentStatus, "queued"),
         eq(restaurants.suppressed, false),
-        isNotNull(restaurants.email)
+        eq(restaurants.held, false),
+        isNotNull(restaurants.email),
+        // No existing touch-1 row (drafted, approved, or sent) — don't double-draft.
+        sql`not exists (select 1 from ${outreachJobs} o where o.restaurant_id = ${restaurants.id} and o.touch_number = 1)`
       )
     )
-    .orderBy(desc(restaurants.priorityScore))
-    .limit(remaining);
+    .orderBy(sql`${restaurants.priorityScore} desc nulls last`)
+    .limit(room);
 
   for (const r of candidates) {
     const email = r.email!;
+
     if (await isSuppressed(email)) {
-      await db.update(restaurants).set({ suppressed: true }).where(eq(restaurants.id, r.id));
+      if (!config.dryRun) await db.update(restaurants).set({ suppressed: true }).where(eq(restaurants.id, r.id));
+      console.log(`[draft] skip ${email} — suppressed`);
       continue;
     }
 
-    // The approved Touch 1 hinges on a real signature dish — skip anyone the
+    // The approved Touch 1 hinges on a real signature dish — hold anyone the
     // enricher couldn't find one for (they wait as needs_manual_email).
     if (!r.signatureDish) {
-      await db
-        .update(restaurants)
-        .set({ enrichmentStatus: "needs_manual_email" })
-        .where(eq(restaurants.id, r.id));
+      if (!config.dryRun)
+        await db.update(restaurants).set({ enrichmentStatus: "needs_manual_email" }).where(eq(restaurants.id, r.id));
+      console.log(`[draft] skip ${r.name} — no signature dish`);
       continue;
     }
 
@@ -139,25 +171,86 @@ export async function runSendOutreach(): Promise<void> {
       subjectVariant: r.id,
     });
 
-    if (!enabled) {
-      console.log(`[send] (dry) -> ${email} | ${subject}\n${body}\n`);
+    if (config.dryRun) {
+      console.log(`[draft] (dry) would draft -> ${email} | ${subject}`);
+      continue;
+    }
+
+    const now = new Date();
+    await db.insert(outreachJobs).values({
+      restaurantId: r.id,
+      touchNumber: 1,
+      subject,
+      emailContent: body,
+      draftedAt: now,
+      status: autosend ? "approved" : "draft",
+      approvedAt: autosend ? now : null,
+    });
+    console.log(`[draft] ${autosend ? "auto-approved" : "drafted"} -> ${email} (${r.name})`);
+  }
+}
+
+// Phase 2: send every approved-but-unsent draft, oldest approval first, up to the
+// remaining daily cap. Re-checks the safety-critical fields at send time because
+// a draft can sit approved for days before this runs.
+async function sendApproved(): Promise<void> {
+  const cap = await dailyCap();
+  const already = await sentToday();
+  const remaining = Math.max(0, cap - already);
+
+  const enabled = process.env.OUTREACH_ENABLED === "true" && !config.dryRun;
+
+  const ready = await db
+    .select({ job: outreachJobs, r: restaurants })
+    .from(outreachJobs)
+    .innerJoin(restaurants, eq(outreachJobs.restaurantId, restaurants.id))
+    .where(and(eq(outreachJobs.status, "approved"), eq(outreachJobs.touchNumber, 1), isNull(outreachJobs.sentAt)))
+    .orderBy(asc(outreachJobs.approvedAt))
+    .limit(remaining);
+
+  console.log(
+    `[send] ${ready.length} approved ready, remaining cap ${remaining} ` +
+      `(sending ${enabled ? "ENABLED" : "DISABLED — log only"})`
+  );
+  if (ready.length === 0) return;
+
+  if (!enabled) {
+    for (const { job, r } of ready) console.log(`[send] (dry) would send -> ${r.email} | ${job.subject}`);
+    return;
+  }
+
+  if (await getSetting("outreach_paused")) {
+    console.warn("[send] outreach_paused — skipping all sends this run.");
+    return;
+  }
+
+  // Auto-pause if the domain's opt-out/bounce rate has spiked. Runs at SEND time,
+  // so an approved batch reviewed days later still passes through the guard.
+  if (!(await deliverabilityHealthy())) {
+    console.warn("[send] paused this run — deliverability guard tripped.");
+    return;
+  }
+
+  for (const { job, r } of ready) {
+    const email = r.email;
+    // Re-check the fields that can change between draft and send.
+    if (!email || r.suppressed || r.held || (await isSuppressed(email))) {
+      await db.update(outreachJobs).set({ status: "cancelled" }).where(eq(outreachJobs.id, job.id));
+      console.log(`[send] cancelled draft ${job.id} (${r.name}) — suppressed/held/no email`);
       continue;
     }
 
     try {
-      const sent = await withRetry(() => sendEmail({ to: email, subject, body, fromName: "Clickworthy" }), {
-        label: `gmail touch1 ${email}`,
-        attempts: 2,
-      });
-      await db.insert(outreachJobs).values({
-        restaurantId: r.id,
-        touchNumber: 1,
-        emailContent: body,
-        sentAt: new Date(),
-        status: "sent",
-        gmailMessageId: sent.id,
-        gmailThreadId: sent.threadId,
-      });
+      const sent = await withRetry(
+        () => sendEmail({ to: email, subject: job.subject ?? "", body: job.emailContent ?? "", fromName: "Clickworthy" }),
+        { label: `gmail touch1 ${email}`, attempts: 2 }
+      );
+      // ONE update flips the row to sent + sets all three ids together — the
+      // invariant every downstream consumer relies on.
+      await db
+        .update(outreachJobs)
+        .set({ status: "sent", sentAt: new Date(), gmailMessageId: sent.id, gmailThreadId: sent.threadId })
+        .where(eq(outreachJobs.id, job.id));
       await db
         .update(restaurants)
         .set({ enrichmentStatus: "contacted", lastContactedAt: new Date() })

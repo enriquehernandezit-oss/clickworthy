@@ -11,7 +11,7 @@ import { searchRestaurants, priceLevelToInt, type Place } from "../lib/places";
 import { passesHardFilters } from "../lib/filters";
 import { ENRICH_QUEUE, type EnrichJobData } from "./enrichRestaurant";
 
-export const SOURCE_QUEUE = "source-leads";
+export { SOURCE_QUEUE } from "@/lib/queues";
 
 export type SourceJobData = {
   // Optional overrides for manual/one-off runs; fall back to config.

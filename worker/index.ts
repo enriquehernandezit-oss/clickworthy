@@ -11,20 +11,17 @@
 
 import { PgBoss } from "pg-boss";
 import { config, requireKey } from "./config";
-import { SOURCE_QUEUE, runSourcing, type SourceJobData } from "./jobs/sourceLeads";
-import { ENRICH_QUEUE, runEnrichment, type EnrichJobData } from "./jobs/enrichRestaurant";
-import { runSendOutreach } from "./jobs/sendOutreach";
+import { SOURCE_QUEUE, ENRICH_QUEUE, SEND_QUEUE, REPLY_QUEUE, PACKAGE_QUEUE, STATS_QUEUE } from "@/lib/queues";
+import { runSourcing, type SourceJobData } from "./jobs/sourceLeads";
+import { runEnrichment, type EnrichJobData } from "./jobs/enrichRestaurant";
+import { runSendOutreach, RAMP } from "./jobs/sendOutreach";
 import { runReplyPoll } from "./jobs/pollReplies";
 import { runSendTouch2 } from "./jobs/sendTouch2";
 import { runSendBumps } from "./jobs/sendBumps";
 import { runProcessPackages } from "./jobs/processPackage";
 import { runProcessEnhancementOrders } from "./jobs/processEnhancementOrders";
 import { runWeeklyStats } from "./jobs/weeklyStats";
-
-const SEND_QUEUE = "send-outreach";
-const REPLY_QUEUE = "reply-cycle";
-const PACKAGE_QUEUE = "process-package";
-const STATS_QUEUE = "weekly-stats";
+import { setSetting } from "@/lib/settings";
 
 async function main() {
   const connectionString = requireKey("databaseUrl", "DATABASE_URL");
@@ -113,6 +110,23 @@ async function main() {
       `  packages:   "${config.packageCron}"` +
       (config.dryRun ? "\n  [DRY RUN]" : "")
   );
+
+  // Publish this worker's env truth so /admin can show it (web + worker have
+  // separate Railway env, so the web app can't read these values otherwise).
+  await setSetting("worker_boot_info", {
+    outreachEnabled: process.env.OUTREACH_ENABLED === "true",
+    dryRun: config.dryRun,
+    ramp: RAMP,
+    crons: {
+      sourcing: config.sourcingCron,
+      send: config.sendCron,
+      replyPoll: config.replyPollCron,
+      package: config.packageCron,
+      stats: config.statsCron,
+    },
+    cities: config.targetCities,
+    bootedAt: new Date().toISOString(),
+  }).catch((err) => console.error("[worker] failed to write boot info:", err));
 
   const shutdown = async () => {
     console.log("[worker] shutting down...");

@@ -12,7 +12,7 @@ import { verifyEmail, isContactable } from "../lib/neverbounce";
 import { scorePhoto, checkHospitalityGroup } from "../lib/anthropic";
 import { priorityScore } from "../lib/priority";
 
-export const ENRICH_QUEUE = "enrich-restaurant";
+export { ENRICH_QUEUE } from "@/lib/queues";
 
 export type EnrichJobData = {
   restaurantId: number;
