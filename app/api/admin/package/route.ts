@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
   const results = (link.packageResults as PackageResult[] | null) ?? [];
 
   if (action === "deliver") {
-    await db.update(magicLinks).set({ packageStatus: "completed" }).where(eq(magicLinks.id, id));
+    await db.update(magicLinks).set({ packageStatus: "completed", deliveredAt: new Date() }).where(eq(magicLinks.id, id));
 
     // Tell the customer — their delivery page was gated on this status, so
     // without this email they'd have no way to know it's ready.

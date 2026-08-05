@@ -94,6 +94,20 @@ export function fmtDateTime(d: Date | null): string {
   return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
+// Relative time for the activity feed. `nowMs` is passed in (captured in the
+// page's async data helper) so the component body stays free of Date.now().
+export function relTime(d: Date | null, nowMs: number): string {
+  if (!d) return "";
+  const mins = Math.floor((nowMs - d.getTime()) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 // Prev/Next pager that preserves the page's existing filters. `params` is the
 // resolved searchParams minus this pager's own page key. `pageParam` lets one
 // route host two independently-paged tables (see /admin/orders).
