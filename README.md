@@ -57,5 +57,9 @@ Deployed on **Railway** as two services from this one repo: `web` (Next.js) and
 ## Admin
 
 `/admin` — behind HTTP Basic Auth (`ADMIN_USER` / `ADMIN_PASSWORD`). Fails closed
-if either is unset. Browse leads, read every email sent, edit and approve free
-samples, finish and deliver paid orders, manage the do-not-contact list.
+if either is unset. Seven tabs: an overview with a live activity feed, a lead
+browser with per-restaurant detail pages, **approve/redraft/skip cold-email
+drafts before they send**, edit and approve free samples, finish and deliver paid
+orders, manage the do-not-contact list, and a Controls tab (pause switch,
+approval↔autosend toggle, worker health, run-any-job-now). See
+[PIPELINE.md](PIPELINE.md) for the full approval flow.

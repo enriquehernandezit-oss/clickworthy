@@ -22,10 +22,13 @@ Two core principles:
 flowchart TD
     S1["1. Nightly sourcing (worker, ~2:17am)<br/>Google Places → hard filters → restaurants"]
     S2["2. Enrichment (worker, per restaurant)<br/>chain check · email discovery + NeverBounce<br/>Claude Vision scoring + signature dish · priority"]
-    S3["3. Touch 1 cold email (worker, ~2:23pm)<br/>Gmail · ramp 30→50/day · OFF until OUTREACH_ENABLED"]
-    S3b["3b. Touch 1.5 bump (after 3 days, one ever)<br/>same thread, no reply yet"]
+    S3d["3. Draft Touch 1 (worker, ~2:23pm)<br/>compose approved template · status=draft · nothing sent"]
+    S3a["3b. YOU approve (/admin/outreach)<br/>or autosend toggle self-approves"]
+    S3["3c. Send approved (worker)<br/>Gmail · ramp 30→50/day · OFF until OUTREACH_ENABLED"]
+    S3b["3d. Touch 1.5 bump (after 3 days, one ever)<br/>same thread, no reply yet"]
     S4{"4. Reply? (worker, every 4 min)"}
-    S5["5. Free sample lands as awaiting_edit<br/>store photo · Revenue Impact Card · alert you"]
+    S5["5a. Photo → free sample, awaiting_edit<br/>store photo · Revenue Impact Card · alert you"]
+    S5b(["5b. No photo → alert you to answer"])
     S6["6. YOU edit it (/admin/samples)<br/>optional Claid first pass → finish by hand → upload"]
     S7["7. Approve → Touch 2 email (worker)<br/>enhanced photo + magic link"]
     S8["8. Funnel page (customer, /l/token)<br/>Revenue Card · before/after · Glow-Up $499 / Grand Opening $899 / Always Fresh $249·mo"]
@@ -40,12 +43,15 @@ flowchart TD
     S1 --> S2
     S2 -->|chain or group| RJ
     S2 -->|no email found| MM
-    S2 -->|queued| S3
+    S2 -->|queued| S3d
+    S3d --> S3a
+    S3a --> S3
     S3 --> S3b
     S3b --> S4
     S3 --> S4
     S4 -->|STOP reply| SUP
     S4 -->|photo attached| S5
+    S4 -->|no photo| S5b
     S5 --> S6
     S6 --> S7
     S7 --> S8
@@ -58,9 +64,13 @@ flowchart TD
 
 1. **Nightly sourcing** — `worker/jobs/sourceLeads.ts`. Google Places Text Search for restaurants in Miami / New York / Chicago / Los Angeles → hard filters (rating ≤ 4.0, 30–500 reviews, `$`/`$$`, operational) → upsert to `restaurants` (`sourced`) → queue an enrichment job each. Google photos are **never stored** (ToS).
 2. **Enrichment** — `worker/jobs/enrichRestaurant.ts`. Hospitality-group check (Claude + web search, also grabs the owner's first name when findable) → email discovery (scrape the site — Places has no emails) → **NeverBounce** verify → Claude Vision photo scoring, which also names the **signature dish** → priority score. Ends `queued`, `needs_manual_email`, or `rejected`. A restaurant with no signature dish is held back — a generic Touch 1 is a deleted Touch 1.
-3. **Touch 1** — `worker/jobs/sendOutreach.ts`. Deliverability guard → daily ramp cap → highest-priority `queued` restaurants → **approved static template** (EN/ES, merges signature dish + first name, subject rotates across 3 approved lines) → Gmail send from `mail@clickworthytool.com` → record thread, mark `contacted`. **Gated by `OUTREACH_ENABLED` (off by default).**
+3. **Touch 1 — draft, then send (two phases in one job)** — `worker/jobs/sendOutreach.ts`.
+   - **Draft phase.** Highest-priority `queued` restaurants (with a signature dish, an email, not held/suppressed) → compose the **approved static template** (EN/ES, merges dish + first name, subject rotates across 3 approved lines) → write an outreach row with `status: 'draft'`. **Nothing is sent.** The batch waits for your approval in `/admin/outreach`.
+   - **Send phase.** Every draft you **approved** sends via Gmail from `mail@clickworthytool.com`, oldest approval first, up to the daily ramp cap → records thread ids, flips to `sent`, marks the restaurant `contacted`. Re-checks email/suppressed/held at send time (a draft may sit for days).
+   - **Approval mode is the default** (`outreach_autosend` OFF). Flip the toggle in `/admin/controls` and the draft phase writes rows already `approved`, so the same run sends them — full auto-send, no code change.
+   - Gated by `OUTREACH_ENABLED` (drafting still runs when off, so you can review real drafts first) and the `outreach_paused` panic button.
    - **3b. Touch 1.5 bump** — `worker/jobs/sendBumps.ts`. 3 days, no reply → one same-thread bump, ever. The approved copy promises we won't follow up again, and the one-bump guard enforces that.
-4. **Reply loop** — `worker/jobs/pollReplies.ts`. Match inbound replies to their thread. `STOP` → suppress. Photo attached → store it, generate the Revenue Impact Card, create the magic link as **`awaiting_edit`**, and alert you so the same-day turnaround actually happens.
+4. **Reply loop** — `worker/jobs/pollReplies.ts`. Match inbound replies to their thread; store the reply body + sender either way. `STOP` → suppress. **Photo attached** → store it, generate the Revenue Impact Card, create the magic link as **`awaiting_edit`**, and alert you. **Reply with no photo** (e.g. "how much?") → alert you to answer from your own Gmail inbox — it is never silently dropped.
 5. **Free sample = manual production.** Nothing is auto-enhanced. The reply sits in `/admin/samples` waiting for a human.
 6. **You edit it** — `/admin/samples`. Optionally run a one-click **Claid first pass** to start from, finish the photo by hand, upload the finished version.
 7. **Approve → Touch 2** — approving sets the finished photo and flips the link to `approved`; `worker/jobs/sendTouch2.ts` then emails it with a link to `/l/[token]`. Sent **into the thread they replied in** (In-Reply-To points at their own message), so it reads as an answer rather than a new broadcast. If the thread can't be read, it still sends standalone — a photo someone is waiting for never gets blocked on a threading lookup.
@@ -101,18 +111,28 @@ they exist only inside the outreach funnel.
 
 ---
 
-## Admin — where you actually work
+## Admin — mission control
 
-`/admin`, behind Basic Auth (`proxy.ts` covers `/admin/*` and `/api/admin/*`).
+`/admin`, behind Basic Auth (`proxy.ts` covers `/admin/*` and `/api/admin/*`, fail-closed if `ADMIN_USER`/`ADMIN_PASSWORD` unset). Seven tabs.
 
 | Tab | What it's for |
 |---|---|
-| Overview | 7-day sends / replies / reply rate, pipeline counts, what needs attention |
-| Restaurants | Browse + filter leads; fix a missing email (releases the row back to `queued`); suppress |
-| Outreach | Every email sent, with the exact body that went out |
-| Samples | The edit queue, plus approved/rejected history |
-| Orders | Package production queue, all package orders, self-serve orders |
-| Suppressions | Do-not-contact list; STOP replies land here automatically |
+| Overview | "Needs your attention" chips (drafts to review, replies to edit, orders to finish), 7-day sends / replies / reply rate, pipeline counts, and a **live activity feed** (sourced → drafted → sent → replied → sample sent → **PAID** → delivered → suppressed, newest first). |
+| Restaurants | Browse + filter leads; search by name; **each name links to a full detail page** (all fields, inline edit for dish/name/language/email, hold/suppress/requeue, full outreach timeline + magic links). Fixing a missing email releases a `needs_manual_email` row back to `queued`. |
+| Outreach | **Drafts awaiting approval** at the top — approve / redraft / skip each, or Approve-all — then the full log of every email sent, with exact bodies and reply bodies. |
+| Samples | The free-sample edit queue, plus approved/rejected history. |
+| Orders | Package production queue, all package orders, self-serve orders. |
+| Suppressions | Do-not-contact list; STOP replies land here automatically; manual add/remove. |
+| Controls | **Pause all sending** (panic button), **approval ↔ autosend** toggle, worker health (last-run per queue + "worker down?" alarm + recent failures), the worker's last-boot env, and **Run-now** buttons that enqueue any job on demand. |
+
+### Approval flow (the core of the outreach half)
+
+Cold email is **draft-first**. The nightly job composes Touch-1 drafts and stops; you approve them in **Outreach** before anything sends. Two DB toggles on **Controls** govern it (`app_settings` table, read fresh each run):
+
+- **`outreach_autosend`** (default OFF) — ON makes new drafts self-approve and send in the same run (full auto-send). Flipping it ON does *not* retro-approve drafts already waiting.
+- **`outreach_paused`** (default OFF) — panic button; blocks Touch 1, bumps, and Touch 2. Reply reading + drafting keep running.
+
+`Hold` on a restaurant pulls it out of drafting without suppressing it; `Skip` on a draft deletes it and holds the restaurant. `Redraft` recomposes a draft from the restaurant's current fields — use it after fixing a bad signature dish on the detail page.
 
 ---
 
@@ -135,6 +155,7 @@ they exist only inside the outreach funnel.
 | `/enhance` self-serve | `app/enhance/`, `app/api/create-checkout-session`, `app/api/webhooks/stripe` |
 | Outreach funnel | `app/l/[token]/`, `app/api/outreach/` |
 | Admin | `app/admin/`, `app/api/admin/`, `proxy.ts` (Basic Auth) |
-| Shared libs | `lib/` (claid, stripe, storage, packages, pricing, alerts, customerEmail) |
+| Outreach settings + control | `lib/settings.ts` (app_settings), `lib/queue.ts` (web-side pg-boss for Run-now), `lib/queues.ts` (shared queue names) |
+| Shared libs | `lib/` (claid, stripe, storage, packages, pricing, alerts, customerEmail, moderation, download proxy) |
 | DB schema | `db/schema.ts` |
 | Worker deploy + env | `worker/README.md` |

@@ -36,8 +36,11 @@ Two Railway services from one repo: `web` (Next.js) + `worker` (background jobs)
 - **Worker pipeline**: nightly Google Places sourcing → hard filters → email
   discovery (scrapes site; Places has no emails) → NeverBounce verify → Claude
   Vision photo scoring (also derives the signature dish) → priority scoring.
-- **Cold outreach**: Gmail send (Touch 1) with a 30→50/day ramp, OFF by default
-  behind `OUTREACH_ENABLED`; Touch 1.5 bump (one ever, threaded); reply poller;
+- **Cold outreach — approval-first**: the nightly job **drafts** Touch 1 (never
+  sends directly); you approve drafts in `/admin/outreach`, then they send on the
+  next run, 30→50/day ramp, gated by `OUTREACH_ENABLED`. An `outreach_autosend`
+  toggle restores full auto-send with no code change. Touch 1.5 bump (one ever,
+  threaded); reply poller stores every reply body and alerts on no-photo replies;
   STOP/opt-out suppression. Approved static EN/ES copy is in place.
 - **Free sample = MANUAL production**: a photo reply creates an `awaiting_edit`
   record and alerts you. You and Jose edit it by hand in `/admin` (a one-click
@@ -48,13 +51,15 @@ Two Railway services from one repo: `web` (Next.js) + `worker` (background jobs)
 - **Paid orders** are also human-gated: upload → Claid first pass →
   `ready_for_review` → you finish each photo in `/admin` → Deliver (emails the
   customer). Never auto-delivers.
-- **Admin backend** at `/admin` (Basic Auth via `proxy.ts`, 6 tabs):
-  Overview (7-day sends/replies/reply-rate, pipeline counts) · Restaurants
-  (filter, search, fix a missing email → releases the row back into the send
-  queue, suppress/unsuppress) · Outreach (every email sent, with the exact body)
-  · Samples (edit queue + approved/rejected history) · Orders (package
-  production queue, all package orders, self-serve orders) · Suppressions
-  (do-not-contact list, manual add/remove).
+- **Admin mission control** at `/admin` (Basic Auth via `proxy.ts`, 7 tabs):
+  Overview (attention chips + 7-day stats + **live activity feed**) · Restaurants
+  (filter/search, per-row detail page with inline field edit, hold/suppress/
+  requeue, full timeline) · Outreach (**drafts awaiting approval** — approve/
+  redraft/skip/approve-all — plus the full sent log with reply bodies) · Samples
+  (edit queue + history) · Orders (package queue, all orders, self-serve orders) ·
+  Suppressions (manual add/remove) · **Controls** (pause panic-button, approval↔
+  autosend toggle, worker health + "worker down?" alarm, worker boot env, and
+  Run-now buttons that enqueue any job on demand).
 - **Hardening**: retries on Claid/Gmail, Resend failure alerts, weekly stats
   email, deliverability auto-pause if opt-out/bounce rate > 8%.
 - DB schema migrated to Railway Postgres. Everything committed & pushed to `main`.
@@ -110,8 +115,11 @@ See `.env.example` for the full annotated list.
    AI-Edit+Upscale vs Upscale-only, to lock the enhancement approach and true
    per-photo cost. **Still pending; the harness is written.**
 3. **Stripe test-mode order** end to end on `/enhance`.
-4. **One outreach cycle to your own inbox**: Touch 1 to a test address, reply
-   with a photo, edit + approve in `/admin`, confirm Touch 2 → funnel → delivery.
+4. **One outreach cycle to your own inbox**: let the nightly job draft a Touch 1
+   to a test address → **approve the draft in `/admin/outreach`** → it sends →
+   reply with a photo → edit + approve the sample in `/admin/samples` → confirm
+   Touch 2 → funnel → delivery. (`/admin/controls` has Run-now buttons so you
+   don't have to wait for the crons.)
 
 ---
 
