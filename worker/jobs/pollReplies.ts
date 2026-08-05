@@ -1,9 +1,11 @@
 // Reply poller (runs every few minutes). Reads the Gmail inbox, matches replies
 // back to the outreach thread they answer, and for each first-time reply:
 //   - "STOP"/opt-out  -> suppress the sender, mark the restaurant, stop.
-//   - photo attached  -> store the original, create a pending-review magic link
-//                        with a Revenue Impact Card, and queue enhancement.
-//   - no photo        -> just record the reply (a human can follow up).
+//   - photo attached  -> store the original, create an awaiting_edit magic link
+//                        with a Revenue Impact Card, and alert us to edit it.
+//   - no photo        -> record the reply text + alert us to answer it by hand.
+// Every branch stores the reply body/sender on the outreach row, so what they
+// wrote is readable in /admin instead of living only in Gmail.
 //
 // Dedup is at the thread level: we set outreachJobs.repliedAt on the Touch 1
 // row and skip threads already marked replied.
@@ -62,7 +64,12 @@ export async function runReplyPoll(): Promise<void> {
     const sender = parseFromEmail(full.from);
 
     // Mark replied first so a mid-run error doesn't cause reprocessing loops.
-    await db.update(outreachJobs).set({ repliedAt: new Date(), status: "replied" }).where(eq(outreachJobs.id, job.id));
+    // Store what they wrote in the same update — every branch below (opt-out,
+    // no-photo, photo) leaves a readable record in /admin.
+    await db
+      .update(outreachJobs)
+      .set({ repliedAt: new Date(), status: "replied", replyBody: full.bodyText, replyFrom: sender })
+      .where(eq(outreachJobs.id, job.id));
 
     // Opt-out.
     if (isOptOut(full.bodyText)) {
@@ -72,14 +79,22 @@ export async function runReplyPoll(): Promise<void> {
       continue;
     }
 
-    const image = full.imageAttachments[0];
-    if (!image) {
-      console.log(`[poll] reply from ${sender} with no photo — recorded, no sample generated`);
-      continue;
-    }
-
     const [restaurant] = await db.select().from(restaurants).where(eq(restaurants.id, job.restaurantId)).limit(1);
     if (!restaurant) continue;
+
+    const image = full.imageAttachments[0];
+    if (!image) {
+      // A real human wrote back with a question or interest — the pipeline only
+      // auto-handles photo replies and STOP, so this needs YOU, today.
+      await sendAlert(
+        "New reply — needs your answer",
+        `${restaurant.name} (${restaurant.city ?? "?"}) — ${sender} — replied to Touch 1 without a photo.\n\n` +
+          `"${full.bodyText.trim().slice(0, 500)}"\n\n` +
+          `Read it in /admin (Outreach tab) and answer from your own Gmail inbox — nothing is sent automatically.`
+      );
+      console.log(`[poll] reply from ${sender} with no photo — recorded + alerted`);
+      continue;
+    }
 
     // Store the emailed original (customer-supplied, so storing it is fine).
     const linkToken = token();

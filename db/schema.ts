@@ -34,6 +34,7 @@ export const restaurants = pgTable('restaurants', {
   signatureDish: text('signature_dish'), // a real standout dish, from Claude Vision — the #1 reply-rate lever
   contactFirstName: text('contact_first_name'), // best-effort owner name; null -> generic greeting
   isNewOpening: boolean('is_new_opening').default(false), // hints the Grand Opening package
+  held: boolean('held').default(false), // manually pulled out of drafting (via /admin); skip until unheld
   // Pipeline lifecycle: sourced -> enriched -> queued -> contacted (or needs_manual_email / rejected)
   enrichmentStatus: text('enrichment_status').default('sourced'),
   lastContactedAt: timestamp('last_contacted_at'),
@@ -57,7 +58,13 @@ export const outreachJobs = pgTable('outreach_jobs', {
   id: serial('id').primaryKey(),
   restaurantId: integer('restaurant_id').references(() => restaurants.id),
   touchNumber: integer('touch_number').default(1),
+  subject: text('subject'), // stored so the exact reviewed subject is what actually sends
   emailContent: text('email_content'),
+  // Touch 1 approval flow: a run drafts (status 'draft', draftedAt set), a human
+  // approves in /admin (status 'approved', approvedAt set), the next send run
+  // sends it (status 'sent', sentAt + gmail ids set). Stale drafts -> 'cancelled'.
+  draftedAt: timestamp('drafted_at'),
+  approvedAt: timestamp('approved_at'),
   sentAt: timestamp('sent_at'),
   repliedAt: timestamp('replied_at'),
   status: text('status').default('pending'),
@@ -65,6 +72,11 @@ export const outreachJobs = pgTable('outreach_jobs', {
   // replies back to the outreach they answer.
   gmailMessageId: text('gmail_message_id'),
   gmailThreadId: text('gmail_thread_id'),
+  // What they actually wrote back (all reply branches: photo, no-photo, STOP) —
+  // so a question like "how much?" is readable in /admin instead of vanishing
+  // into a worker log.
+  replyBody: text('reply_body'),
+  replyFrom: text('reply_from'),
 });
 
 export const payments = pgTable('payments', {
@@ -137,7 +149,17 @@ export const magicLinks = pgTable('magic_links', {
   expiresAt: timestamp('expires_at'),
   viewedAt: timestamp('viewed_at'),
   touch2SentAt: timestamp('touch2_sent_at'), // set once the approved sample + link email goes out
+  deliveredAt: timestamp('delivered_at'), // set when a paid package is marked delivered in /admin
   createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Key/value app settings the worker + admin both read at run time (never cached
+// at module load). Holds the outreach pause + autosend toggles and the worker's
+// last-boot env snapshot. Value is JSON so booleans/objects share one table.
+export const appSettings = pgTable('app_settings', {
+  key: text('key').primaryKey(),
+  value: jsonb('value'),
+  updatedAt: timestamp('updated_at').defaultNow(),
 });
 
 // Do-not-contact list. Any email here is skipped by the outreach sender.
