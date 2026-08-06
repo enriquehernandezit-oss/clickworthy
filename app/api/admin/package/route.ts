@@ -13,6 +13,10 @@ import { FINALIZED_ENHANCEMENT_PROMPT } from "@/worker/lib/prompts";
 //   first_pass_one  — optional: re-run Claid on one photo's original
 //   upload_edited   — replace one photo's enhanced version with a human-finished file
 //   deliver         — mark the whole order `completed` (unlocks the delivery page)
+//   resend_delivery — re-send the delivery email (it fails soft, so a bounce or
+//                     a Resend outage otherwise leaves the customer never told)
+//   mark_paid       — record a package paid off-Stripe (check/Zelle) so it can
+//                     enter the production pipeline
 const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 type PackageResult = { name: string; originalUrl: string; enhancedUrl: string | null; error: string | null };
@@ -34,24 +38,47 @@ export async function POST(request: NextRequest) {
   const appOrigin = appOriginFrom(request);
   const results = (link.packageResults as PackageResult[] | null) ?? [];
 
+  // Sends the "your order is ready" email if the restaurant has an address.
+  // Returns whether it attempted a send (false = no email on file).
+  async function sendDelivery(): Promise<boolean> {
+    if (link.restaurantId == null) return false;
+    const [r] = await db.select().from(restaurants).where(eq(restaurants.id, link.restaurantId)).limit(1);
+    if (!r?.email) return false;
+    await sendOrderDeliveredEmail({
+      to: r.email,
+      restaurantName: r.name,
+      language: r.language ?? "en",
+      deliveryUrl: `${appOrigin.replace(/\/$/, "")}/l/${link.token}/upload`,
+    });
+    return true;
+  }
+
   if (action === "deliver") {
     await db.update(magicLinks).set({ packageStatus: "completed", deliveredAt: new Date() }).where(eq(magicLinks.id, id));
-
-    // Tell the customer — their delivery page was gated on this status, so
-    // without this email they'd have no way to know it's ready.
-    if (link.restaurantId != null) {
-      const [r] = await db.select().from(restaurants).where(eq(restaurants.id, link.restaurantId)).limit(1);
-      if (r?.email) {
-        await sendOrderDeliveredEmail({
-          to: r.email,
-          restaurantName: r.name,
-          language: r.language ?? "en",
-          deliveryUrl: `${appOrigin.replace(/\/$/, "")}/l/${link.token}/upload`,
-        });
-      }
-    }
-
+    await sendDelivery();
     return NextResponse.json({ ok: true, packageStatus: "completed" });
+  }
+
+  if (action === "resend_delivery") {
+    if (link.packageStatus !== "completed") {
+      return NextResponse.json({ error: "Only a delivered order's email can be resent." }, { status: 409 });
+    }
+    const sent = await sendDelivery();
+    return NextResponse.json(
+      sent
+        ? { ok: true }
+        : { ok: false, error: "No email on file for this restaurant — can't send." },
+      { status: sent ? 200 : 409 }
+    );
+  }
+
+  if (action === "mark_paid") {
+    if (link.paidAt) return NextResponse.json({ error: "Already marked paid." }, { status: 409 });
+    if (!link.packageSelected) {
+      return NextResponse.json({ error: "No package selected on this link." }, { status: 400 });
+    }
+    await db.update(magicLinks).set({ paidAt: new Date() }).where(eq(magicLinks.id, id));
+    return NextResponse.json({ ok: true, paidAt: true });
   }
 
   const index = Number(form.get("photoIndex"));

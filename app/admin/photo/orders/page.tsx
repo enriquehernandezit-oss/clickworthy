@@ -3,9 +3,16 @@ import { db } from "@/db";
 import { magicLinks, restaurants, enhancementOrders } from "@/db/schema";
 import { PACKAGES, isPackageId, formatCents as formatPackageCents } from "@/lib/packages";
 import { formatCents as formatPhotoCents } from "@/lib/pricing";
+import Link from "next/link";
 import PackageActions from "../PackageActions";
 import RetryOrderButton from "./RetryOrderButton";
+import PackageOrderActions from "./PackageOrderActions";
 import { Badge, Card, EmptyState, Pager, SectionHeading, fmtDate } from "../../ui";
+
+// Session-id search deep link works for both Stripe test + live mode.
+function stripeUrl(sessionId: string | null): string | null {
+  return sessionId ? `https://dashboard.stripe.com/search?query=${encodeURIComponent(sessionId)}` : null;
+}
 
 // Orders across BOTH revenue paths: outreach packages (sold through the
 // magic-link funnel) and self-serve /enhance orders. The production queue for
@@ -37,6 +44,7 @@ async function getPackageOrders(page: number) {
       token: magicLinks.token,
       packageSelected: magicLinks.packageSelected,
       packageStatus: magicLinks.packageStatus,
+      stripeSessionId: magicLinks.stripeSessionId,
       paidAt: magicLinks.paidAt,
       createdAt: magicLinks.createdAt,
       restaurantName: restaurants.name,
@@ -122,15 +130,18 @@ export default async function OrdersPage({
             <table className="w-full min-w-[48rem] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-stone-200 text-left text-xs uppercase tracking-wide text-stone-500">
-                  <th className="px-3 py-2 font-semibold">Restaurant</th>
-                  <th className="px-3 py-2 font-semibold">Package</th>
-                  <th className="px-3 py-2 font-semibold">Status</th>
-                  <th className="px-3 py-2 font-semibold">Paid</th>
-                  <th className="px-3 py-2 font-semibold">Created</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Restaurant</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Package</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Status</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Paid</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Created</th>
+                  <th scope="col" className="px-3 py-2 font-semibold"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
-                {packageOrders.map((row) => (
+                {packageOrders.map((row) => {
+                  const su = stripeUrl(row.stripeSessionId);
+                  return (
                   <tr key={row.id} className="border-b border-stone-100">
                     <td className="px-3 py-2">
                       <div className="font-medium">{row.restaurantName ?? "(unknown)"}</div>
@@ -140,10 +151,29 @@ export default async function OrdersPage({
                     <td className="px-3 py-2">
                       <Badge value={row.packageStatus} />
                     </td>
-                    <td className="px-3 py-2 tabular-nums text-stone-600">{fmtDate(row.paidAt)}</td>
+                    <td className="px-3 py-2 tabular-nums text-stone-600">
+                      {fmtDate(row.paidAt)}
+                      {su && (
+                        <>
+                          {" "}
+                          <a href={su} target="_blank" rel="noopener noreferrer" className="text-xs hover:underline" style={{ color: "var(--accent)" }}>
+                            Stripe ↗
+                          </a>
+                        </>
+                      )}
+                    </td>
                     <td className="px-3 py-2 tabular-nums text-stone-600">{fmtDate(row.createdAt)}</td>
+                    <td className="px-3 py-2">
+                      <PackageOrderActions
+                        magicLinkId={row.id}
+                        isPaid={row.paidAt != null}
+                        isCompleted={row.packageStatus === "completed"}
+                        hasPackage={row.packageSelected != null}
+                      />
+                    </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -178,7 +208,11 @@ export default async function OrdersPage({
               <tbody>
                 {selfServe.map((row) => (
                   <tr key={row.id} className="border-b border-stone-100">
-                    <td className="px-3 py-2 tabular-nums text-stone-500">{row.id}</td>
+                    <td className="px-3 py-2 tabular-nums">
+                      <Link href={`/admin/photo/orders/${row.id}`} className="font-medium hover:underline" style={{ color: "var(--accent)" }}>
+                        #{row.id}
+                      </Link>
+                    </td>
                     <td className="px-3 py-2">
                       <Badge value={row.status} />
                     </td>
@@ -187,7 +221,12 @@ export default async function OrdersPage({
                     <td className="px-3 py-2 tabular-nums text-stone-600">{fmtDate(row.createdAt)}</td>
                     <td className="px-3 py-2 tabular-nums text-stone-600">{fmtDate(row.completedAt)}</td>
                     <td className="px-3 py-2">
-                      {row.status === "failed" && <RetryOrderButton orderId={row.id} />}
+                      <div className="flex items-center gap-2">
+                        <Link href={`/admin/photo/orders/${row.id}`} className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-black/[0.03]" style={{ borderColor: "var(--line)", color: "var(--c-text)" }}>
+                          View
+                        </Link>
+                        {row.status === "failed" && <RetryOrderButton orderId={row.id} />}
+                      </div>
                     </td>
                   </tr>
                 ))}
