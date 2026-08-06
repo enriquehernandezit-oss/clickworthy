@@ -19,6 +19,9 @@ export type WorkerBootInfo = {
   crons: { sourcing: string; send: string; replyPoll: string; package: string; stats: string };
   cities: string[];
   bootedAt: string; // ISO — jsonb can't hold a Date
+  // Booleans only — the go-live checklist uses this to know which keys the
+  // WORKER service can see. Values themselves are never sent through settings.
+  envPresent?: Record<string, boolean>;
 };
 
 export type SettingsMap = {

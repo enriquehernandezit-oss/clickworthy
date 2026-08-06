@@ -12,6 +12,7 @@ const TABS = [
   ["/admin/photo/restaurants", "Leads"],
   ["/admin/photo/suppressions", "Suppressions"],
   ["/admin/photo/controls", "Controls"],
+  ["/admin/photo/setup", "Setup"],
 ] as const;
 
 export default function PhotoSubnav() {

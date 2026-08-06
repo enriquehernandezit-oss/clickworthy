@@ -22,6 +22,7 @@ import { runProcessPackages } from "./jobs/processPackage";
 import { runProcessEnhancementOrders } from "./jobs/processEnhancementOrders";
 import { runWeeklyStats } from "./jobs/weeklyStats";
 import { setSetting } from "@/lib/settings";
+import { WORKER_ENV_KEYS, envPresence } from "@/lib/envKeys";
 
 async function main() {
   const connectionString = requireKey("databaseUrl", "DATABASE_URL");
@@ -126,6 +127,7 @@ async function main() {
     },
     cities: config.targetCities,
     bootedAt: new Date().toISOString(),
+    envPresent: envPresence(WORKER_ENV_KEYS),
   }).catch((err) => console.error("[worker] failed to write boot info:", err));
 
   const shutdown = async () => {

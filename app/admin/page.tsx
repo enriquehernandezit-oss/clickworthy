@@ -2,7 +2,8 @@ import Link from "next/link";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { outreachJobs, magicLinks, enhancementOrders } from "@/db/schema";
-import { KpiCard, ConsoleCard, Pill } from "./ui";
+import { KpiCard, ConsoleCard, Pill, money } from "./ui";
+import { getRevenue } from "@/lib/photoStats";
 
 // Company overview — the venture switcher's home. Aggregate KPIs across every
 // venture (only Photo is built, so it's the only contributor today), the product
@@ -70,7 +71,7 @@ async function getNeedsAttention() {
 type Product = { slug: string; name: string; desc: string; accent: string; accentSoft: string; live: boolean; icon: React.ReactNode };
 
 export default async function CompanyOverview() {
-  const [photo, attention] = await Promise.all([getPhotoAggregate(), getNeedsAttention()]);
+  const [photo, attention, revenue] = await Promise.all([getPhotoAggregate(), getNeedsAttention(), getRevenue()]);
 
   const products: Product[] = [
     { slug: "photo", name: "Photo Enhancement", desc: "High-ticket AI photo enhancement for restaurants and SMEs.", accent: "#E3A83B", accentSoft: "#FBF0DA", live: true,
@@ -97,8 +98,8 @@ export default async function CompanyOverview() {
 
       {/* Aggregate KPIs (Photo is the only contributor today) */}
       <div className="mb-6 grid grid-cols-2 gap-3.5 lg:grid-cols-4">
+        <KpiCard label="Total revenue (all time)" value={money(revenue.totalCents)} />
         <KpiCard label="Outreach sent (30d)" value={photo.sent} />
-        <KpiCard label="Responses (30d)" value={photo.replied} />
         <KpiCard label="Blended response rate" value={photo.rate} />
         <KpiCard label="Active projects" value={photo.active} />
       </div>

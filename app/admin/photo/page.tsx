@@ -2,7 +2,8 @@ import Link from "next/link";
 import { and, desc, eq, gte, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants, outreachJobs, magicLinks, suppressions, enhancementOrders } from "@/db/schema";
-import { Badge, SectionHeading, StatChip, relTime } from "../ui";
+import { Badge, Funnel, KpiCard, SectionHeading, StatChip, money, relTime } from "../ui";
+import { getFunnel, getRevenue, getByCity } from "@/lib/photoStats";
 
 // Live internal dashboard — always render fresh (never statically prerender,
 // which would try to hit the DB at build time).
@@ -158,7 +159,15 @@ async function getActivity(): Promise<{ items: Activity[]; nowMs: number }> {
 }
 
 export default async function AdminOverviewPage() {
-  const [pipeline, weekly, work, activity] = await Promise.all([getPipeline(), getWeekly(), getWork(), getActivity()]);
+  const [pipeline, weekly, work, activity, funnel, revenue, byCity] = await Promise.all([
+    getPipeline(),
+    getWeekly(),
+    getWork(),
+    getActivity(),
+    getFunnel(),
+    getRevenue(),
+    getByCity(),
+  ]);
 
   return (
     <>
@@ -196,11 +205,62 @@ export default async function AdminOverviewPage() {
       </section>
 
       <section className="mt-10">
-        <SectionHeading>Revenue</SectionHeading>
-        <div className="mt-3 flex flex-wrap gap-3">
-          <StatChip value={work.paid} label="packages paid (all time)" href="/admin/photo/orders" />
-          <StatChip value={work.selfServe} label="self-serve orders" href="/admin/photo/orders" />
+        <SectionHeading>Revenue (all time)</SectionHeading>
+        <div className="mt-3 grid grid-cols-2 gap-3.5 lg:grid-cols-4">
+          <KpiCard label="Total revenue" value={money(revenue.totalCents)} />
+          <KpiCard label="Package sales" value={money(revenue.packageCents)} delta={{ text: `${revenue.packagePaid} paid`, dir: "flat" }} href="/admin/photo/orders" />
+          <KpiCard label="Self-serve" value={money(revenue.selfServeCents)} delta={{ text: `${revenue.selfServeCompleted} completed · abandoned checkouts excluded`, dir: "flat" }} href="/admin/photo/orders" />
+          <KpiCard label="Reply rate (7d)" value={weekly.replyRate} />
         </div>
+      </section>
+
+      {/* Funnel — last 30 days */}
+      <section className="mt-10">
+        <SectionHeading>Funnel (last 30 days)</SectionHeading>
+        {funnel.sentCount === 0 ? (
+          <p className="mt-3 text-sm" style={{ color: "var(--c-text-muted)" }}>
+            No Touch 1 sent in the last 30 days — funnel shows up once real outreach starts.
+          </p>
+        ) : (
+          <div className="mt-3">
+            <Funnel steps={funnel.steps} />
+          </div>
+        )}
+      </section>
+
+      {/* Per-city breakdown */}
+      <section className="mt-10">
+        <SectionHeading>By city</SectionHeading>
+        {byCity.length === 0 ? (
+          <p className="mt-3 text-sm" style={{ color: "var(--c-text-muted)" }}>No restaurants sourced yet.</p>
+        ) : (
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[32rem] border-collapse text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs uppercase tracking-wide" style={{ borderColor: "var(--line)", color: "var(--c-text-muted)" }}>
+                  <th scope="col" className="px-3 py-2 font-semibold">City</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Total</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Queued</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Contacted</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Needs email</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Rejected</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byCity.map((c) => (
+                  <tr key={c.city ?? "unknown"} className="border-b" style={{ borderColor: "var(--line)" }}>
+                    <td className="px-3 py-2 font-medium">{c.city ?? "(no city)"}</td>
+                    <td className="px-3 py-2 tabular-nums">{c.total}</td>
+                    <td className="px-3 py-2 tabular-nums text-stone-600">{c.queued}</td>
+                    <td className="px-3 py-2 tabular-nums text-stone-600">{c.contacted}</td>
+                    <td className="px-3 py-2 tabular-nums text-stone-600">{c.needsManual}</td>
+                    <td className="px-3 py-2 tabular-nums text-stone-600">{c.rejected}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <section className="mt-10">

@@ -231,6 +231,17 @@ export default async function RestaurantDetailPage({ params }: { params: Promise
                   {l.touch2SentAt && ` · sample sent ${fmtDate(l.touch2SentAt)}`}
                   {l.paidAt && ` · PAID ${fmtDate(l.paidAt)}`}
                   {l.deliveredAt && ` · delivered ${fmtDate(l.deliveredAt)}`}
+                  {l.expiresAt && (
+                    (() => {
+                      const days = Math.floor((l.expiresAt.getTime() - Date.now()) / 86_400_000);
+                      const expired = days < 0;
+                      return (
+                        <span className={`ml-1 font-medium ${expired ? "text-red-600" : days <= 3 ? "text-amber-600" : "text-stone-500"}`}>
+                          {" · "}{expired ? `EXPIRED ${-days}d ago` : `expires in ${days}d`}
+                        </span>
+                      );
+                    })()
+                  )}
                 </div>
               </Card>
             ))}

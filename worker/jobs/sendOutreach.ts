@@ -62,6 +62,10 @@ async function sentToday(): Promise<number> {
 const SUPPRESSION_SAMPLE_MIN = 20;
 const SUPPRESSION_RATE_MAX = 0.08; // 8%
 
+// Exported so /admin/controls can compute and display the same rate + verdict
+// without going near the send loop.
+export const DELIVERABILITY = { sampleMin: SUPPRESSION_SAMPLE_MIN, rateMax: SUPPRESSION_RATE_MAX };
+
 async function deliverabilityHealthy(): Promise<boolean> {
   const weekAgo = new Date(Date.now() - 7 * 86_400_000);
   const [{ sends }] = await db

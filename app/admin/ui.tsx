@@ -74,6 +74,46 @@ export function Pill({ tone, children }: { tone: PillTone; children: React.React
   );
 }
 
+// The mockup's stepped funnel. Each step is a soft-accent block with an
+// uppercase label + big number; the last step is filled with the venture accent.
+export function Funnel({ steps }: { steps: { label: string; value: number }[] }) {
+  return (
+    <div className="flex items-stretch gap-0.5">
+      {steps.map((s, i) => {
+        const last = i === steps.length - 1;
+        return (
+          <div key={s.label} className="flex flex-1 items-stretch gap-0.5">
+            <div
+              className="flex-1 rounded-lg px-4 py-3.5"
+              style={{
+                background: last ? "var(--accent)" : "var(--accent-soft)",
+                color: last ? "#fff" : "var(--c-text)",
+              }}
+            >
+              <div className="font-mono-label text-[10.5px] uppercase tracking-wider" style={{ opacity: last ? 0.9 : 0.75 }}>
+                {s.label}
+              </div>
+              <div className="font-display text-[20px] font-bold tabular-nums">{s.value}</div>
+            </div>
+            {i < steps.length - 1 && (
+              <div className="flex items-center px-1 text-sm" style={{ color: "var(--c-text-faint)" }}>
+                →
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Whole-dollar cents formatter for the console (mockup style).
+export function money(cents: number): string {
+  const dollars = cents / 100;
+  if (Math.abs(dollars) >= 1000) return `$${dollars.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  return `$${dollars.toFixed(dollars % 1 === 0 ? 0 : 2)}`;
+}
+
 // Console card with an optional header (title + sub + right slot).
 export function ConsoleCard({
   title,
