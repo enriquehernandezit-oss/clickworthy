@@ -71,7 +71,11 @@ export async function runEnrichment(data: EnrichJobData): Promise<void> {
   if (group.isGroup) {
     await db
       .update(restaurants)
-      .set({ isHospitalityGroup: true, enrichmentStatus: "rejected" })
+      .set({
+        isHospitalityGroup: true,
+        enrichmentStatus: "rejected",
+        rejectionReason: `Chain / hospitality group: ${group.reasoning}`,
+      })
       .where(eq(restaurants.id, restaurant.id));
     console.log(`[enrich] "${restaurant.name}" rejected: hospitality group (${group.reasoning})`);
     return;

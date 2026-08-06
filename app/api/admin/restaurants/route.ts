@@ -10,12 +10,44 @@ import { addSuppression } from "@/worker/lib/suppression";
 //   suppress    — never contact: flags the row AND adds the address to the
 //                 shared suppression list the worker checks before every send
 //   unsuppress  — undo both
+//   create      — add a walk-in lead by hand; drops in as `queued` if it has an
+//                 email, else `needs_manual_email` (like an enriched sourced row)
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(request: NextRequest) {
   const form = await request.formData();
-  const id = Number(form.get("restaurantId"));
   const action = String(form.get("action") ?? "");
+
+  if (action === "create") {
+    const name = String(form.get("name") ?? "").trim();
+    if (!name) return NextResponse.json({ error: "Name is required." }, { status: 400 });
+    const city = String(form.get("city") ?? "").trim() || null;
+    const dishRaw = String(form.get("signatureDish") ?? "").trim();
+    const firstRaw = String(form.get("contactFirstName") ?? "").trim();
+    const lang = String(form.get("language") ?? "en");
+    if (lang !== "en" && lang !== "es") return NextResponse.json({ error: "Language must be en or es." }, { status: 400 });
+    const email: string | null = String(form.get("email") ?? "").trim().toLowerCase() || null;
+    if (email && !EMAIL_RE.test(email)) return NextResponse.json({ error: "That doesn't look like an email." }, { status: 400 });
+    // Same qualification the auto pipeline uses: no dish OR no email = held back
+    // for a human to complete before it's eligible to draft.
+    const status = email && dishRaw ? "queued" : "needs_manual_email";
+    const [created] = await db
+      .insert(restaurants)
+      .values({
+        name,
+        city,
+        email,
+        emailSource: email ? "manual" : null,
+        signatureDish: dishRaw || null,
+        contactFirstName: firstRaw || null,
+        language: lang,
+        enrichmentStatus: status,
+      })
+      .returning({ id: restaurants.id });
+    return NextResponse.json({ ok: true, id: created.id, enrichmentStatus: status });
+  }
+
+  const id = Number(form.get("restaurantId"));
   if (!Number.isInteger(id)) return NextResponse.json({ error: "Bad restaurantId" }, { status: 400 });
 
   const [row] = await db.select().from(restaurants).where(eq(restaurants.id, id)).limit(1);

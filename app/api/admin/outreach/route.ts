@@ -9,6 +9,8 @@ import { composeTouch1 } from "@/worker/lib/outreachEmail";
 //   approve_all  — approve every waiting draft at once
 //   redraft      — recompose from the restaurant's CURRENT fields, back to draft
 //                  (use after fixing a bad signature dish / name)
+//   set_content  — hand-edit this draft's subject/body; the edit wins until you
+//                  redraft (which overwrites it from the restaurant fields)
 //   skip         — delete the draft AND hold the restaurant (won't re-draft until
 //                  unheld)
 
@@ -37,6 +39,21 @@ export async function POST(request: NextRequest) {
     }
     await db.update(outreachJobs).set({ status: "approved", approvedAt: new Date() }).where(eq(outreachJobs.id, id));
     return NextResponse.json({ ok: true, status: "approved" });
+  }
+
+  if (action === "set_content") {
+    if (job.status !== "draft" && job.status !== "approved") {
+      return NextResponse.json({ error: `Can only edit a draft/approved row (this is ${job.status}).` }, { status: 409 });
+    }
+    const subject = String(form.get("subject") ?? "").trim();
+    const body = String(form.get("body") ?? "").trim();
+    if (!subject || !body) return NextResponse.json({ error: "Subject and body are both required." }, { status: 400 });
+    // A hand-edit drops it back to draft so it's re-reviewed before it can send.
+    await db
+      .update(outreachJobs)
+      .set({ subject, emailContent: body, status: "draft", approvedAt: null })
+      .where(eq(outreachJobs.id, id));
+    return NextResponse.json({ ok: true, status: "draft" });
   }
 
   // Pull an approved (but not-yet-sent) draft back to draft, so it stops before

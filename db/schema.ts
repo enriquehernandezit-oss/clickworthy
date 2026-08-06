@@ -35,6 +35,7 @@ export const restaurants = pgTable('restaurants', {
   contactFirstName: text('contact_first_name'), // best-effort owner name; null -> generic greeting
   isNewOpening: boolean('is_new_opening').default(false), // hints the Grand Opening package
   held: boolean('held').default(false), // manually pulled out of drafting (via /admin); skip until unheld
+  rejectionReason: text('rejection_reason'), // why enrichment set status='rejected' (e.g. the chain-check reasoning)
   // Pipeline lifecycle: sourced -> enriched -> queued -> contacted (or needs_manual_email / rejected)
   enrichmentStatus: text('enrichment_status').default('sourced'),
   lastContactedAt: timestamp('last_contacted_at'),

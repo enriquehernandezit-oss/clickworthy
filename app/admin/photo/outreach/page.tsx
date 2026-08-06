@@ -130,7 +130,7 @@ export default async function OutreachPage({
                     </pre>
                   </details>
                 )}
-                <DraftActions outreachJobId={d.id} />
+                <DraftActions outreachJobId={d.id} subject={d.subject ?? ""} body={d.emailContent ?? ""} />
               </Card>
             ))}
           </div>
@@ -223,6 +223,16 @@ export default async function OutreachPage({
                   <pre className="mt-2 whitespace-pre-wrap rounded-lg border border-orange-100 bg-orange-50 p-3 font-sans text-sm leading-relaxed text-stone-800">
                     {job.replyBody}
                   </pre>
+                  {job.threadId && (
+                    <a
+                      href={`https://mail.google.com/mail/u/0/#all/${job.threadId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 inline-block text-xs font-medium text-orange-700 hover:underline"
+                    >
+                      Open in Gmail ↗
+                    </a>
+                  )}
                 </details>
               )}
             </Card>

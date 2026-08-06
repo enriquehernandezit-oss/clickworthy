@@ -4,6 +4,7 @@ import { restaurants } from "@/db/schema";
 import Link from "next/link";
 import RestaurantActions from "./RestaurantActions";
 import { Badge, EmptyState, Pager, SectionHeading } from "../../ui";
+import AddRestaurantForm from "./AddRestaurantForm";
 
 // The lead database, browsable. The important job here is unblocking rows the
 // automated pipeline couldn't finish — mainly `needs_manual_email`, where a
@@ -56,7 +57,10 @@ export default async function RestaurantsPage({
 
   return (
     <section>
-      <SectionHeading>Restaurants</SectionHeading>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <SectionHeading>Restaurants</SectionHeading>
+        <AddRestaurantForm />
+      </div>
 
       {/* Plain GET form — filters live in the URL, so they survive refresh and
           router.refresh() after a mutation, with no client JS. */}

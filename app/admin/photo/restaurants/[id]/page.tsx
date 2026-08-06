@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { restaurants, outreachJobs, magicLinks } from "@/db/schema";
 import { Badge, Card, EmptyState, SectionHeading, fmtDate, fmtDateTime } from "../../../ui";
 import RestaurantActions from "../RestaurantActions";
+import ComposeForm from "./ComposeForm";
 import EditFields from "./EditFields";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +33,7 @@ async function load(id: number) {
 }
 
 function touchLabel(touchNumber: number | null, status: string | null): string {
+  if (touchNumber === 0) return "Manual";
   if (status === "bumped") return "Bump (1.5)";
   if (touchNumber === 2) return "Touch 2";
   return "Touch 1";
@@ -62,6 +64,11 @@ export default async function RestaurantDetailPage({ params }: { params: Promise
           {r.city ?? "—"}
           {r.language === "es" && " · ES"}
         </p>
+        {r.enrichmentStatus === "rejected" && r.rejectionReason && (
+          <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+            <span className="font-semibold">Why rejected:</span> {r.rejectionReason}
+          </div>
+        )}
       </div>
 
       {/* Dossier */}
@@ -126,6 +133,14 @@ export default async function RestaurantDetailPage({ params }: { params: Promise
         </div>
       </section>
 
+      {/* Manual one-off email */}
+      <section>
+        <SectionHeading>Send an email</SectionHeading>
+        <div className="mt-3">
+          <ComposeForm restaurantId={r.id} hasEmail={Boolean(r.email)} />
+        </div>
+      </section>
+
       {/* Outreach timeline */}
       <section>
         <SectionHeading>Outreach timeline</SectionHeading>
@@ -166,6 +181,16 @@ export default async function RestaurantDetailPage({ params }: { params: Promise
                     <pre className="mt-2 whitespace-pre-wrap rounded-lg border border-orange-100 bg-orange-50 p-3 font-sans text-sm leading-relaxed text-stone-800">
                       {j.replyBody}
                     </pre>
+                    {j.gmailThreadId && (
+                      <a
+                        href={`https://mail.google.com/mail/u/0/#all/${j.gmailThreadId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-block text-xs font-medium text-orange-700 hover:underline"
+                      >
+                        Open in Gmail ↗
+                      </a>
+                    )}
                   </details>
                 )}
               </Card>
