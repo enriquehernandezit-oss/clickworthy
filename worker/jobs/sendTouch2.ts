@@ -11,7 +11,7 @@ import { magicLinks, restaurants, outreachJobs } from "@/db/schema";
 import { config } from "../config";
 import { getSetting } from "@/lib/settings";
 import { sendEmail, getThreadTail } from "../lib/gmail";
-import { composeTouch2 } from "../lib/outreachEmail";
+import { composeTouch2, senderName } from "../lib/outreachEmail";
 import { withRetry } from "../lib/retry";
 
 // The conversation this restaurant is already in. Touch 1 and the bump share a
@@ -92,7 +92,7 @@ export async function runSendTouch2(): Promise<void> {
             to: r.email!,
             subject,
             body,
-            fromName: "Clickworthy",
+            fromName: senderName(),
             threadId: threadId ?? undefined,
             inReplyTo,
           }),

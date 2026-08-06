@@ -17,17 +17,22 @@ async function load(id: number) {
   const [r] = await db.select().from(restaurants).where(eq(restaurants.id, id)).limit(1);
   if (!r) return null;
 
+  // Caps below prevent one very-active restaurant from rendering hundreds of
+  // full email bodies. A restaurant that outgrows these limits is an outlier
+  // worth investigating anyway.
   const timeline = await db
     .select()
     .from(outreachJobs)
     .where(eq(outreachJobs.restaurantId, id))
-    .orderBy(sql`coalesce(${outreachJobs.sentAt}, ${outreachJobs.approvedAt}, ${outreachJobs.draftedAt}) desc nulls last`, desc(outreachJobs.id));
+    .orderBy(sql`coalesce(${outreachJobs.sentAt}, ${outreachJobs.approvedAt}, ${outreachJobs.draftedAt}) desc nulls last`, desc(outreachJobs.id))
+    .limit(50);
 
   const links = await db
     .select()
     .from(magicLinks)
     .where(eq(magicLinks.restaurantId, id))
-    .orderBy(desc(magicLinks.createdAt));
+    .orderBy(desc(magicLinks.createdAt))
+    .limit(20);
 
   return { r, timeline, links };
 }
@@ -129,6 +134,7 @@ export default async function RestaurantDetailPage({ params }: { params: Promise
             needsEmail={r.enrichmentStatus === "needs_manual_email"}
             held={Boolean(r.held)}
             rejected={r.enrichmentStatus === "rejected"}
+            showEmail={false}
           />
         </div>
       </section>

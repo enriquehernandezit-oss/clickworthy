@@ -27,12 +27,19 @@ export type WorkerBootInfo = {
 export type SettingsMap = {
   outreach_paused: boolean; // panic button: blocks all Gmail sending
   outreach_autosend: boolean; // false = approval mode; true = drafts auto-approve + send
+  // Override the daily ramp cap. `null` = use the ramp formula (start + step*days,
+  // capped at cap). Any positive integer overrides the whole calculation.
+  outreach_daily_cap: number | null;
+  // Days to wait before sending the one-time Touch 1.5 bump.
+  bump_after_days: number;
   worker_boot_info: WorkerBootInfo | null;
 };
 
 const DEFAULTS: SettingsMap = {
   outreach_paused: false,
   outreach_autosend: false,
+  outreach_daily_cap: null,
+  bump_after_days: 3,
   worker_boot_info: null,
 };
 

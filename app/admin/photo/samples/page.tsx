@@ -28,7 +28,10 @@ async function getQueue() {
     .from(magicLinks)
     .leftJoin(restaurants, eq(magicLinks.restaurantId, restaurants.id))
     .where(eq(magicLinks.reviewStatus, "awaiting_edit"))
-    .orderBy(desc(magicLinks.createdAt));
+    // Each card renders 3 full-size photos; cap so a backlog doesn't blow up
+    // the page. The overview's "N replies to edit" chip stays truthful.
+    .orderBy(desc(magicLinks.createdAt))
+    .limit(50);
 }
 
 async function getHistory(status: string, page: number) {

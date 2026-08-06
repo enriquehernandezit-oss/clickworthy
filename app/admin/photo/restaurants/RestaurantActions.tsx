@@ -12,6 +12,7 @@ export default function RestaurantActions({
   needsEmail,
   held,
   rejected,
+  showEmail = true,
 }: {
   restaurantId: number;
   email: string | null;
@@ -19,6 +20,9 @@ export default function RestaurantActions({
   needsEmail: boolean;
   held: boolean;
   rejected?: boolean;
+  // false on the detail page — EditFields owns the email input there, so
+  // rendering another one would give the page two disagreeing sources of truth.
+  showEmail?: boolean;
 }) {
   const router = useRouter();
   const [value, setValue] = useState(email ?? "");
@@ -51,25 +55,27 @@ export default function RestaurantActions({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          type="email"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="no email on file"
-          className={`w-56 rounded-lg border px-2.5 py-1.5 text-sm text-stone-800 placeholder:text-stone-400 ${
-            needsEmail && !email ? "border-amber-400 bg-amber-50" : "border-stone-300 bg-white"
-          }`}
-        />
-        <button
-          type="button"
-          disabled={busy !== null || !dirty || !value.trim()}
-          onClick={() => post("set_email", { email: value.trim() })}
-          className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {busy === "set_email" ? "Saving…" : "Save"}
-        </button>
-      </div>
+      {showEmail && (
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="email"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="no email on file"
+            className={`w-56 rounded-lg border px-2.5 py-1.5 text-sm text-stone-800 placeholder:text-stone-400 ${
+              needsEmail && !email ? "border-amber-400 bg-amber-50" : "border-stone-300 bg-white"
+            }`}
+          />
+          <button
+            type="button"
+            disabled={busy !== null || !dirty || !value.trim()}
+            onClick={() => post("set_email", { email: value.trim() })}
+            className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy === "set_email" ? "Saving…" : "Save"}
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         {suppressed ? (

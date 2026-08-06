@@ -17,7 +17,7 @@ import { sendAlert } from "@/lib/alerts";
 import { getSetting } from "@/lib/settings";
 import { config } from "../config";
 import { sendEmail } from "../lib/gmail";
-import { composeTouch1 } from "../lib/outreachEmail";
+import { composeTouch1, senderName } from "../lib/outreachEmail";
 import { isSuppressed } from "../lib/suppression";
 import { withRetry } from "../lib/retry";
 
@@ -39,6 +39,12 @@ function startOfToday(): Date {
 
 // Daily cap ramps 20 -> 50 over a week+ of sending, protecting deliverability.
 async function dailyCap(): Promise<number> {
+  // A manual override in app_settings wins over the ramp formula. Handy when
+  // you want to throttle during list-warmup or open the tap all the way on a
+  // proven list. Positive int only — null means "use the formula".
+  const override = await getSetting("outreach_daily_cap");
+  if (typeof override === "number" && override > 0) return Math.floor(override);
+
   const [{ first }] = await db
     .select({ first: sql<Date | null>`min(${outreachJobs.sentAt})` })
     .from(outreachJobs);
@@ -248,7 +254,7 @@ async function sendApproved(): Promise<void> {
 
     try {
       const sent = await withRetry(
-        () => sendEmail({ to: email, subject: job.subject ?? "", body: job.emailContent ?? "", fromName: "Clickworthy" }),
+        () => sendEmail({ to: email, subject: job.subject ?? "", body: job.emailContent ?? "", fromName: senderName() }),
         { label: `gmail touch1 ${email}`, attempts: 2 }
       );
       // ONE update flips the row to sent + sets all three ids together — the

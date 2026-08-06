@@ -3,9 +3,11 @@
 // (graceful fallback), restaurant name. Touch 1 and the bump are deliberately
 // link-free and price-free — the only ask is a reply.
 
-function senderName(): string {
-  // `||` (not `??`) deliberately — an env var present but set to "" should
-  // fall back too, same as if it were unset.
+// Exported so every send site can use the same identity — the sign-off in the
+// body and the `From:` name must match, or the mail arrives from one name and
+// is signed by another. `||` (not `??`) deliberately: an env var present but
+// set to "" should still fall back.
+export function senderName(): string {
   return process.env.OUTREACH_SENDER_NAME || "Enrique";
 }
 

@@ -9,19 +9,21 @@ import { restaurants, outreachJobs } from "@/db/schema";
 import { config } from "../config";
 import { getSetting } from "@/lib/settings";
 import { sendEmail, getThreadingInfo } from "../lib/gmail";
-import { composeBump } from "../lib/outreachEmail";
+import { composeBump, senderName } from "../lib/outreachEmail";
 import { isSuppressed } from "../lib/suppression";
 import { withRetry } from "../lib/retry";
 
-const BUMP_AFTER_DAYS = 3;
+const BUMP_AFTER_DAYS_DEFAULT = 3;
 
 export async function runSendBumps(): Promise<void> {
   if (await getSetting("outreach_paused")) {
     console.warn("[bump] outreach_paused — skipping.");
     return;
   }
+  const configured = await getSetting("bump_after_days");
+  const days = Number.isFinite(configured) && configured > 0 ? configured : BUMP_AFTER_DAYS_DEFAULT;
   const enabled = process.env.OUTREACH_ENABLED === "true" && !config.dryRun;
-  const cutoff = new Date(Date.now() - BUMP_AFTER_DAYS * 86_400_000);
+  const cutoff = new Date(Date.now() - days * 86_400_000);
 
   // Touch 1 rows older than the cutoff, never replied, whose restaurant has no
   // bump row yet and isn't suppressed.
@@ -85,7 +87,7 @@ export async function runSendBumps(): Promise<void> {
             to: r.email!,
             subject,
             body,
-            fromName: "Clickworthy",
+            fromName: senderName(),
             threadId: row.threadId ?? undefined,
             inReplyTo,
           }),

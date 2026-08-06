@@ -82,8 +82,11 @@ export default function SampleActions({
       <button
         type="button"
         disabled={busy !== null}
-        onClick={() => post("reject")}
-        className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50"
+        onClick={() => {
+          if (!window.confirm("Reject this sample? The customer gets no reply and the lead is closed — this cannot be undone from the queue.")) return;
+          post("reject");
+        }}
+        className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-50 disabled:opacity-50"
       >
         Reject
       </button>

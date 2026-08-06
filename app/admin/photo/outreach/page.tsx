@@ -36,7 +36,10 @@ async function getDrafts() {
     .from(outreachJobs)
     .innerJoin(restaurants, eq(outreachJobs.restaurantId, restaurants.id))
     .where(eq(outreachJobs.status, "draft"))
-    .orderBy(asc(outreachJobs.draftedAt));
+    // Cap the review pile so a build-up doesn't render 500 full email bodies.
+    // Anything past this is still counted in the "N drafts" badge.
+    .orderBy(asc(outreachJobs.draftedAt))
+    .limit(100);
 }
 
 async function getApprovedCount() {

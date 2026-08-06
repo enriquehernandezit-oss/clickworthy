@@ -87,6 +87,7 @@ export default function SuppressionActions({ email }: { email: string }) {
   const [error, setError] = useState<string | null>(null);
 
   const remove = async () => {
+    if (!window.confirm(`Remove ${email} from the do-not-contact list? They will become eligible for cold email again — someone who opted out could get contacted.`)) return;
     setBusy(true);
     setError(null);
     const err = await postAction("remove", { email }).catch(() => "Network error.");

@@ -57,7 +57,10 @@ export default function PackageActions({
           type="button"
           disabled={busy !== null || !allFinished}
           title={allFinished ? "" : "Finish every photo before delivering"}
-          onClick={() => post("deliver", {})}
+          onClick={() => {
+            if (!window.confirm("Deliver this order? The customer gets an email now and the delivery page unlocks. No further edits after this.")) return;
+            post("deliver", {});
+          }}
           className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:text-stone-500"
         >
           {busy === "deliver:order" ? "Delivering…" : "Deliver order"}

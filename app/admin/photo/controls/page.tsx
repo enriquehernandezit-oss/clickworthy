@@ -4,7 +4,7 @@ import { getAllSettings } from "@/lib/settings";
 import { getDeliverability } from "@/lib/photoStats";
 import { ALL_QUEUES, SOURCE_QUEUE, SEND_QUEUE, REPLY_QUEUE, STATS_QUEUE, PACKAGE_QUEUE } from "@/lib/queues";
 import { Card, EmptyState, SectionHeading, fmtDateTime } from "../../ui";
-import { PauseControl, AutosendControl } from "./ControlToggles";
+import { PauseControl, AutosendControl, NumberSetting } from "./ControlToggles";
 import RunNow from "./RunNow";
 
 export const dynamic = "force-dynamic";
@@ -121,6 +121,23 @@ export default async function ControlsPage() {
         <SectionHeading>Controls</SectionHeading>
         <PauseControl paused={values.outreach_paused} />
         <AutosendControl autosend={values.outreach_autosend} />
+        <NumberSetting
+          settingKey="outreach_daily_cap"
+          label="Daily send cap"
+          help="How many Touch-1 emails go out each day. Leave empty to use the auto-ramp (30 → 50 over ~a month) or set a fixed cap."
+          value={values.outreach_daily_cap}
+          nullable
+          suffix="/ day"
+          formulaHint={boot ? `${boot.ramp.start} → ${boot.ramp.cap} auto-ramp` : "auto-ramp"}
+        />
+        <NumberSetting
+          settingKey="bump_after_days"
+          label="Days before the Touch 1.5 bump"
+          help="How many days after Touch 1 a no-reply gets the one-time bump."
+          value={values.bump_after_days}
+          nullable={false}
+          suffix="days"
+        />
       </section>
 
       {/* Deliverability guard */}

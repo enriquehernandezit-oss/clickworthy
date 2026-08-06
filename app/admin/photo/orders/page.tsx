@@ -34,7 +34,10 @@ async function getQueue() {
     .from(magicLinks)
     .leftJoin(restaurants, eq(magicLinks.restaurantId, restaurants.id))
     .where(eq(magicLinks.packageStatus, "ready_for_review"))
-    .orderBy(desc(magicLinks.createdAt));
+    // Each card renders up to 40 photos (Grand Opening tier); cap so a backlog
+    // doesn't render hundreds of images at once.
+    .orderBy(desc(magicLinks.createdAt))
+    .limit(20);
 }
 
 async function getPackageOrders(page: number) {

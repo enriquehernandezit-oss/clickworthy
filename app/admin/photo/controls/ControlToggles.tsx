@@ -128,3 +128,102 @@ export function AutosendControl({ autosend }: { autosend: boolean }) {
     </div>
   );
 }
+
+// Editable numeric setting (positive int, or nullable positive int). Renders
+// as an inline field + Save button + optional Reset (nullable variant). The
+// worker reads the setting on every job run, so a change takes effect on the
+// next tick — no restart.
+export function NumberSetting({
+  settingKey,
+  label,
+  help,
+  value,
+  nullable,
+  suffix,
+  formulaHint,
+}: {
+  settingKey: "outreach_daily_cap" | "bump_after_days";
+  label: string;
+  help: string;
+  value: number | null;
+  nullable: boolean;
+  suffix?: string;
+  formulaHint?: string;
+}) {
+  const router = useRouter();
+  const [raw, setRaw] = useState(value == null ? "" : String(value));
+  const [busy, setBusy] = useState<"save" | "reset" | null>(null);
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  const write = async (v: string, kind: "save" | "reset") => {
+    setBusy(kind);
+    setMsg(null);
+    try {
+      const fd = new FormData();
+      fd.set("key", settingKey);
+      fd.set("value", v);
+      const res = await fetch("/api/admin/settings", { method: "POST", body: fd });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMsg({ text: body?.error ?? "Failed.", ok: false });
+      } else {
+        setMsg({ text: "Saved.", ok: true });
+        router.refresh();
+      }
+    } catch {
+      setMsg({ text: "Network error.", ok: false });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const dirty = (raw === "" ? null : Number(raw)) !== value;
+
+  return (
+    <div className="rounded-xl border border-stone-200 bg-white p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <div>
+          <div className="text-base font-semibold text-stone-900">{label}</div>
+          <p className="mt-1 max-w-xl text-sm text-stone-600">{help}</p>
+          {formulaHint && value == null && (
+            <p className="mt-1 text-xs text-stone-500">Currently: {formulaHint}</p>
+          )}
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <input
+          type="number"
+          min={1}
+          value={raw}
+          onChange={(e) => setRaw(e.target.value)}
+          placeholder={nullable ? "(auto)" : ""}
+          className="w-28 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800 tabular-nums"
+        />
+        {suffix && <span className="text-sm text-stone-500">{suffix}</span>}
+        <button
+          type="button"
+          disabled={busy !== null || !dirty}
+          onClick={() => write(raw, "save")}
+          className="rounded-lg bg-stone-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {busy === "save" ? "Saving…" : "Save"}
+        </button>
+        {nullable && value != null && (
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => { setRaw(""); write("", "reset"); }}
+            className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 hover:bg-stone-100 disabled:opacity-50"
+          >
+            {busy === "reset" ? "…" : "Reset"}
+          </button>
+        )}
+        {msg && (
+          <span className={`text-xs ${msg.ok ? "text-teal-700" : "text-red-600"}`} role="alert">
+            {msg.text}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}

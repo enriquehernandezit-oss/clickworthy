@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants, outreachJobs } from "@/db/schema";
 import { sendEmail } from "@/worker/lib/gmail";
+import { senderName } from "@/worker/lib/outreachEmail";
 
 // Manual one-off email to a restaurant, sent from the same `mail@` mailbox as
 // cold outreach. Logged as `touchNumber: 0` so it never counts toward the daily
@@ -26,7 +27,7 @@ export async function POST(request: NextRequest) {
   if (!r.email) return NextResponse.json({ error: "This restaurant has no email on file." }, { status: 400 });
 
   try {
-    const sent = await sendEmail({ to: r.email, subject, body, fromName: "Clickworthy" });
+    const sent = await sendEmail({ to: r.email, subject, body, fromName: senderName() });
     await db.insert(outreachJobs).values({
       restaurantId: r.id,
       touchNumber: 0, // 'manual' — excluded from ramp / bump / touch-2 flow
