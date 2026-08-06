@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { restaurants } from "@/db/schema";
 import Link from "next/link";
 import RestaurantActions from "./RestaurantActions";
-import { Badge, EmptyState, Pager, SectionHeading } from "../ui";
+import { Badge, EmptyState, Pager, SectionHeading } from "../../ui";
 
 // The lead database, browsable. The important job here is unblocking rows the
 // automated pipeline couldn't finish — mainly `needs_manual_email`, where a
@@ -98,7 +98,7 @@ export default async function RestaurantsPage({
           Filter
         </button>
         {(status !== "all" || q) && (
-          <Link href="/admin/restaurants" className="py-2 text-sm font-medium text-stone-500 hover:text-stone-800">
+          <Link href="/admin/photo/restaurants" className="py-2 text-sm font-medium text-stone-500 hover:text-stone-800">
             Clear
           </Link>
         )}
@@ -123,7 +123,7 @@ export default async function RestaurantsPage({
               {list.map((r) => (
                 <tr key={r.id} className="border-b border-stone-100 align-top">
                   <td className="px-3 py-3">
-                    <Link href={`/admin/restaurants/${r.id}`} className="font-medium text-stone-900 hover:text-orange-700 hover:underline">
+                    <Link href={`/admin/photo/restaurants/${r.id}`} className="font-medium text-stone-900 hover:text-orange-700 hover:underline">
                       {r.name}
                     </Link>
                     <div className="text-xs text-stone-500">
@@ -171,7 +171,7 @@ export default async function RestaurantsPage({
       )}
 
       <Pager
-        base="/admin/restaurants"
+        base="/admin/photo/restaurants"
         page={page}
         hasNext={rows.length > LIMIT}
         params={{ status: status === "all" ? undefined : status, q: q || undefined }}

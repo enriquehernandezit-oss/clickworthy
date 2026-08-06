@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { getAllSettings } from "@/lib/settings";
 import { ALL_QUEUES, SOURCE_QUEUE, SEND_QUEUE, REPLY_QUEUE, STATS_QUEUE, PACKAGE_QUEUE } from "@/lib/queues";
-import { Card, EmptyState, SectionHeading, fmtDateTime } from "../ui";
+import { Card, EmptyState, SectionHeading, fmtDateTime } from "../../ui";
 import { PauseControl, AutosendControl } from "./ControlToggles";
 import RunNow from "./RunNow";
 

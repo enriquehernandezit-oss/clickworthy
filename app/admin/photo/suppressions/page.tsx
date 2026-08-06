@@ -2,7 +2,7 @@ import { desc } from "drizzle-orm";
 import { db } from "@/db";
 import { suppressions } from "@/db/schema";
 import SuppressionActions, { AddSuppressionForm } from "./SuppressionActions";
-import { Badge, EmptyState, Pager, SectionHeading, fmtDateTime } from "../ui";
+import { Badge, EmptyState, Pager, SectionHeading, fmtDateTime } from "../../ui";
 
 // The do-not-contact list the worker checks before every send. Anyone who
 // replies STOP lands here automatically; this page is for adding someone who
@@ -77,7 +77,7 @@ export default async function SuppressionsPage({
         </div>
       )}
 
-      <Pager base="/admin/suppressions" page={page} hasNext={rows.length > LIMIT} />
+      <Pager base="/admin/photo/suppressions" page={page} hasNext={rows.length > LIMIT} />
     </section>
   );
 }

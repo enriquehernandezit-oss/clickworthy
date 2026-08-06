@@ -26,6 +26,44 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* ---- Admin console design system (from the dashboard mockup) ----
+   Scoped to `.console` so the public site keeps its stone/orange look. The
+   fonts (--font-display/body/mono-label) are defined by next/font in the root
+   layout and only take effect where referenced, i.e. inside .console. */
+.console {
+  --ink: #14171c;
+  --ink-soft: #1e2229;
+  --paper: #f6f5f2;
+  --card: #ffffff;
+  --line: #e4e2db;
+  --c-text: #1c1e22;
+  --c-text-muted: #6b7280;
+  --c-text-faint: #9a9ea6;
+  --gold: #e3a83b;
+  --gold-soft: #fbf0da;
+  --teal: #2f7a6f;
+  --teal-soft: #e1eeeb;
+  --plum: #6b5ca5;
+  --plum-soft: #eae6f5;
+  --rust: #c1583f;
+  --rust-soft: #f6e4df;
+  --coral: #d65f5f;
+  /* default accent = gold (Photo venture); each venture page overrides these */
+  --accent: var(--gold);
+  --accent-soft: var(--gold-soft);
+
+  background: var(--paper);
+  color: var(--c-text);
+  font-family: var(--font-body), "Inter", system-ui, sans-serif;
+}
+
+.console .font-display {
+  font-family: var(--font-display), "Space Grotesk", system-ui, sans-serif;
+}
+.console .font-mono-label {
+  font-family: var(--font-mono-label), "IBM Plex Mono", ui-monospace, monospace;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;

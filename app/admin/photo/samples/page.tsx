@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { magicLinks, restaurants } from "@/db/schema";
 import SampleActions from "../SampleActions";
 import UnrejectButton from "./UnrejectButton";
-import { Badge, Card, EmptyState, Figure, Pager, SectionHeading, fmtDate } from "../ui";
+import { Badge, Card, EmptyState, Figure, Pager, SectionHeading, fmtDate } from "../../ui";
 
 // Free-sample production: the work queue (replies awaiting a human edit) plus
 // the history of everything already approved or rejected — which the old
@@ -152,7 +152,7 @@ export default async function SamplesPage({
           </div>
         )}
 
-        <Pager base="/admin/samples" page={page} hasNext={hasNext} params={{ status }} />
+        <Pager base="/admin/photo/samples" page={page} hasNext={hasNext} params={{ status }} />
       </section>
     </>
   );
@@ -169,7 +169,7 @@ function FilterTabs({ current }: { current: string }) {
       {options.map(([value, label]) => (
         <a
           key={value}
-          href={value === "all" ? "/admin/samples" : `/admin/samples?status=${value}`}
+          href={value === "all" ? "/admin/photo/samples" : `/admin/photo/samples?status=${value}`}
           className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
             current === value
               ? "border-orange-300 bg-orange-50 text-orange-700"

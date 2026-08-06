@@ -1,32 +1,38 @@
 import type { Metadata } from "next";
-import AdminNav from "./AdminNav";
+import Sidebar from "./Sidebar";
 import LogoutButton from "./LogoutButton";
 import { getCurrentUser } from "@/lib/currentUser";
 
-// Internal tool — don't inherit the marketing title, and keep it out of search.
 export const metadata: Metadata = {
-  title: "Clickworthy Admin",
+  title: "ClickWorthy Console",
   robots: { index: false, follow: false },
 };
 
-// Chrome for the whole admin area. Deliberately does minimal DB work.
-// Auth: proxy.ts gates /admin/:path* + /api/admin/:path* with a session cookie.
+// The console shell: dark sidebar (venture switcher) + a light main column with
+// a sticky topbar. `.console` scopes the design system so the public site is
+// untouched. The login page renders its own fixed overlay on top of this.
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();
+
   return (
-    <div className="min-h-screen bg-stone-50 px-6 py-10 text-stone-900">
-      <div className="mx-auto max-w-6xl">
-        <div className="flex items-center justify-between gap-4">
-          <h1 className="text-2xl font-bold tracking-tight">Clickworthy Admin</h1>
+    <div className="console flex min-h-screen">
+      <Sidebar userName={user?.name ?? "—"} userRole={user?.role === "owner" ? "Founder · Owner" : "Admin"} />
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header
+          className="sticky top-0 z-10 flex h-16 items-center justify-between border-b px-7 pl-16 lg:pl-7"
+          style={{ background: "var(--card)", borderColor: "var(--line)" }}
+        >
+          <div className="font-display text-base font-semibold text-[var(--c-text)]">ClickWorthy</div>
           {user && (
-            <div className="flex items-center gap-3 text-sm text-stone-500">
-              <span>{user.name}</span>
+            <div className="flex items-center gap-3 text-sm text-[var(--c-text-muted)]">
+              <span className="hidden sm:inline">{user.name}</span>
               <LogoutButton />
             </div>
           )}
-        </div>
-        <AdminNav />
-        <div className="mt-8">{children}</div>
+        </header>
+
+        <main className="flex-1 px-5 pb-16 pt-6 sm:px-7">{children}</main>
       </div>
     </div>
   );

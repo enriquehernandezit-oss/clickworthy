@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { outreachJobs, restaurants } from "@/db/schema";
-import { Badge, Card, EmptyState, Pager, SectionHeading, fmtDateTime } from "../ui";
+import { Badge, Card, EmptyState, Pager, SectionHeading, fmtDateTime } from "../../ui";
 import DraftActions, { ApproveAllButton } from "./DraftActions";
 import UnapproveButton from "./UnapproveButton";
 
@@ -138,7 +138,7 @@ export default async function OutreachPage({
 
         {approvedCount > 0 && (
           <p className="mt-4 text-sm text-stone-600">
-            <a href="/admin/outreach?status=approved" className="font-medium text-orange-700 hover:underline">
+            <a href="/admin/photo/outreach?status=approved" className="font-medium text-orange-700 hover:underline">
               {approvedCount} approved
             </a>{" "}
             — sends on the next send run (subject to the daily cap).
@@ -153,7 +153,7 @@ export default async function OutreachPage({
         {(["all", ...STATUSES] as const).map((value) => (
           <a
             key={value}
-            href={value === "all" ? "/admin/outreach" : `/admin/outreach?status=${value}`}
+            href={value === "all" ? "/admin/photo/outreach" : `/admin/photo/outreach?status=${value}`}
             className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
               status === value
                 ? "border-orange-300 bg-orange-50 text-orange-700"
@@ -230,7 +230,7 @@ export default async function OutreachPage({
         </div>
       )}
 
-        <Pager base="/admin/outreach" page={page} hasNext={rows.length > LIMIT} params={{ status }} />
+        <Pager base="/admin/photo/outreach" page={page} hasNext={rows.length > LIMIT} params={{ status }} />
       </section>
     </>
   );

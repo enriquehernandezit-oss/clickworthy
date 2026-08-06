@@ -5,7 +5,7 @@ import { PACKAGES, isPackageId, formatCents as formatPackageCents } from "@/lib/
 import { formatCents as formatPhotoCents } from "@/lib/pricing";
 import PackageActions from "../PackageActions";
 import RetryOrderButton from "./RetryOrderButton";
-import { Badge, Card, EmptyState, Pager, SectionHeading, fmtDate } from "../ui";
+import { Badge, Card, EmptyState, Pager, SectionHeading, fmtDate } from "../../ui";
 
 // Orders across BOTH revenue paths: outreach packages (sold through the
 // magic-link funnel) and self-serve /enhance orders. The production queue for
@@ -149,7 +149,7 @@ export default async function OrdersPage({
           </div>
         )}
         <Pager
-          base="/admin/orders"
+          base="/admin/photo/orders"
           page={page}
           hasNext={packageRows.length > LIMIT}
           params={{ sspage: ssPage > 1 ? String(ssPage) : undefined }}
@@ -196,7 +196,7 @@ export default async function OrdersPage({
           </div>
         )}
         <Pager
-          base="/admin/orders"
+          base="/admin/photo/orders"
           page={ssPage}
           hasNext={selfServeRows.length > LIMIT}
           pageParam="sspage"

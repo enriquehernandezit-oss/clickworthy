@@ -3,7 +3,7 @@ import Link from "next/link";
 import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants, outreachJobs, magicLinks } from "@/db/schema";
-import { Badge, Card, EmptyState, SectionHeading, fmtDate, fmtDateTime } from "../../ui";
+import { Badge, Card, EmptyState, SectionHeading, fmtDate, fmtDateTime } from "../../../ui";
 import RestaurantActions from "../RestaurantActions";
 import EditFields from "./EditFields";
 
@@ -49,7 +49,7 @@ export default async function RestaurantDetailPage({ params }: { params: Promise
   return (
     <div className="flex flex-col gap-10">
       <div>
-        <Link href="/admin/restaurants" className="text-sm text-orange-700 hover:underline">
+        <Link href="/admin/photo/restaurants" className="text-sm text-orange-700 hover:underline">
           &larr; All restaurants
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-3">
