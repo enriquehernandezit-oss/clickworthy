@@ -44,3 +44,8 @@ next-env.d.ts
 # design-skill tool artifacts (emilkowalski/skills — local reference, not app code)
 .agents/
 skills-lock.json
+
+# scratch scripts + downloaded service-account keys — never commit
+tmp-*.ts
+*service-account*.json
+*.serviceaccount.json
