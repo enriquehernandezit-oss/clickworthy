@@ -3,6 +3,105 @@ import Link from "next/link";
 // Shared presentational pieces for the admin area. Server-safe (no hooks) so
 // every admin page can render them directly.
 
+// ---- Console design-system primitives (from the mockup) -------------------
+// Styled with the .console CSS variables. Used by the company overview + the
+// venture panels; older pages keep the plain Card/StatChip above.
+
+// A KPI tile: mono uppercase label, big display value, optional delta line.
+export function KpiCard({
+  label,
+  value,
+  delta,
+  href,
+}: {
+  label: string;
+  value: React.ReactNode;
+  delta?: { text: string; dir: "up" | "down" | "flat"; ctx?: string };
+  href?: string;
+}) {
+  const inner = (
+    <div
+      className="rounded-xl border p-[18px]"
+      style={{ background: "var(--card)", borderColor: "var(--line)" }}
+    >
+      <div className="font-mono-label text-[10.5px] uppercase tracking-wider" style={{ color: "var(--c-text-muted)" }}>
+        {label}
+      </div>
+      <div className="mt-2.5 font-display text-[28px] font-bold tracking-tight tabular-nums" style={{ color: "var(--c-text)" }}>
+        {value}
+      </div>
+      {delta && (
+        <div
+          className="mt-2 flex items-center gap-1.5 text-xs font-semibold"
+          style={{ color: delta.dir === "down" ? "var(--coral)" : delta.dir === "up" ? "var(--teal)" : "var(--c-text-faint)" }}
+        >
+          {delta.dir !== "flat" && <span>{delta.dir === "up" ? "▲" : "▼"}</span>}
+          {delta.text}
+          {delta.ctx && <span className="font-normal" style={{ color: "var(--c-text-faint)" }}>{delta.ctx}</span>}
+        </div>
+      )}
+    </div>
+  );
+  return href ? (
+    <Link href={href} className="block transition-transform hover:-translate-y-0.5">
+      {inner}
+    </Link>
+  ) : (
+    inner
+  );
+}
+
+// Rounded status pill in the mockup's tone set.
+export type PillTone = "gold" | "teal" | "rust" | "plum" | "coral" | "gray";
+const PILL_TONES: Record<PillTone, { bg: string; fg: string }> = {
+  gold: { bg: "var(--gold-soft)", fg: "#8A6112" },
+  teal: { bg: "var(--teal-soft)", fg: "var(--teal)" },
+  rust: { bg: "var(--rust-soft)", fg: "var(--rust)" },
+  plum: { bg: "var(--plum-soft)", fg: "var(--plum)" },
+  coral: { bg: "#FBE7E7", fg: "var(--coral)" },
+  gray: { bg: "#EFEEEA", fg: "var(--c-text-muted)" },
+};
+export function Pill({ tone, children }: { tone: PillTone; children: React.ReactNode }) {
+  const t = PILL_TONES[tone];
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold"
+      style={{ background: t.bg, color: t.fg }}
+    >
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: "currentColor" }} />
+      {children}
+    </span>
+  );
+}
+
+// Console card with an optional header (title + sub + right slot).
+export function ConsoleCard({
+  title,
+  sub,
+  right,
+  children,
+}: {
+  title?: string;
+  sub?: string;
+  right?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="overflow-hidden rounded-xl border" style={{ background: "var(--card)", borderColor: "var(--line)" }}>
+      {(title || right) && (
+        <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: "var(--line)" }}>
+          <div>
+            {title && <div className="font-display text-sm font-semibold" style={{ color: "var(--c-text)" }}>{title}</div>}
+            {sub && <div className="mt-0.5 text-xs" style={{ color: "var(--c-text-muted)" }}>{sub}</div>}
+          </div>
+          {right}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+
 export function SectionHeading({ children }: { children: React.ReactNode }) {
   return <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">{children}</h2>;
 }
