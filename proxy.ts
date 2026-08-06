@@ -1,37 +1,35 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 
-// HTTP Basic Auth gate for the internal admin area (/admin + /api/admin).
-// Credentials come from ADMIN_USER / ADMIN_PASSWORD env. If they're unset, the
-// admin area is locked entirely (fail closed) rather than left open.
+// Session-cookie gate for the internal admin area (/admin + /api/admin).
+// Signed-in users carry a valid `cw_admin_session` cookie (issued by
+// /api/admin/auth, verified by SESSION_SECRET). Unauthenticated requests are
+// redirected to /admin/login (pages) or 401'd (api). Fails closed.
+//
+// The login page + its auth endpoint are exempt so a signed-out user can reach
+// them. Note: Next 16 proxy runs on the Node runtime, so node:crypto works here.
 export function proxy(request: NextRequest) {
-  const user = process.env.ADMIN_USER;
-  const password = process.env.ADMIN_PASSWORD;
+  const { pathname } = request.nextUrl;
 
-  const unauthorized = () =>
-    new NextResponse("Authentication required", {
-      status: 401,
-      headers: { "WWW-Authenticate": 'Basic realm="Clickworthy Admin"' },
-    });
-
-  if (!user || !password) return unauthorized();
-
-  const header = request.headers.get("authorization");
-  if (!header?.startsWith("Basic ")) return unauthorized();
-
-  let decoded = "";
-  try {
-    decoded = atob(header.slice("Basic ".length));
-  } catch {
-    return unauthorized();
+  // Public within the admin area: the login screen and the auth endpoint.
+  if (pathname === "/admin/login" || pathname === "/api/admin/auth") {
+    return NextResponse.next();
   }
-  const idx = decoded.indexOf(":");
-  const givenUser = decoded.slice(0, idx);
-  const givenPass = decoded.slice(idx + 1);
 
-  if (givenUser !== user || givenPass !== password) return unauthorized();
+  const token = request.cookies.get(SESSION_COOKIE)?.value;
+  if (verifySessionToken(token) != null) {
+    return NextResponse.next();
+  }
 
-  return NextResponse.next();
+  // Not signed in.
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+  const loginUrl = new URL("/admin/login", request.url);
+  // Remember where they were headed so login can bounce them back.
+  if (pathname !== "/admin") loginUrl.searchParams.set("next", pathname);
+  return NextResponse.redirect(loginUrl);
 }
 
 export const config = {

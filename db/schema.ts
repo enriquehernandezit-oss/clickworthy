@@ -162,6 +162,20 @@ export const appSettings = pgTable('app_settings', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
+// Admin console users (Enrique + Jose). Created only via
+// scripts/create-admin-user.ts — no public signup. Passwords are scrypt-hashed
+// with a per-user salt (see lib/auth.ts); the raw password is never stored.
+export const adminUsers = pgTable('admin_users', {
+  id: serial('id').primaryKey(),
+  email: text('email').notNull().unique(),
+  name: text('name').notNull(),
+  passwordHash: text('password_hash').notNull(),
+  passwordSalt: text('password_salt').notNull(),
+  role: text('role').notNull().default('admin'), // 'admin' | 'owner' — cosmetic for now
+  createdAt: timestamp('created_at').defaultNow(),
+  lastLoginAt: timestamp('last_login_at'),
+});
+
 // Do-not-contact list. Any email here is skipped by the outreach sender.
 // Populated by "reply STOP" opt-outs and hard bounces.
 export const suppressions = pgTable('suppressions', {
