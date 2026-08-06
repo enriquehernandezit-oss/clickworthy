@@ -54,12 +54,23 @@ Gmail API · Stripe · Resend · NeverBounce · Google Places · Cloudflare R2.
 Deployed on **Railway** as two services from this one repo: `web` (Next.js) and
 `worker` (start command `bun run worker`).
 
-## Admin
+## ClickWorthy Console
 
-`/admin` — behind HTTP Basic Auth (`ADMIN_USER` / `ADMIN_PASSWORD`). Fails closed
-if either is unset. Seven tabs: an overview with a live activity feed, a lead
-browser with per-restaurant detail pages, **approve/redraft/skip cold-email
-drafts before they send**, edit and approve free samples, finish and deliver paid
-orders, manage the do-not-contact list, and a Controls tab (pause switch,
-approval↔autosend toggle, worker health, run-any-job-now). See
-[PIPELINE.md](PIPELINE.md) for the full approval flow.
+`/admin` — a multi-venture command surface with per-user logins (scrypt +
+HMAC-signed session cookies, fail-closed if `SESSION_SECRET` is unset). The
+dark sidebar switches between products; Photo Enhancement is live, HVAC / SMB
+Analytics / RE Videos are ready-to-build placeholders.
+
+Create your admin account:
+
+```bash
+bun run scripts/create-admin-user.ts you@clickworthytool.com "Your Name"
+```
+
+Photo has 8 subtabs under `/admin/photo/*` — Overview (revenue in dollars,
+conversion funnel, per-city, activity feed), Outreach (approve/edit/redraft
+cold-email drafts before they send), Samples, Orders (with self-serve detail +
+retry + Stripe deep links), Leads (add walk-ins, one-off emails), Suppressions,
+Controls (pause, autosend, editable cap + bump-days, worker health, Run-now),
+and Setup (go-live env-key checklist). See [PIPELINE.md](PIPELINE.md) for the
+full approval flow.

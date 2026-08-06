@@ -37,29 +37,43 @@ Two Railway services from one repo: `web` (Next.js) + `worker` (background jobs)
   discovery (scrapes site; Places has no emails) → NeverBounce verify → Claude
   Vision photo scoring (also derives the signature dish) → priority scoring.
 - **Cold outreach — approval-first**: the nightly job **drafts** Touch 1 (never
-  sends directly); you approve drafts in `/admin/outreach`, then they send on the
+  sends directly); you approve drafts in `/admin/photo/outreach`, then they send on the
   next run, 30→50/day ramp, gated by `OUTREACH_ENABLED`. An `outreach_autosend`
   toggle restores full auto-send with no code change. Touch 1.5 bump (one ever,
   threaded); reply poller stores every reply body and alerts on no-photo replies;
   STOP/opt-out suppression. Approved static EN/ES copy is in place.
 - **Free sample = MANUAL production**: a photo reply creates an `awaiting_edit`
-  record and alerts you. You and Jose edit it by hand in `/admin` (a one-click
-  Claid first pass is optional, never automatic), upload the finished photo, and
-  approve — which is what sends Touch 2. Nothing auto-sends to a prospect.
+  record and alerts you. You and Jose edit it by hand in `/admin/photo/samples`
+  (a one-click Claid first pass is optional, never automatic), upload the
+  finished photo, and approve — which is what sends Touch 2. Nothing auto-sends
+  to a prospect.
 - **Conversion funnel** `/l/[token]`: Revenue Impact Card, before/after, package
   tiers, Stripe Checkout, post-payment upload, delivery page. Bilingual EN/ES.
 - **Paid orders** are also human-gated: upload → Claid first pass →
-  `ready_for_review` → you finish each photo in `/admin` → Deliver (emails the
-  customer). Never auto-delivers.
-- **Admin mission control** at `/admin` (Basic Auth via `proxy.ts`, 7 tabs):
-  Overview (attention chips + 7-day stats + **live activity feed**) · Restaurants
-  (filter/search, per-row detail page with inline field edit, hold/suppress/
-  requeue, full timeline) · Outreach (**drafts awaiting approval** — approve/
-  redraft/skip/approve-all — plus the full sent log with reply bodies) · Samples
-  (edit queue + history) · Orders (package queue, all orders, self-serve orders) ·
-  Suppressions (manual add/remove) · **Controls** (pause panic-button, approval↔
-  autosend toggle, worker health + "worker down?" alarm, worker boot env, and
-  Run-now buttons that enqueue any job on demand).
+  `ready_for_review` → you finish each photo in `/admin/photo/orders` → Deliver
+  (emails the customer). Never auto-delivers. If a delivery email bounces,
+  Resend a fresh one from the same page.
+- **ClickWorthy Console** at `/admin` — a **multi-venture command surface**
+  with per-user logins, a dark sidebar that switches between products (Photo
+  Enhancement is live; HVAC, SMB Analytics, RE Videos are venture placeholders
+  ready for their own build). Auth: scrypt-hashed passwords + HMAC-signed
+  session cookies (fail-closed on `SESSION_SECRET` unset). Create accounts:
+  `bun run scripts/create-admin-user.ts <email> "<Name>"`. Photo venture has 8
+  tabs at `/admin/photo/*`:
+  Overview (aggregate KPIs incl. **revenue in dollars**, conversion **funnel**,
+  per-city breakdown, live activity feed) · Outreach (drafts awaiting approval
+  with inline body editor — approve / redraft / skip / approve-all — plus the
+  full log with reply bodies and Gmail thread deep links) · Samples (edit queue
+  + history, un-reject) · Orders (package queue, package + self-serve orders,
+  self-serve order detail with per-photo errors, retry, Stripe deep link,
+  mark-paid, resend-delivery-email) · Leads (search/filter/**add walk-in
+  restaurant**, per-restaurant detail with inline field edit + rejection
+  reasons + hold/suppress/requeue + one-off email compose) · Suppressions
+  (manual add/remove w/ confirms) · Controls (pause panic-button, approval↔
+  autosend toggle, **editable daily cap + bump-days** consumed by the worker at
+  runtime, **deliverability guard status**, queue depth + worker health, Run-now
+  buttons) · Setup (**go-live env-key checklist** — every var + which service
+  needs it + what breaks if it's missing; values never rendered).
 - **Hardening**: retries on Claid/Gmail, Resend failure alerts, weekly stats
   email, deliverability auto-pause if opt-out/bounce rate > 8%.
 - DB schema migrated to Railway Postgres. Everything committed & pushed to `main`.
@@ -89,10 +103,16 @@ Two Railway services from one repo: `web` (Next.js) + `worker` (background jobs)
 - `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`.
 - R2 vars (optional — falls back to Postgres blob storage).
 - Then flip `OUTREACH_ENABLED=true` when you're ready to actually send.
-- **Already set:** `ANTHROPIC_API_KEY`, `CLAID_API_KEY`, `DATABASE_URL`,
-  `GMAIL_SENDER`, `APP_ORIGIN`, `ADMIN_USER`, `ADMIN_PASSWORD`.
+- `SESSION_SECRET` — required. Signs admin session cookies. `openssl rand -hex 32`.
+  Without it the admin fails closed — nobody can log in.
+- **Already set locally:** `ANTHROPIC_API_KEY`, `CLAID_API_KEY`, `DATABASE_URL`,
+  `GMAIL_SENDER`, `APP_ORIGIN`, plus your Stripe + Resend + R2 test-mode keys.
+  ⚠️ `ADMIN_USER` / `ADMIN_PASSWORD` from the old Basic Auth are **no longer
+  used** — the console has per-user logins now (see below).
 
-See `.env.example` for the full annotated list.
+**The full env-key checklist is inside the console** at **Setup** — it reports
+SET/MISSING for every key on both the web and worker services, with the
+"what this blocks" for each. See `.env.example` for the reference list.
 
 ### B. External service setup
 - **Stripe**: create/verify business, get keys, **register a webhook** at
@@ -109,16 +129,16 @@ See `.env.example` for the full annotated list.
 
 ### C. Testing before going live (in this order)
 1. **Sourcing dry-run**: `bun run worker:once "Miami, FL" 10` — check the sourced
-   + enriched rows in `/admin/restaurants`; confirm they land `queued` with a
+   + enriched rows in `/admin/photo/restaurants`; confirm they land `queued` with a
    real signature dish (needs Google Maps + NeverBounce + Anthropic keys).
 2. **3-way Claid quality test** — 4–5 real restaurant photos through AI-Edit vs
    AI-Edit+Upscale vs Upscale-only, to lock the enhancement approach and true
    per-photo cost. **Still pending; the harness is written.**
 3. **Stripe test-mode order** end to end on `/enhance`.
 4. **One outreach cycle to your own inbox**: let the nightly job draft a Touch 1
-   to a test address → **approve the draft in `/admin/outreach`** → it sends →
-   reply with a photo → edit + approve the sample in `/admin/samples` → confirm
-   Touch 2 → funnel → delivery. (`/admin/controls` has Run-now buttons so you
+   to a test address → **approve the draft in `/admin/photo/outreach`** → it sends →
+   reply with a photo → edit + approve the sample in `/admin/photo/samples` → confirm
+   Touch 2 → funnel → delivery. (`/admin/photo/controls` has Run-now buttons so you
    don't have to wait for the crons.)
 
 ---

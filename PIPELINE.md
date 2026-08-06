@@ -23,21 +23,21 @@ flowchart TD
     S1["1. Nightly sourcing (worker, ~2:17am)<br/>Google Places → hard filters → restaurants"]
     S2["2. Enrichment (worker, per restaurant)<br/>chain check · email discovery + NeverBounce<br/>Claude Vision scoring + signature dish · priority"]
     S3d["3. Draft Touch 1 (worker, ~2:23pm)<br/>compose approved template · status=draft · nothing sent"]
-    S3a["3b. YOU approve (/admin/outreach)<br/>or autosend toggle self-approves"]
+    S3a["3b. YOU approve (/admin/photo/outreach)<br/>or autosend toggle self-approves"]
     S3["3c. Send approved (worker)<br/>Gmail · ramp 30→50/day · OFF until OUTREACH_ENABLED"]
     S3b["3d. Touch 1.5 bump (after 3 days, one ever)<br/>same thread, no reply yet"]
     S4{"4. Reply? (worker, every 4 min)"}
     S5["5a. Photo → free sample, awaiting_edit<br/>store photo · Revenue Impact Card · alert you"]
     S5b(["5b. No photo → alert you to answer"])
-    S6["6. YOU edit it (/admin/samples)<br/>optional Claid first pass → finish by hand → upload"]
+    S6["6. YOU edit it (/admin/photo/samples)<br/>optional Claid first pass → finish by hand → upload"]
     S7["7. Approve → Touch 2 email (worker)<br/>enhanced photo + magic link"]
     S8["8. Funnel page (customer, /l/token)<br/>Revenue Card · before/after · Glow-Up $499 / Grand Opening $899 / Always Fresh $249·mo"]
     S9["9. Stripe Checkout → paid"]
     S10["10. Upload photos → Claid first pass → ready_for_review"]
-    S11["11. YOU finish + Deliver (/admin/orders)<br/>customer gets the delivery email"]
+    S11["11. YOU finish + Deliver (/admin/photo/orders)<br/>customer gets the delivery email"]
 
     RJ(["rejected: chain / group"])
-    MM(["needs_manual_email<br/>(fixable in /admin/restaurants)"])
+    MM(["needs_manual_email<br/>(fixable in /admin/photo/restaurants)"])
     SUP(["suppressed: STOP"])
 
     S1 --> S2
@@ -65,19 +65,19 @@ flowchart TD
 1. **Nightly sourcing** — `worker/jobs/sourceLeads.ts`. Google Places Text Search for restaurants in Miami / New York / Chicago / Los Angeles → hard filters (rating ≤ 4.0, 30–500 reviews, `$`/`$$`, operational) → upsert to `restaurants` (`sourced`) → queue an enrichment job each. Google photos are **never stored** (ToS).
 2. **Enrichment** — `worker/jobs/enrichRestaurant.ts`. Hospitality-group check (Claude + web search, also grabs the owner's first name when findable) → email discovery (scrape the site — Places has no emails) → **NeverBounce** verify → Claude Vision photo scoring, which also names the **signature dish** → priority score. Ends `queued`, `needs_manual_email`, or `rejected`. A restaurant with no signature dish is held back — a generic Touch 1 is a deleted Touch 1.
 3. **Touch 1 — draft, then send (two phases in one job)** — `worker/jobs/sendOutreach.ts`.
-   - **Draft phase.** Highest-priority `queued` restaurants (with a signature dish, an email, not held/suppressed) → compose the **approved static template** (EN/ES, merges dish + first name, subject rotates across 3 approved lines) → write an outreach row with `status: 'draft'`. **Nothing is sent.** The batch waits for your approval in `/admin/outreach`.
+   - **Draft phase.** Highest-priority `queued` restaurants (with a signature dish, an email, not held/suppressed) → compose the **approved static template** (EN/ES, merges dish + first name, subject rotates across 3 approved lines) → write an outreach row with `status: 'draft'`. **Nothing is sent.** The batch waits for your approval in `/admin/photo/outreach`.
    - **Send phase.** Every draft you **approved** sends via Gmail from `mail@clickworthytool.com`, oldest approval first, up to the daily ramp cap → records thread ids, flips to `sent`, marks the restaurant `contacted`. Re-checks email/suppressed/held at send time (a draft may sit for days).
-   - **Approval mode is the default** (`outreach_autosend` OFF). Flip the toggle in `/admin/controls` and the draft phase writes rows already `approved`, so the same run sends them — full auto-send, no code change.
+   - **Approval mode is the default** (`outreach_autosend` OFF). Flip the toggle in `/admin/photo/controls` and the draft phase writes rows already `approved`, so the same run sends them — full auto-send, no code change.
    - Gated by `OUTREACH_ENABLED` (drafting still runs when off, so you can review real drafts first) and the `outreach_paused` panic button.
    - **3b. Touch 1.5 bump** — `worker/jobs/sendBumps.ts`. 3 days, no reply → one same-thread bump, ever. The approved copy promises we won't follow up again, and the one-bump guard enforces that.
 4. **Reply loop** — `worker/jobs/pollReplies.ts`. Match inbound replies to their thread; store the reply body + sender either way. `STOP` → suppress. **Photo attached** → store it, generate the Revenue Impact Card, create the magic link as **`awaiting_edit`**, and alert you. **Reply with no photo** (e.g. "how much?") → alert you to answer from your own Gmail inbox — it is never silently dropped.
-5. **Free sample = manual production.** Nothing is auto-enhanced. The reply sits in `/admin/samples` waiting for a human.
-6. **You edit it** — `/admin/samples`. Optionally run a one-click **Claid first pass** to start from, finish the photo by hand, upload the finished version.
+5. **Free sample = manual production.** Nothing is auto-enhanced. The reply sits in `/admin/photo/samples` waiting for a human.
+6. **You edit it** — `/admin/photo/samples`. Optionally run a one-click **Claid first pass** to start from, finish the photo by hand, upload the finished version.
 7. **Approve → Touch 2** — approving sets the finished photo and flips the link to `approved`; `worker/jobs/sendTouch2.ts` then emails it with a link to `/l/[token]`. Sent **into the thread they replied in** (In-Reply-To points at their own message), so it reads as an answer rather than a new broadcast. If the thread can't be read, it still sends standalone — a photo someone is waiting for never gets blocked on a threading lookup.
 8. **Funnel** — `app/l/[token]`. Revenue Impact Card → free before/after → "N more photos" teaser → the three tiers (Menu Glow-Up $499, Grand Opening $899 one-time; Always Fresh $249/mo sold on a call). Bilingual EN/ES.
 9. **Payment** — `app/api/outreach/checkout` (price resolved server-side; `always_fresh` is rejected there, not just hidden in the UI) → Stripe → the shared webhook marks the link paid.
 10. **Upload + first pass** — `app/l/[token]/upload` → customer uploads up to the package limit → `worker/jobs/processPackage.ts` (cron every 1 min) runs a Claid **first pass** on each photo and sets `ready_for_review`. The customer does **not** see these.
-11. **You finish + deliver** — `/admin/orders`. Per photo: re-run Claid or upload your edited version. "Deliver order" flips it to `completed`, unlocks the customer's download page, and sends the delivery email.
+11. **You finish + deliver** — `/admin/photo/orders`. Per photo: re-run Claid or upload your edited version. "Deliver order" flips it to `completed`, unlocks the customer's download page, and sends the delivery email.
 
 ---
 
@@ -111,19 +111,36 @@ they exist only inside the outreach funnel.
 
 ---
 
-## Admin — mission control
+## ClickWorthy Console — mission control
 
-`/admin`, behind Basic Auth (`proxy.ts` covers `/admin/*` and `/api/admin/*`, fail-closed if `ADMIN_USER`/`ADMIN_PASSWORD` unset). Seven tabs.
+`/admin`, gated by a signed **session cookie** (`proxy.ts` covers `/admin/*` and
+`/api/admin/*`, fail-closed if `SESSION_SECRET` unset). Passwords are scrypt-
+hashed with a per-user salt; sessions are HMAC-signed, `HttpOnly`, 7-day expiry.
+Create accounts:
+
+```bash
+bun run scripts/create-admin-user.ts you@clickworthytool.com "Your Name"
+```
+
+The console is a **multi-venture surface** — one dashboard, a dark sidebar that
+switches between products. Photo Enhancement is the built venture; **HVAC AI
+Appointment Setter · SMB Analytics · RE Broker Listing Videos** live as
+styled placeholders ready to host their own pipelines. Each product picks its
+own accent color; every card, subtab, and eyebrow recolors automatically.
+
+`/admin` = the company **Business overview** (aggregate KPIs, product grid,
+cross-venture needs-attention). Photo lives at **`/admin/photo/*`** with 8 subtabs:
 
 | Tab | What it's for |
 |---|---|
-| Overview | "Needs your attention" chips (drafts to review, replies to edit, orders to finish), 7-day sends / replies / reply rate, pipeline counts, and a **live activity feed** (sourced → drafted → sent → replied → sample sent → **PAID** → delivered → suppressed, newest first). |
-| Restaurants | Browse + filter leads; search by name; **each name links to a full detail page** (all fields, inline edit for dish/name/language/email, hold/suppress/requeue, full outreach timeline + magic links). Fixing a missing email releases a `needs_manual_email` row back to `queued`. |
-| Outreach | **Drafts awaiting approval** at the top — approve / redraft / skip each, or Approve-all — then the full log of every email sent, with exact bodies and reply bodies. |
-| Samples | The free-sample edit queue, plus approved/rejected history. |
-| Orders | Package production queue, all package orders, self-serve orders. |
-| Suppressions | Do-not-contact list; STOP replies land here automatically; manual add/remove. |
-| Controls | **Pause all sending** (panic button), **approval ↔ autosend** toggle, worker health (last-run per queue + "worker down?" alarm + recent failures), the worker's last-boot env, and **Run-now** buttons that enqueue any job on demand. |
+| Overview | Revenue in dollars, conversion funnel (sent → replied → sample → viewed → paid), per-city breakdown, 7-day stats, pipeline counts, live activity feed. |
+| Outreach | **Drafts awaiting approval** at the top — approve / **edit body inline** / redraft / skip / approve-all — then the full log of every email sent, with reply bodies and "Open in Gmail ↗" links. |
+| Samples | The free-sample edit queue, plus approved/rejected history. Un-reject to recover a mis-classified reply. |
+| Orders | Package production queue, all package orders, self-serve orders. Click a self-serve row for the detail (customer's prompt, uploaded originals, results, **per-photo error strings**, Stripe deep link, Retry). Package rows have **Mark-paid** (off-Stripe entry) and **Resend delivery email**. |
+| Leads | Browse + filter restaurants; search by name; **+ Add restaurant** (walk-in lead entry). Per-row detail page: all fields, inline edit for dish/name/language/email, hold/suppress/requeue, rejection reason, full timeline, **one-off manual email compose**. |
+| Suppressions | Do-not-contact list. STOP replies land automatically; manual add/remove with confirms. |
+| Controls | **Pause all sending** (panic button), **approval ↔ autosend** toggle, editable **daily cap** + **bump-days** the worker reads at run time, **deliverability guard** status, worker health with queue depth + "worker down?" alarm, boot-config snapshot, Run-now buttons. |
+| Setup | **Go-live env-key checklist** — every environment variable, SET/MISSING on both web and worker, and what each missing key would break. Values are never rendered. |
 
 ### Approval flow (the core of the outreach half)
 
@@ -154,7 +171,12 @@ Cold email is **draft-first**. The nightly job composes Touch-1 drafts and stops
 | Landing page | `app/page.tsx`, `app/components/Header.tsx` |
 | `/enhance` self-serve | `app/enhance/`, `app/api/create-checkout-session`, `app/api/webhooks/stripe` |
 | Outreach funnel | `app/l/[token]/`, `app/api/outreach/` |
-| Admin | `app/admin/`, `app/api/admin/`, `proxy.ts` (Basic Auth) |
+| Console shell + login | `app/admin/layout.tsx`, `app/admin/Sidebar.tsx`, `app/admin/login/`, `proxy.ts` (session-cookie gate) |
+| Photo venture | `app/admin/photo/*`, `app/api/admin/*` |
+| Venture placeholders | `app/admin/{hvac,analytics,realestate}/` |
+| Auth + user mgmt | `lib/auth.ts`, `lib/currentUser.ts`, `scripts/create-admin-user.ts` |
+| Env-key checklist | `lib/envKeys.ts` (used by `app/admin/photo/setup/`) |
+| Photo aggregates (revenue/funnel/city) | `lib/photoStats.ts` |
 | Outreach settings + control | `lib/settings.ts` (app_settings), `lib/queue.ts` (web-side pg-boss for Run-now), `lib/queues.ts` (shared queue names) |
 | Shared libs | `lib/` (claid, stripe, storage, packages, pricing, alerts, customerEmail, moderation, download proxy) |
 | DB schema | `db/schema.ts` |
