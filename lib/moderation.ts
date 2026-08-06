@@ -5,6 +5,17 @@ export type ModerationResult = {
   reason?: string;
 };
 
+// Models routinely wrap JSON in ```json fences or a sentence of preamble even
+// when told not to, so pull the object out rather than parsing the raw reply.
+// Same approach as worker/lib/anthropic.ts's parseJsonObject — without it, a
+// fenced (but perfectly valid) "not flagged" verdict throws and, because this
+// check fails closed, blocks every single order.
+function extractJsonObject(text: string): unknown {
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error(`No JSON object in moderation reply: ${text.slice(0, 200)}`);
+  return JSON.parse(match[0]);
+}
+
 // Lightweight classification pass over the free-text enhancement prompt a
 // visitor submits before any payment is attempted. This is a guardrail, not
 // a general content-moderation system — it only needs to catch the obvious
@@ -45,10 +56,10 @@ export async function moderatePrompt(prompt: string): Promise<ModerationResult> 
   }
 
   try {
-    const parsed = JSON.parse(textBlock.text.trim());
+    const parsed = extractJsonObject(textBlock.text) as { flagged?: unknown; reason?: unknown };
     return {
       flagged: Boolean(parsed.flagged),
-      reason: typeof parsed.reason === "string" ? parsed.reason : undefined,
+      reason: typeof parsed.reason === "string" && parsed.reason ? parsed.reason : undefined,
     };
   } catch (err) {
     console.error("[moderation] Failed to parse moderation response:", textBlock.text, err);

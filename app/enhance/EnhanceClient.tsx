@@ -438,8 +438,9 @@ function ResultsView({ sessionId }: { sessionId: string }) {
                         </button>
                         {result.enhancedUrl && (
                           <a
-                            href={result.enhancedUrl}
-                            download
+                            href={`/api/download?url=${encodeURIComponent(result.enhancedUrl)}&name=${encodeURIComponent(
+                              `enhanced-${result.originalName}`
+                            )}`}
                             className="btn-press rounded-md bg-orange-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-orange-700"
                           >
                             Download

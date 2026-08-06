@@ -111,8 +111,7 @@ function Delivery({ copy, results }: { copy: (typeof funnelCopy)[Lang]; results:
               <span className="truncate text-xs text-stone-500">{r.name}</span>
               {r.enhancedUrl && (
                 <a
-                  href={r.enhancedUrl}
-                  download
+                  href={`/api/download?url=${encodeURIComponent(r.enhancedUrl)}&name=${encodeURIComponent(r.name)}`}
                   className="btn-press rounded-md bg-orange-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-orange-700"
                 >
                   {copy.download}
