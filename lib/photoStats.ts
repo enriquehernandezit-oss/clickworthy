@@ -2,10 +2,9 @@
 // photo overview (/admin/photo) call these so their numbers can't disagree.
 // All in one file so a schema/pricing change touches one place.
 
-import { and, eq, gte, isNotNull, sql } from "drizzle-orm";
+import { and, eq, gte, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { enhancementOrders, magicLinks, outreachJobs, restaurants, suppressions } from "@/db/schema";
-import { PACKAGES, isPackageId } from "@/lib/packages";
+import { magicLinks, outreachJobs, restaurants, suppressions, payments } from "@/db/schema";
 import { DELIVERABILITY } from "@/worker/jobs/sendOutreach";
 
 export type FunnelStep = { label: string; value: number };
@@ -52,32 +51,28 @@ export async function getFunnel(): Promise<{ steps: FunnelStep[]; sentCount: num
   };
 }
 
-// Actual dollar revenue — package sale cents (from lib/packages.ts) + self-serve
-// order totals. Excludes abandoned self-serve checkouts (status='pending' rows
-// are inserted BEFORE the Stripe redirect) so the number reflects real income.
+// Actual dollar revenue, read from the payments ledger (the single source of
+// truth since the backfill). Package revenue is the amount ACTUALLY PAID,
+// snapshotted per row — not re-derived from magicLinks.packageSelected, which
+// over-counts when a paid customer later clicks a different tier. selfServeCompleted
+// now counts recorded self-serve payments rather than 'completed' order rows.
 export async function getRevenue(): Promise<Revenue> {
-  const paidPkgs = await db
-    .select({ pkg: magicLinks.packageSelected })
-    .from(magicLinks)
-    .where(and(isNotNull(magicLinks.paidAt), isNotNull(magicLinks.packageSelected)));
-  let packageCents = 0;
-  for (const { pkg } of paidPkgs) if (isPackageId(pkg)) packageCents += PACKAGES[pkg].priceCents;
-
-  const [{ selfServeCents, selfServeCompleted }] = await db
+  const [row] = await db
     .select({
-      // Only completed / processing orders count — pending = the customer never
-      // finished checkout, and Stripe never charged them.
-      selfServeCents: sql<number>`coalesce(sum(${enhancementOrders.totalCents}) filter (where ${enhancementOrders.status} in ('completed','processing')), 0)::int`,
-      selfServeCompleted: sql<number>`count(*) filter (where ${enhancementOrders.status} = 'completed')::int`,
+      packageCents: sql<number>`coalesce(sum(${payments.grossCents}) filter (where ${payments.line} = 'package'), 0)::int`,
+      selfServeCents: sql<number>`coalesce(sum(${payments.grossCents}) filter (where ${payments.line} = 'self_serve'), 0)::int`,
+      totalCents: sql<number>`coalesce(sum(${payments.grossCents}), 0)::int`,
+      packagePaid: sql<number>`count(*) filter (where ${payments.line} = 'package')::int`,
+      selfServeCompleted: sql<number>`count(*) filter (where ${payments.line} = 'self_serve')::int`,
     })
-    .from(enhancementOrders);
+    .from(payments);
 
   return {
-    packageCents,
-    selfServeCents: selfServeCents ?? 0,
-    totalCents: packageCents + (selfServeCents ?? 0),
-    packagePaid: paidPkgs.length,
-    selfServeCompleted: selfServeCompleted ?? 0,
+    packageCents: row?.packageCents ?? 0,
+    selfServeCents: row?.selfServeCents ?? 0,
+    totalCents: row?.totalCents ?? 0,
+    packagePaid: row?.packagePaid ?? 0,
+    selfServeCompleted: row?.selfServeCompleted ?? 0,
   };
 }
 
