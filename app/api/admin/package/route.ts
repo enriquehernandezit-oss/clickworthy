@@ -6,6 +6,8 @@ import { enhancePhoto } from "@/lib/claid";
 import { persistEnhancedFromUrl, storeImageBytes } from "@/lib/storage";
 import { sendOrderDeliveredEmail } from "@/lib/customerEmail";
 import { FINALIZED_ENHANCEMENT_PROMPT } from "@/worker/lib/prompts";
+import { recordManualPayment } from "@/lib/paymentLedger";
+import { PACKAGES, isPackageId } from "@/lib/packages";
 
 // Paid-order production actions (behind Basic Auth). A paid package lands as
 // `ready_for_review` with a Claid first pass already run; Enrique/Jose finish
@@ -77,7 +79,22 @@ export async function POST(request: NextRequest) {
     if (!link.packageSelected) {
       return NextResponse.json({ error: "No package selected on this link." }, { status: 400 });
     }
-    await db.update(magicLinks).set({ paidAt: new Date() }).where(eq(magicLinks.id, id));
+    const paidAt = new Date();
+    await db.update(magicLinks).set({ paidAt }).where(eq(magicLinks.id, id));
+    // Record an off-Stripe (check/Zelle) payment: real fee $0. Priced from the
+    // package list — a manual payment never has a Stripe amount to read.
+    if (isPackageId(link.packageSelected)) {
+      const pkg = PACKAGES[link.packageSelected];
+      await recordManualPayment({
+        line: "package",
+        magicLinkId: id,
+        restaurantId: link.restaurantId,
+        packageId: link.packageSelected,
+        grossCents: pkg.priceCents,
+        description: `${pkg.name.en} (manual)`,
+        paidAt,
+      });
+    }
     return NextResponse.json({ ok: true, paidAt: true });
   }
 

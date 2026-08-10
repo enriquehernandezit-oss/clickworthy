@@ -33,6 +33,21 @@ export type SettingsMap = {
   // Days to wait before sending the one-time Touch 1.5 bump.
   bump_after_days: number;
   worker_boot_info: WorkerBootInfo | null;
+
+  // --- Financials: editable unit-cost assumptions (all in CENTS, decimals ok) ---
+  // These drive /admin/photo/financials. Every one is an ESTIMATE — Clickworthy
+  // instruments no API call — so calibrate each against the matching monthly
+  // invoice. Cents (not dollars) to sit beside the codebase's *_cents convention;
+  // fractional because most unit costs are sub-cent, and jsonb stores exact
+  // numeric so there's no float drift. See lib/costs.ts for how each is applied.
+  cost_source_per_lead_cents: number; // Google Places Text Search, amortized over survivors
+  cost_enrich_per_lead_cents: number; // Claude chain-check + web search + NeverBounce
+  cost_photo_score_per_photo_cents: number; // Places Photo media fetch + Claude Vision
+  cost_email_per_send_cents: number; // Gmail = $0 (Workspace seat is fixed opex)
+  cost_sample_per_reply_cents: number; // revenue-impact copy + free-sample Claid pass
+  cost_claid_per_photo_cents: number; // AI-Edit + upscale, incl. typical retry waste
+  cost_storage_per_photo_cents: number; // R2 + egress, charged once at delivery
+  opex_monthly_cents: number; // Railway + Workspace + Resend + domain, apportioned by days
 };
 
 const DEFAULTS: SettingsMap = {
@@ -41,6 +56,17 @@ const DEFAULTS: SettingsMap = {
   outreach_daily_cap: null,
   bump_after_days: 3,
   worker_boot_info: null,
+
+  // Provisional defaults — order-of-magnitude, meant to be replaced with real
+  // invoice numbers. Rationale for each is on the SettingsMap field above.
+  cost_source_per_lead_cents: 0.4, // ~$0.035/Text Search ÷ 20 results ÷ ~40% filter pass
+  cost_enrich_per_lead_cents: 4.0, // Sonnet ~1.5k in/300 out ≈ $0.009 + up to 3 web searches + NeverBounce ~$0.008
+  cost_photo_score_per_photo_cents: 0.6, // Places Photo ~$0.007 + Sonnet vision on one image
+  cost_email_per_send_cents: 0.0, // Gmail API is free; knob exists so swapping to a paid ESP is one edit
+  cost_sample_per_reply_cents: 30.0, // revenue-impact copy + the optional Claid first pass
+  cost_claid_per_photo_cents: 6.0, // 2 billable ops/photo. PROVISIONAL — the 3-way Claid test (HANDOFF §C.2) sets the real number
+  cost_storage_per_photo_cents: 0.2, // nothing is ever deleted — rough NPV of storing one photo forever
+  opex_monthly_cents: 3620, // ~$36.20/mo: Railway ~$10 + Workspace (3 seats) $25.20 + domain ~$1; Resend free, Lemwarm dropped
 };
 
 export async function getSetting<K extends keyof SettingsMap>(key: K): Promise<SettingsMap[K]> {

@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { enhancementOrders, magicLinks } from "@/db/schema";
+import { enhancementOrders, magicLinks, payments } from "@/db/schema";
 import { getStripe } from "@/lib/stripe";
 import { sendAlert } from "@/lib/alerts";
+import { recordStripePayment } from "@/lib/paymentLedger";
+import { PACKAGES, isPackageId } from "@/lib/packages";
 
 // Verifies Stripe's signature, records the payment, and returns fast. The slow
 // enhancement work happens in the worker — see processEnhancementOrders.ts.
@@ -21,13 +23,25 @@ export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   const signature = request.headers.get("stripe-signature");
 
+  const stripe = getStripe();
   let event: Stripe.Event;
   try {
-    const stripe = getStripe();
     event = stripe.webhooks.constructEvent(rawBody, signature ?? "", webhookSecret);
   } catch (err) {
     console.error("[stripe-webhook] Signature verification failed:", err);
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
+  }
+
+  // Refunds. charge.amount_refunded is CUMULATIVE (covers partial refunds too),
+  // so a plain assignment is naturally idempotent. Requires `charge.refunded` to
+  // be enabled on the Stripe endpoint. Disputes are deliberately out of scope.
+  if (event.type === "charge.refunded") {
+    const charge = event.data.object as Stripe.Charge;
+    await db
+      .update(payments)
+      .set({ refundedCents: charge.amount_refunded, refundedAt: new Date() })
+      .where(eq(payments.stripeChargeId, charge.id));
+    return NextResponse.json({ received: true });
   }
 
   if (event.type !== "checkout.session.completed") {
@@ -39,11 +53,36 @@ export async function POST(request: NextRequest) {
   // Outreach package payment: no photos exist yet (the customer uploads them
   // AFTER paying, on /l/[token]/upload). Just mark the link paid.
   if (session.metadata?.type === "outreach" && session.metadata.token) {
+    const token = session.metadata.token;
+    const [link] = await db
+      .select({
+        id: magicLinks.id,
+        restaurantId: magicLinks.restaurantId,
+        packageSelected: magicLinks.packageSelected,
+      })
+      .from(magicLinks)
+      .where(eq(magicLinks.token, token))
+      .limit(1);
+    // isNull guard: a redelivered event must not push paidAt forward in time,
+    // which would move revenue between months on the funnel pages.
     await db
       .update(magicLinks)
       .set({ paidAt: new Date() })
-      .where(eq(magicLinks.token, session.metadata.token));
-    console.log(`[stripe-webhook] outreach package paid — link ${session.metadata.token}`);
+      .where(and(eq(magicLinks.token, token), isNull(magicLinks.paidAt)));
+    if (link) {
+      // The package ACTUALLY paid for comes from the checkout metadata, not the
+      // magic link's mutable packageSelected. Fall back only if metadata is absent.
+      const pkgId = session.metadata.package ?? link.packageSelected ?? undefined;
+      await recordStripePayment(stripe, {
+        line: "package",
+        session,
+        magicLinkId: link.id,
+        restaurantId: link.restaurantId,
+        packageId: isPackageId(pkgId) ? pkgId : null,
+        description: isPackageId(pkgId) ? PACKAGES[pkgId].name.en : "Package",
+      });
+    }
+    console.log(`[stripe-webhook] outreach package paid — link ${token}`);
     return NextResponse.json({ received: true });
   }
 
@@ -63,6 +102,16 @@ export async function POST(request: NextRequest) {
     );
     return NextResponse.json({ received: true });
   }
+
+  // Record the payment before the duplicate-guard below: if a prior delivery
+  // crashed after flipping status but before the ledger write, the retry is the
+  // only chance to capture it. Idempotent via ledgerKey, so it's free otherwise.
+  await recordStripePayment(stripe, {
+    line: "self_serve",
+    session,
+    enhancementOrderId: order.id,
+    description: `${order.photoCount} enhanced photo${order.photoCount === 1 ? "" : "s"}`,
+  });
 
   // Hand off to the worker and return immediately. Claid takes ~1 min per photo
   // and Stripe only waits ~30s before treating the webhook as failed and
