@@ -39,6 +39,23 @@ const COPY = {
   },
 } as const;
 
+const PAYMENT_CONFIRMATION_COPY = {
+  en: {
+    subject: (name: string) => `Thanks for your order, ${name} — upload your photos`,
+    body: (name: string, url: string) =>
+      `Hi,\n\nThanks for choosing Clickworthy for ${name}! Your payment went through.\n\n` +
+      `Upload your photos here whenever you're ready — no rush, this link doesn't expire soon:\n\n${url}\n\n` +
+      "Once we have them, we'll get your enhanced photos back to you. Reply to this email anytime if you need anything.\n\nClickworthy",
+  },
+  es: {
+    subject: (name: string) => `Gracias por su pedido, ${name} — suba sus fotos`,
+    body: (name: string, url: string) =>
+      `Hola,\n\n¡Gracias por elegir Clickworthy para ${name}! Su pago fue procesado.\n\n` +
+      `Suba sus fotos aquí cuando esté listo — sin apuro, este enlace no vence pronto:\n\n${url}\n\n` +
+      "Una vez las tengamos, le enviaremos sus fotos mejoradas. Responda este correo cuando necesite algo.\n\nClickworthy",
+  },
+} as const;
+
 // Sent once an admin marks a paid order `completed` — the customer's page was
 // gated on this status, so this email is what actually tells them to go look.
 export async function sendOrderDeliveredEmail(params: {
@@ -52,5 +69,23 @@ export async function sendOrderDeliveredEmail(params: {
     to: params.to,
     subject: copy.subject(params.restaurantName),
     body: copy.body(params.restaurantName, params.deliveryUrl),
+  });
+}
+
+// Sent once, right after a package payment is confirmed (the Stripe webhook's
+// outreach branch) — without it, closing the tab after paying (easy on a slow
+// connection, or if the owner gets pulled away) meant the ONLY way back to
+// /l/[token]/upload was asking us for the link again.
+export async function sendPackagePaymentConfirmationEmail(params: {
+  to: string;
+  restaurantName: string;
+  language: string;
+  uploadUrl: string;
+}): Promise<void> {
+  const copy = PAYMENT_CONFIRMATION_COPY[params.language === "es" ? "es" : "en"];
+  await sendResendEmail({
+    to: params.to,
+    subject: copy.subject(params.restaurantName),
+    body: copy.body(params.restaurantName, params.uploadUrl),
   });
 }

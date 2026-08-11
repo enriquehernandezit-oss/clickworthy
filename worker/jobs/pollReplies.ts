@@ -7,11 +7,17 @@
 // Every branch stores the reply body/sender on the outreach row, so what they
 // wrote is readable in /admin instead of living only in Gmail.
 //
-// Dedup is at the thread level: we set outreachJobs.repliedAt on the Touch 1
-// row and skip threads already marked replied.
+// Dedup is PER MESSAGE (outreachJobs.lastReplyMessageId), not per thread. It
+// used to be per-thread only (skip any thread with repliedAt already set) —
+// which meant a SECOND message in an already-replied thread matched nothing
+// and was silently dropped: no alert, no record, gone. Now a thread that's
+// already been replied to still gets checked; only an already-SEEN message id
+// is skipped. The pipeline still only auto-processes the FIRST reply (photo ->
+// sample, or alert-for-a-human) — anything after that always surfaces as an
+// "existing thread" alert rather than trying to auto-create a second sample.
 
 import { randomBytes } from "node:crypto";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants, outreachJobs, magicLinks } from "@/db/schema";
 import { sendAlert } from "@/lib/alerts";
@@ -41,19 +47,20 @@ export async function runReplyPoll(): Promise<void> {
   }
 
   for (const { id: messageId, threadId } of messages) {
-    // Find the Touch 1 outreach for this thread that hasn't been marked replied.
+    // ANY Touch-1 row for this thread — not just unreplied ones (see header
+    // comment). Per-message dedup happens below via lastReplyMessageId.
     const [job] = await db
       .select()
       .from(outreachJobs)
-      .where(
-        and(
-          eq(outreachJobs.gmailThreadId, threadId),
-          eq(outreachJobs.touchNumber, 1),
-          isNull(outreachJobs.repliedAt)
-        )
-      )
+      .where(and(eq(outreachJobs.gmailThreadId, threadId), eq(outreachJobs.touchNumber, 1)))
       .limit(1);
     if (!job || job.restaurantId == null) continue;
+
+    // Already handled this exact message — either as the first reply, or as a
+    // later one we already alerted on. listInboxMessages() re-lists the same
+    // ~7-day inbox window on every run, so this is what keeps an old message
+    // from re-triggering forever.
+    if (job.repliedAt && job.lastReplyMessageId === messageId) continue;
 
     // Fetch by message id, NOT thread id — a thread's id equals its FIRST
     // message's id (our own Touch 1), so fetching by threadId would silently
@@ -62,13 +69,21 @@ export async function runReplyPoll(): Promise<void> {
     if (!full) continue;
 
     const sender = parseFromEmail(full.from);
+    const isFirstReply = job.repliedAt == null;
 
-    // Mark replied first so a mid-run error doesn't cause reprocessing loops.
-    // Store what they wrote in the same update — every branch below (opt-out,
-    // no-photo, photo) leaves a readable record in /admin.
+    // Record the message id + content up front so a mid-run error doesn't
+    // cause reprocessing loops, and re-runs recognize this exact message even
+    // if something below throws. repliedAt is preserved as the FIRST reply's
+    // timestamp on later messages, not overwritten.
     await db
       .update(outreachJobs)
-      .set({ repliedAt: new Date(), status: "replied", replyBody: full.bodyText, replyFrom: sender })
+      .set({
+        repliedAt: job.repliedAt ?? new Date(),
+        status: "replied",
+        replyBody: full.bodyText,
+        replyFrom: sender,
+        lastReplyMessageId: messageId,
+      })
       .where(eq(outreachJobs.id, job.id));
 
     // Opt-out.
@@ -81,6 +96,21 @@ export async function runReplyPoll(): Promise<void> {
 
     const [restaurant] = await db.select().from(restaurants).where(eq(restaurants.id, job.restaurantId)).limit(1);
     if (!restaurant) continue;
+
+    // A second (or later) message in a thread already marked replied. The
+    // pipeline only auto-handles the FIRST reply (photo -> sample, or an
+    // alert to answer by hand); anything after that is a live back-and-forth
+    // — always surface it, never try to auto-create a second magic link.
+    if (!isFirstReply) {
+      await sendAlert(
+        "New message in an existing reply thread",
+        `${restaurant.name} (${restaurant.city ?? "?"}) — ${sender} — sent another message in a thread ` +
+          `already marked replied.\n\n"${full.bodyText.trim().slice(0, 500)}"\n\n` +
+          `Read it in /admin (Outreach tab) and continue from your own Gmail inbox.`
+      );
+      console.log(`[poll] follow-up message from ${sender} — alerted (not auto-processed)`);
+      continue;
+    }
 
     const image = full.imageAttachments[0];
     if (!image) {
@@ -109,7 +139,17 @@ export async function runReplyPoll(): Promise<void> {
         appOrigin: config.appOrigin,
       });
     } catch (err) {
-      console.error(`[poll] failed to store attachment from ${sender}:`, err instanceof Error ? err.message : err);
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[poll] failed to store attachment from ${sender}:`, message);
+      // This used to be a silent drop: repliedAt was already committed above
+      // and lastReplyMessageId now marks this message seen, so without an
+      // alert the thread would never be looked at again — the one photo that
+      // would have converted this lead, just gone. Now a human gets told.
+      await sendAlert(
+        "Reply had a photo we couldn't save",
+        `${restaurant.name} (${sender}) replied with a photo, but storing it failed: ${message}\n\n` +
+          `The photo is still in Gmail — open the thread there and save it manually, or ask them to resend.`
+      );
       continue;
     }
 

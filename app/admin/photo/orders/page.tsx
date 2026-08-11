@@ -171,6 +171,7 @@ export default async function OrdersPage({
                         magicLinkId={row.id}
                         isPaid={row.paidAt != null}
                         isCompleted={row.packageStatus === "completed"}
+                        isFailed={row.packageStatus === "failed"}
                         hasPackage={row.packageSelected != null}
                       />
                     </td>

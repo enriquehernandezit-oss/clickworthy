@@ -98,10 +98,13 @@ Two Railway services from one repo: `web` (Next.js) + `worker` (background jobs)
 - `NEVERBOUNCE_API_KEY` — email verification before sending.
 - `RESEND_API_KEY` — alerts + customer transactional email.
 - `ALERT_EMAIL_TO` — where "new reply" / "order ready" alerts go.
-- `OUTREACH_POSTAL_ADDRESS` — CAN-SPAM. If blank, emails ship with a visible
-  `[set OUTREACH_POSTAL_ADDRESS]` placeholder.
 - `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`.
 - R2 vars (optional — falls back to Postgres blob storage).
+- **Not an env var, but still a go-live blocker:** set the real postal address
+  (and sender name, if not "Enrique") on `/admin/photo/templates` before
+  sending anything live. Every cold email is CAN-SPAM non-compliant until it's
+  set — and the worker now refuses to send a body missing it rather than
+  shipping a placeholder.
 - Then flip `OUTREACH_ENABLED=true` when you're ready to actually send.
 - `SESSION_SECRET` — required. Signs admin session cookies. `openssl rand -hex 32`.
   Without it the admin fails closed — nobody can log in.
@@ -116,9 +119,12 @@ SET/MISSING for every key on both the web and worker services, with the
 
 ### B. External service setup
 - **Stripe**: create/verify business, get keys, **register a webhook** at
-  `https://clickworthytool.com/api/webhooks/stripe` (event
-  `checkout.session.completed`) → gives `STRIPE_WEBHOOK_SECRET`. Turn OFF
-  "Managed Payments" if on.
+  `https://clickworthytool.com/api/webhooks/stripe` with these **four** events
+  → gives `STRIPE_WEBHOOK_SECRET`. Turn OFF "Managed Payments" if on.
+  - `checkout.session.completed` — the sale itself; blocks all fulfillment without it.
+  - `charge.refunded` — keeps refunded amounts accurate on /admin/photo/financials.
+  - `charge.dispute.created` — alerts you the moment a chargeback opens (there's a hard response deadline).
+  - `charge.dispute.closed` — records a lost dispute the same way as a refund.
 - **Gmail service account** (to send from `mail@clickworthytool.com`): GCP
   project → enable Gmail API → service account + JSON key → in Workspace Admin,
   add **domain-wide delegation** with scopes `gmail.send` + `gmail.readonly`.

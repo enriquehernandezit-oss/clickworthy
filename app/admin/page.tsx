@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { outreachJobs, magicLinks, enhancementOrders } from "@/db/schema";
+import { outreachJobs, magicLinks } from "@/db/schema";
 import { KpiCard, ConsoleCard, Pill, money } from "./ui";
-import { getRevenue } from "@/lib/photoStats";
+import { getRevenue, getNeedsAttention } from "@/lib/photoStats";
 
 // Company overview — the venture switcher's home. Aggregate KPIs across every
 // venture (only Photo is built, so it's the only contributor today), the product
@@ -38,34 +38,6 @@ async function getPhotoAggregate() {
 
   const rate = (sent ?? 0) > 0 ? `${(((replied ?? 0) / (sent ?? 1)) * 100).toFixed(1)}%` : "—";
   return { sent: sent ?? 0, replied: replied ?? 0, rate, active: active ?? 0 };
-}
-
-async function getNeedsAttention() {
-  const [{ drafts }] = await db
-    .select({ drafts: sql<number>`count(*) filter (where ${outreachJobs.status} = 'draft')::int` })
-    .from(outreachJobs);
-  const [{ replies }] = await db
-    .select({ replies: sql<number>`count(*) filter (where ${magicLinks.reviewStatus} = 'awaiting_edit')::int` })
-    .from(magicLinks);
-  const [{ orders }] = await db
-    .select({ orders: sql<number>`count(*) filter (where ${magicLinks.packageStatus} = 'ready_for_review')::int` })
-    .from(magicLinks);
-  const [{ undelivered }] = await db
-    .select({
-      undelivered: sql<number>`count(*) filter (where ${magicLinks.paidAt} is not null and ${magicLinks.deliveredAt} is null and ${magicLinks.packageStatus} is distinct from 'ready_for_review')::int`,
-    })
-    .from(magicLinks);
-  const [{ failedOrders }] = await db
-    .select({ failedOrders: sql<number>`count(*) filter (where ${enhancementOrders.status} = 'failed')::int` })
-    .from(enhancementOrders);
-
-  const items: { title: string; sub: string; href: string; n: number; tone: "coral" | "gold" }[] = [];
-  if (drafts) items.push({ title: `${drafts} cold-email draft${drafts > 1 ? "s" : ""} to review`, sub: "Photo Enhancement · nothing sends until approved", href: "/admin/photo/outreach", n: drafts, tone: "gold" });
-  if (replies) items.push({ title: `${replies} repl${replies > 1 ? "ies" : "y"} to edit`, sub: "Photo Enhancement · edit + approve the free sample", href: "/admin/photo/samples", n: replies, tone: "coral" });
-  if (orders) items.push({ title: `${orders} paid order${orders > 1 ? "s" : ""} to finish`, sub: "Photo Enhancement · finish + deliver", href: "/admin/photo/orders", n: orders, tone: "coral" });
-  if (undelivered) items.push({ title: `${undelivered} paid, not yet delivered`, sub: "Photo Enhancement · awaiting upload or delivery", href: "/admin/photo/orders", n: undelivered, tone: "gold" });
-  if (failedOrders) items.push({ title: `${failedOrders} self-serve order${failedOrders > 1 ? "s" : ""} failed`, sub: "Photo Enhancement · retry or refund", href: "/admin/photo/orders", n: failedOrders, tone: "coral" });
-  return items;
 }
 
 type Product = { slug: string; name: string; desc: string; accent: string; accentSoft: string; live: boolean; icon: React.ReactNode };

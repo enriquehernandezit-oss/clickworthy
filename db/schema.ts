@@ -79,6 +79,12 @@ export const outreachJobs = pgTable('outreach_jobs', {
   // into a worker log.
   replyBody: text('reply_body'),
   replyFrom: text('reply_from'),
+  // Gmail message id of the most recently PROCESSED reply in this thread. The
+  // poller re-lists the same inbox window every run, so this is what lets it
+  // recognize "already handled" per-message rather than per-thread — without
+  // it, a second message in an already-replied thread either gets silently
+  // dropped (old behavior) or re-alerted on every 4-minute run for 7 days.
+  lastReplyMessageId: text('last_reply_message_id'),
 });
 
 // Money ledger — one row per REAL money movement, across both revenue lines.

@@ -2,14 +2,15 @@
 // photo overview (/admin/photo) call these so their numbers can't disagree.
 // All in one file so a schema/pricing change touches one place.
 
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { magicLinks, outreachJobs, restaurants, suppressions, payments } from "@/db/schema";
+import { magicLinks, outreachJobs, restaurants, suppressions, payments, enhancementOrders } from "@/db/schema";
 import { DELIVERABILITY } from "@/worker/jobs/sendOutreach";
 
 export type FunnelStep = { label: string; value: number };
 export type Revenue = { packageCents: number; selfServeCents: number; totalCents: number; packagePaid: number; selfServeCompleted: number };
 export type Deliverability = { sends: number; suppressions: number; rate: number | null; healthy: boolean; sampleReached: boolean };
+export type AttentionItem = { title: string; sub: string; href: string; n: number; tone: "coral" | "gold" };
 
 // Conversion funnel over the last 30 days. Each step counts rows that HAVE
 // reached it — not net conversions between steps. Sent uses sentAt (regardless
@@ -113,4 +114,53 @@ export async function getDeliverability(): Promise<Deliverability> {
   const rate = s > 0 ? sup / s : null;
   const healthy = !sampleReached || rate === null || rate <= DELIVERABILITY.rateMax;
   return { sends: s, suppressions: sup, rate, healthy, sampleReached };
+}
+
+// The cross-venture "needs a human" work list. Shared by /admin (the Needs
+// Attention card) and /admin/guide (the daily-loop checklist) so the two can't
+// silently disagree about what's outstanding — same principle as the rest of
+// this file: one query, every consumer reads it the same way.
+export async function getNeedsAttention(): Promise<AttentionItem[]> {
+  const [{ drafts }] = await db
+    .select({ drafts: sql<number>`count(*) filter (where ${outreachJobs.status} = 'draft')::int` })
+    .from(outreachJobs);
+  const [{ replies }] = await db
+    .select({ replies: sql<number>`count(*) filter (where ${magicLinks.reviewStatus} = 'awaiting_edit')::int` })
+    .from(magicLinks);
+  const [{ orders }] = await db
+    .select({ orders: sql<number>`count(*) filter (where ${magicLinks.packageStatus} = 'ready_for_review')::int` })
+    .from(magicLinks);
+  // Excludes 'failed' — that gets its own more specific bucket below (a
+  // generic "not yet delivered" undersells a paid order that's actually
+  // broken and needs a Retry click, not just more waiting).
+  const [{ undelivered }] = await db
+    .select({
+      undelivered: sql<number>`count(*) filter (where ${magicLinks.paidAt} is not null and ${magicLinks.deliveredAt} is null and ${magicLinks.packageStatus} not in ('ready_for_review', 'failed'))::int`,
+    })
+    .from(magicLinks);
+  const [{ failedPackages }] = await db
+    .select({ failedPackages: sql<number>`count(*) filter (where ${magicLinks.packageStatus} = 'failed')::int` })
+    .from(magicLinks);
+  const [{ failedOrders }] = await db
+    .select({ failedOrders: sql<number>`count(*) filter (where ${enhancementOrders.status} = 'failed')::int` })
+    .from(enhancementOrders);
+
+  // Same 1h threshold worker/jobs/processEnhancementOrders.ts uses to attempt
+  // auto-recovery — this count is a display-only backstop for anything that
+  // recovery couldn't fix (still unpaid in Stripe, or Stripe isn't configured).
+  const stuckCutoff = new Date(Date.now() - 3_600_000);
+  const [{ stuckPending }] = await db
+    .select({ stuckPending: sql<number>`count(*)::int` })
+    .from(enhancementOrders)
+    .where(and(eq(enhancementOrders.status, "pending"), lt(enhancementOrders.createdAt, stuckCutoff)));
+
+  const items: AttentionItem[] = [];
+  if (drafts) items.push({ title: `${drafts} cold-email draft${drafts > 1 ? "s" : ""} to review`, sub: "Photo Enhancement · nothing sends until approved", href: "/admin/photo/outreach", n: drafts, tone: "gold" });
+  if (replies) items.push({ title: `${replies} repl${replies > 1 ? "ies" : "y"} to edit`, sub: "Photo Enhancement · edit + approve the free sample", href: "/admin/photo/samples", n: replies, tone: "coral" });
+  if (orders) items.push({ title: `${orders} paid order${orders > 1 ? "s" : ""} to finish`, sub: "Photo Enhancement · finish + deliver", href: "/admin/photo/orders", n: orders, tone: "coral" });
+  if (undelivered) items.push({ title: `${undelivered} paid, not yet delivered`, sub: "Photo Enhancement · awaiting upload or delivery", href: "/admin/photo/orders", n: undelivered, tone: "gold" });
+  if (failedPackages) items.push({ title: `${failedPackages} paid package${failedPackages > 1 ? "s" : ""} failed`, sub: "Photo Enhancement · every photo errored — retry from the order row", href: "/admin/photo/orders", n: failedPackages, tone: "coral" });
+  if (failedOrders) items.push({ title: `${failedOrders} self-serve order${failedOrders > 1 ? "s" : ""} failed`, sub: "Photo Enhancement · retry or refund", href: "/admin/photo/orders", n: failedOrders, tone: "coral" });
+  if (stuckPending) items.push({ title: `${stuckPending} self-serve order${stuckPending > 1 ? "s" : ""} stuck pending >1h`, sub: "Photo Enhancement · may be a Stripe webhook problem — check Setup", href: "/admin/photo/orders", n: stuckPending, tone: "coral" });
+  return items;
 }

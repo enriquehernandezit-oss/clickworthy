@@ -11,7 +11,7 @@ import { magicLinks, restaurants, outreachJobs } from "@/db/schema";
 import { config } from "../config";
 import { getSetting } from "@/lib/settings";
 import { sendEmail, getThreadTail } from "../lib/gmail";
-import { composeTouch2, senderName } from "../lib/outreachEmail";
+import { composeTouch2, normalizeLanguage, type ComposeIdentity } from "../lib/outreachEmail";
 import { withRetry } from "../lib/retry";
 
 // The conversation this restaurant is already in. Touch 1 and the bump share a
@@ -60,12 +60,18 @@ export async function runSendTouch2(): Promise<void> {
   if (ready.length === 0) return;
   console.log(`[touch2] ${ready.length} approved sample(s) ready (sending ${enabled ? "ENABLED" : "DISABLED — log only"})`);
 
+  const [senderNameSetting, postalAddressSetting] = await Promise.all([
+    getSetting("outreach_sender_name"),
+    getSetting("outreach_postal_address"),
+  ]);
+  const identity: ComposeIdentity = { senderName: senderNameSetting, postalAddress: postalAddressSetting };
+
   for (const link of ready) {
     if (link.restaurantId == null) continue;
     const [r] = await db.select().from(restaurants).where(eq(restaurants.id, link.restaurantId)).limit(1);
     if (!r || !r.email) continue;
 
-    const language = r.language ?? "en";
+    const language = normalizeLanguage(r.language);
     const magicLinkUrl = `${config.appOrigin.replace(/\/$/, "")}/l/${link.token}`;
     const { subject, body } = composeTouch2({
       restaurantName: r.name,
@@ -74,6 +80,7 @@ export async function runSendTouch2(): Promise<void> {
       funnelUrl: magicLinkUrl,
       bookingUrl: process.env.NEXT_PUBLIC_BOOKING_URL ?? null,
       language,
+      identity,
     });
 
     if (!enabled) {
@@ -92,7 +99,7 @@ export async function runSendTouch2(): Promise<void> {
             to: r.email!,
             subject,
             body,
-            fromName: senderName(),
+            fromName: senderNameSetting,
             threadId: threadId ?? undefined,
             inReplyTo,
           }),

@@ -17,7 +17,7 @@ import { sendAlert } from "@/lib/alerts";
 import { getSetting } from "@/lib/settings";
 import { config } from "../config";
 import { sendEmail } from "../lib/gmail";
-import { composeTouch1, senderName } from "../lib/outreachEmail";
+import { composeTouch1, hasComplianceFooter, normalizeLanguage, type ComposeIdentity } from "../lib/outreachEmail";
 import { isSuppressed } from "../lib/suppression";
 import { withRetry } from "../lib/retry";
 
@@ -138,6 +138,15 @@ async function draftBatch(autosend: boolean): Promise<void> {
   );
   if (room === 0) return;
 
+  // Fetched once per batch, not per restaurant — one round-trip, and every
+  // restaurant in this run composes against the identical template/identity.
+  const [template, senderNameSetting, postalAddressSetting] = await Promise.all([
+    getSetting("outreach_touch1_template"),
+    getSetting("outreach_sender_name"),
+    getSetting("outreach_postal_address"),
+  ]);
+  const identity: ComposeIdentity = { senderName: senderNameSetting, postalAddress: postalAddressSetting };
+
   const candidates = await db
     .select()
     .from(restaurants)
@@ -174,14 +183,27 @@ async function draftBatch(autosend: boolean): Promise<void> {
       continue;
     }
 
-    const language = r.language ?? "en";
-    const { subject, body } = composeTouch1({
-      restaurantName: r.name,
-      firstName: r.contactFirstName,
-      dish: r.signatureDish,
-      language,
-      subjectVariant: r.id,
-    });
+    const language = normalizeLanguage(r.language);
+    let composed: { subject: string; body: string };
+    try {
+      composed = composeTouch1({
+        restaurantName: r.name,
+        firstName: r.contactFirstName,
+        dish: r.signatureDish,
+        city: r.city,
+        language,
+        subjectVariant: r.id,
+        template,
+        identity,
+      });
+    } catch (err) {
+      // A malformed template must not take down the whole nightly batch — skip
+      // this one restaurant and keep going. Templates are already validated at
+      // save time, so this is a last-resort net, not the primary defense.
+      console.error(`[draft] compose FAILED for ${r.name} (id ${r.id}):`, err instanceof Error ? err.message : err);
+      continue;
+    }
+    const { subject, body } = composed;
 
     if (config.dryRun) {
       console.log(`[draft] (dry) would draft -> ${email} | ${subject}`);
@@ -243,6 +265,8 @@ async function sendApproved(): Promise<void> {
     return;
   }
 
+  const senderNameSetting = await getSetting("outreach_sender_name");
+
   for (const { job, r } of ready) {
     const email = r.email;
     // Re-check the fields that can change between draft and send.
@@ -252,9 +276,26 @@ async function sendApproved(): Promise<void> {
       continue;
     }
 
+    // Pre-send CAN-SPAM guard. Catches any way the footer could be missing by
+    // the time a draft reaches send — a hand-edit via set_content that deleted
+    // it, a postal address that was never configured, anything — and refuses
+    // to send rather than ship a non-compliant email. Nothing checked this
+    // before; sendApproved() sent job.emailContent verbatim.
+    if (!job.emailContent || !hasComplianceFooter(job.emailContent)) {
+      await db.update(outreachJobs).set({ status: "cancelled" }).where(eq(outreachJobs.id, job.id));
+      await sendAlert(
+        "Blocked send — missing CAN-SPAM footer",
+        `Touch 1 to ${email} (${r.name}) was cancelled instead of sent: its body is missing the postal ` +
+          `address or the STOP opt-out line. Check the postal address and Touch 1 template on ` +
+          `/admin/photo/templates, then redraft.`
+      );
+      console.error(`[send] BLOCKED draft ${job.id} (${r.name}) — missing compliance footer`);
+      continue;
+    }
+
     try {
       const sent = await withRetry(
-        () => sendEmail({ to: email, subject: job.subject ?? "", body: job.emailContent ?? "", fromName: senderName() }),
+        () => sendEmail({ to: email, subject: job.subject ?? "", body: job.emailContent ?? "", fromName: senderNameSetting }),
         { label: `gmail touch1 ${email}`, attempts: 2 }
       );
       // ONE update flips the row to sent + sets all three ids together — the

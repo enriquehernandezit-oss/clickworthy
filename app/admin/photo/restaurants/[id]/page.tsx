@@ -7,6 +7,8 @@ import { Badge, Card, EmptyState, SectionHeading, fmtDate, fmtDateTime } from ".
 import RestaurantActions from "../RestaurantActions";
 import ComposeForm from "./ComposeForm";
 import EditFields from "./EditFields";
+import PaymentLinkForm from "./PaymentLinkForm";
+import UploadOnBehalfForm from "./UploadOnBehalfForm";
 
 export const dynamic = "force-dynamic";
 
@@ -139,6 +141,14 @@ export default async function RestaurantDetailPage({ params }: { params: Promise
         </div>
       </section>
 
+      {/* Payment link — for a deal already agreed on a call/reply */}
+      <section>
+        <SectionHeading>Send a payment link</SectionHeading>
+        <Card className="mt-3">
+          <PaymentLinkForm restaurantId={r.id} />
+        </Card>
+      </section>
+
       {/* Manual one-off email */}
       <section>
         <SectionHeading>Send an email</SectionHeading>
@@ -249,6 +259,9 @@ export default async function RestaurantDetailPage({ params }: { params: Promise
                     })()
                   )}
                 </div>
+                {/* Paid, but the customer hasn't uploaded yet — they may have
+                    emailed a folder instead of using the upload page. */}
+                {l.paidAt && l.packageStatus == null && <UploadOnBehalfForm magicLinkId={l.id} />}
               </Card>
             ))}
           </div>

@@ -9,6 +9,7 @@ const TABS = [
   ["/admin/photo/outreach", "Outreach"],
   ["/admin/photo/samples", "Samples"],
   ["/admin/photo/orders", "Orders"],
+  ["/admin/photo/templates", "Templates"],
   ["/admin/photo/financials", "Financials"],
   ["/admin/photo/restaurants", "Leads"],
   ["/admin/photo/suppressions", "Suppressions"],

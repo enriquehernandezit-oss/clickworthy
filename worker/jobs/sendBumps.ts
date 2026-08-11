@@ -8,8 +8,9 @@ import { db } from "@/db";
 import { restaurants, outreachJobs } from "@/db/schema";
 import { config } from "../config";
 import { getSetting } from "@/lib/settings";
+import { sendAlert } from "@/lib/alerts";
 import { sendEmail, getThreadingInfo } from "../lib/gmail";
-import { composeBump, senderName } from "../lib/outreachEmail";
+import { composeBump, hasComplianceFooter, normalizeLanguage, type ComposeIdentity } from "../lib/outreachEmail";
 import { isSuppressed } from "../lib/suppression";
 import { withRetry } from "../lib/retry";
 
@@ -47,6 +48,13 @@ export async function runSendBumps(): Promise<void> {
   if (due.length === 0) return;
   console.log(`[bump] ${due.length} candidate(s) (sending ${enabled ? "ENABLED" : "DISABLED — log only"})`);
 
+  const [template, senderNameSetting, postalAddressSetting] = await Promise.all([
+    getSetting("outreach_bump_template"),
+    getSetting("outreach_sender_name"),
+    getSetting("outreach_postal_address"),
+  ]);
+  const identity: ComposeIdentity = { senderName: senderNameSetting, postalAddress: postalAddressSetting };
+
   for (const row of due) {
     if (row.restaurantId == null) continue;
 
@@ -61,11 +69,40 @@ export async function runSendBumps(): Promise<void> {
     if (!r || !r.email || r.suppressed) continue;
     if (await isSuppressed(r.email)) continue;
 
-    const language = r.language ?? "en";
-    const body = composeBump({ firstName: r.contactFirstName, language });
+    const language = normalizeLanguage(r.language);
+    let body: string;
+    try {
+      body = composeBump({
+        restaurantName: r.name,
+        firstName: r.contactFirstName,
+        dish: r.signatureDish ?? (language === "es" ? "plato" : "dish"),
+        city: r.city,
+        language,
+        template,
+        identity,
+      });
+    } catch (err) {
+      // This job reruns every 4 minutes — a bad template must skip this one
+      // restaurant, not wedge the whole cron forever.
+      console.error(`[bump] compose FAILED for ${r.name} (id ${r.id}):`, err instanceof Error ? err.message : err);
+      continue;
+    }
 
     if (!enabled) {
       console.log(`[bump] (dry) -> ${r.email}`);
+      continue;
+    }
+
+    // Same CAN-SPAM guard as Touch 1 — the bump has NO draft/approval stage at
+    // all (see header comment), so this is the only check standing between a
+    // broken template and a live send.
+    if (!hasComplianceFooter(body)) {
+      console.error(`[bump] BLOCKED -> ${r.email} (${r.name}) — missing compliance footer`);
+      await sendAlert(
+        "Blocked bump — missing CAN-SPAM footer",
+        `The Touch 1.5 bump to ${r.email} (${r.name}) was blocked: its body is missing the postal ` +
+          `address or the STOP line. Check the postal address and bump template on /admin/photo/templates.`
+      );
       continue;
     }
 
@@ -87,7 +124,7 @@ export async function runSendBumps(): Promise<void> {
             to: r.email!,
             subject,
             body,
-            fromName: senderName(),
+            fromName: senderNameSetting,
             threadId: row.threadId ?? undefined,
             inReplyTo,
           }),

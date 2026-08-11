@@ -24,6 +24,22 @@ export type WorkerBootInfo = {
   envPresent?: Record<string, boolean>;
 };
 
+// Exactly 3 subject lines — sendOutreach.ts rotates across them with
+// `subjectVariant % 3`, deterministic per restaurant.
+export type OutreachSubjectSet = [string, string, string];
+
+export type Touch1Template = {
+  en: { subjects: OutreachSubjectSet; body: string };
+  es: { subjects: OutreachSubjectSet; body: string };
+};
+
+// No subject: the bump replies into the original Touch 1 thread (see
+// worker/jobs/sendBumps.ts), so it never needs one of its own.
+export type BumpTemplate = {
+  en: { body: string };
+  es: { body: string };
+};
+
 export type SettingsMap = {
   outreach_paused: boolean; // panic button: blocks all Gmail sending
   outreach_autosend: boolean; // false = approval mode; true = drafts auto-approve + send
@@ -33,6 +49,17 @@ export type SettingsMap = {
   // Days to wait before sending the one-time Touch 1.5 bump.
   bump_after_days: number;
   worker_boot_info: WorkerBootInfo | null;
+
+  // --- Outreach identity + copy (editable on /admin/photo/templates) ---------
+  // Previously read from OUTREACH_SENDER_NAME/OUTREACH_POSTAL_ADDRESS, which were
+  // scoped to the worker service only — but the "redraft" action composes on the
+  // WEB service, so a redrafted email could silently ship without a real postal
+  // address even with the worker's env fully configured. One DB-backed value
+  // read by both services removes that failure mode entirely.
+  outreach_sender_name: string; // signs every email + the Gmail From name — must match, or mail is signed by one name and sent as another
+  outreach_postal_address: string; // CAN-SPAM requires a real physical address in every commercial email; empty renders a loud placeholder AND blocks sending (see sendApproved's pre-send assertion)
+  outreach_touch1_template: Touch1Template; // the cold-open email
+  outreach_bump_template: BumpTemplate; // the one-time Touch 1.5 follow-up
 
   // --- Financials: editable unit-cost assumptions (all in CENTS, decimals ok) ---
   // These drive /admin/photo/financials. Every one is an ESTIMATE — Clickworthy
@@ -67,6 +94,59 @@ const DEFAULTS: SettingsMap = {
   cost_claid_per_photo_cents: 6.0, // 2 billable ops/photo. PROVISIONAL — the 3-way Claid test (HANDOFF §C.2) sets the real number
   cost_storage_per_photo_cents: 0.2, // nothing is ever deleted — rough NPV of storing one photo forever
   opex_monthly_cents: 3620, // ~$36.20/mo: Railway ~$10 + Workspace (3 seats) $25.20 + domain ~$1; Resend free, Lemwarm dropped
+
+  outreach_sender_name: "Enrique",
+  outreach_postal_address: "", // unset — footer shows a placeholder and sending is blocked until this is filled in
+
+  // Defaults are today's live copy, character-for-character, with the literal
+  // interpolations swapped for {{placeholders}}. Shipping this changes nothing
+  // until someone edits it on /admin/photo/templates.
+  outreach_touch1_template: {
+    en: {
+      subjects: [
+        "your {{dish}} photo",
+        "quick question about {{restaurant}}'s photos",
+        "the {{dish}} at {{restaurant}}",
+      ],
+      body:
+        "{{greeting}}\n\n" +
+        "I was looking at {{restaurant}} online and your {{dish}} caught my eye — but honestly, the photo doesn't do it justice. And photos are doing more selling than menus these days.\n\n" +
+        "I run a small studio that enhances real food photos for independent restaurants (no stock images, no fake AI food — your actual dishes, made to look the way they do in person).\n\n" +
+        "Want to see it on your own food? Reply with one photo of any dish — even a phone shot — and I'll send it back enhanced within a day. Free, no strings. If you don't love it, delete it and that's that.\n\n" +
+        "{{senderName}}\nClickworthy",
+    },
+    es: {
+      subjects: [
+        "la foto de su {{dish}}",
+        "una pregunta sobre las fotos de {{restaurant}}",
+        "el {{dish}} de {{restaurant}}",
+      ],
+      body:
+        "{{greeting}}\n\n" +
+        "Estaba viendo {{restaurant}} en línea y el {{dish}} me llamó la atención — pero honestamente, la foto no le hace justicia. Y hoy en día las fotos venden más que el menú.\n\n" +
+        "Tengo un estudio pequeño que mejora fotos reales de comida para restaurantes independientes (nada de fotos de banco ni comida falsa de IA — sus platos reales, con el aspecto que tienen en persona).\n\n" +
+        "¿Quiere verlo con su propia comida? Responda con una foto de cualquier plato — aunque sea del celular — y se la devuelvo mejorada en un día. Gratis, sin compromiso. Si no le encanta, la borra y ya.\n\n" +
+        "{{senderName}}\nClickworthy",
+    },
+  },
+  outreach_bump_template: {
+    en: {
+      body:
+        "{{greeting}}\n\n" +
+        "Quick bump in case this got buried.\n\n" +
+        "The offer stands: send me one photo of a dish and I'll send it back professionally enhanced, free. Takes you 30 seconds, costs you nothing, and you keep the photo either way.\n\n" +
+        "If it's a no, no worries — just say so and I won't follow up again.\n\n" +
+        "{{senderName}}",
+    },
+    es: {
+      body:
+        "{{greeting}}\n\n" +
+        "Un recordatorio rápido por si esto quedó enterrado.\n\n" +
+        "La oferta sigue en pie: mándeme una foto de un plato y se la devuelvo mejorada profesionalmente, gratis. Le toma 30 segundos, no cuesta nada, y la foto es suya de todos modos.\n\n" +
+        "Si no le interesa, sin problema — dígamelo y no vuelvo a escribir.\n\n" +
+        "{{senderName}}",
+    },
+  },
 };
 
 export async function getSetting<K extends keyof SettingsMap>(key: K): Promise<SettingsMap[K]> {

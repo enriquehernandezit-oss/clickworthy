@@ -7,14 +7,19 @@
 // Picks up: status = 'processing' AND results IS NULL. Writing results is what
 // takes an order out of the queue, so a crash mid-batch just retries next tick.
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, lt } from "drizzle-orm";
 import { db } from "@/db";
 import { enhancementOrders } from "@/db/schema";
 import { enhancePhoto } from "@/lib/claid";
 import { persistEnhancedFromUrl, type StoredPhoto } from "@/lib/storage";
 import { sendAlert } from "@/lib/alerts";
+import { getStripe } from "@/lib/stripe";
 import { config } from "../config";
 import { withRetry } from "../lib/retry";
+
+// Kept in sync with the same threshold app/admin/page.tsx uses to surface a
+// "stuck pending" count on Needs-attention — both describe the same symptom.
+const STUCK_PENDING_HOURS = 1;
 
 type PhotoResult = { originalName: string; enhancedUrl: string | null; error: string | null };
 
@@ -83,5 +88,59 @@ export async function runProcessEnhancementOrders(): Promise<void> {
       continue;
     }
     await processOne(order.id, order.sessionId, order.prompt, photos);
+  }
+}
+
+// Recovers orders whose Stripe payment actually succeeded but the webhook
+// never advanced them past 'pending' — the exact symptom of a missing or wrong
+// STRIPE_WEBHOOK_SECRET (webhooks/stripe/route.ts returns 500 in that case, and
+// Stripe gives up retrying after ~3 days). Checks Stripe directly rather than
+// trusting local state, since local state is precisely what's in question.
+// Runs on the same 1-minute PACKAGE_QUEUE cadence as the rest of this job —
+// the >1h cutoff keeps it from ever touching an order still mid-checkout.
+export async function recoverStuckPendingOrders(): Promise<void> {
+  const cutoff = new Date(Date.now() - STUCK_PENDING_HOURS * 3_600_000);
+  const stuck = await db
+    .select({ id: enhancementOrders.id, sessionId: enhancementOrders.stripeSessionId })
+    .from(enhancementOrders)
+    .where(and(eq(enhancementOrders.status, "pending"), lt(enhancementOrders.createdAt, cutoff)));
+
+  if (stuck.length === 0) return;
+
+  let stripe;
+  try {
+    stripe = getStripe();
+  } catch {
+    // No Stripe key configured yet — Setup already flags that; not this job's
+    // job to repeat it.
+    return;
+  }
+
+  for (const order of stuck) {
+    try {
+      const session = await stripe.checkout.sessions.retrieve(order.sessionId);
+      if (session.payment_status !== "paid") continue; // genuinely abandoned, not stuck — leave alone
+
+      // Only 'pending' -> 'processing', mirroring the webhook's own guard, so
+      // two overlapping recovery attempts can't double-queue the same order.
+      const advanced = await db
+        .update(enhancementOrders)
+        .set({ status: "processing" })
+        .where(and(eq(enhancementOrders.id, order.id), eq(enhancementOrders.status, "pending")))
+        .returning({ id: enhancementOrders.id });
+
+      if (advanced.length > 0) {
+        console.warn(`[enhance-order] recovered stuck order ${order.id} — was paid, webhook never advanced it`);
+        await sendAlert(
+          "Recovered a paid order stuck on 'pending'",
+          `Order ${order.id} (session ${order.sessionId}) was paid in Stripe but never advanced past ` +
+            `'pending' — most likely the Stripe webhook didn't fire (check STRIPE_WEBHOOK_SECRET on the ` +
+            `web service, and that the Stripe dashboard endpoint is registered). Recovered automatically; ` +
+            `it will be enhanced on the next run.`
+        );
+      }
+    } catch (err) {
+      console.error(`[enhance-order] couldn't check stuck order ${order.id}:`, err instanceof Error ? err.message : err);
+    }
   }
 }

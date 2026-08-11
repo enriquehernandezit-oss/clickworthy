@@ -19,7 +19,7 @@ import { runReplyPoll } from "./jobs/pollReplies";
 import { runSendTouch2 } from "./jobs/sendTouch2";
 import { runSendBumps } from "./jobs/sendBumps";
 import { runProcessPackages } from "./jobs/processPackage";
-import { runProcessEnhancementOrders } from "./jobs/processEnhancementOrders";
+import { runProcessEnhancementOrders, recoverStuckPendingOrders } from "./jobs/processEnhancementOrders";
 import { runWeeklyStats } from "./jobs/weeklyStats";
 import { setSetting } from "@/lib/settings";
 import { WORKER_ENV_KEYS, envPresence } from "@/lib/envKeys";
@@ -88,6 +88,7 @@ async function main() {
     for (let i = 0; i < jobs.length; i++) {
       await runProcessPackages();
       await runProcessEnhancementOrders();
+      await recoverStuckPendingOrders();
     }
   });
 
