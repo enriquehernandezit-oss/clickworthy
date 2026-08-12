@@ -1,0 +1,157 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { PACKAGES, PACKAGE_ORDER, type PackageId } from "@/lib/packages";
+
+// Generates a Stripe Payment Link for a package this restaurant has already
+// agreed to (on a call, by reply, however) and hands back a URL to paste into
+// your own email/message — see app/api/admin/paymentlink/route.ts for why this
+// exists separately from the /l/[token] funnel's own checkout.
+export default function PaymentLinkForm({ restaurantId }: { restaurantId: number }) {
+  const router = useRouter();
+  const [packageId, setPackageId] = useState<PackageId>("glow_up");
+  const [overrideDollars, setOverrideDollars] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<{ url: string; priceCents: number } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const listed = PACKAGES[packageId];
+
+  const generate = async () => {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    setCopied(false);
+    try {
+      const fd = new FormData();
+      fd.set("restaurantId", String(restaurantId));
+      fd.set("packageId", packageId);
+      if (overrideDollars.trim()) {
+        const dollars = Number(overrideDollars);
+        if (!Number.isFinite(dollars) || dollars <= 0) {
+          setError("Override amount must be a positive number.");
+          setBusy(false);
+          return;
+        }
+        fd.set("overrideCents", String(Math.round(dollars * 100)));
+      }
+      const res = await fetch("/api/admin/paymentlink", { method: "POST", body: fd });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body?.error ?? "Failed.");
+      } else {
+        setResult({ url: body.url, priceCents: body.priceCents });
+        router.refresh(); // the Magic links section below picks up the new row
+      }
+    } catch {
+      setError("Network error.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copy = async () => {
+    if (!result) return;
+    try {
+      await navigator.clipboard.writeText(result.url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard API can be denied — the URL is still selectable/visible below.
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <label className="block text-xs font-medium text-stone-500" htmlFor="pkg">
+            Package
+          </label>
+          <select
+            id="pkg"
+            value={packageId}
+            onChange={(e) => {
+              setPackageId(e.target.value as PackageId);
+              setResult(null);
+            }}
+            className="mt-1 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800"
+          >
+            {PACKAGE_ORDER.map((id) => (
+              <option key={id} value={id}>
+                {PACKAGES[id].name.en} — ${(PACKAGES[id].priceCents / 100).toFixed(0)}
+                {id === "always_fresh" ? "/mo" : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-stone-500" htmlFor="override">
+            Override amount (optional)
+          </label>
+          <div className="mt-1 flex items-center gap-1">
+            <span className="text-sm text-stone-500">$</span>
+            <input
+              id="override"
+              type="number"
+              min="1"
+              step="0.01"
+              value={overrideDollars}
+              onChange={(e) => setOverrideDollars(e.target.value)}
+              placeholder={(listed.priceCents / 100).toFixed(2)}
+              className="w-28 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800 tabular-nums"
+            />
+          </div>
+        </div>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={generate}
+          className="rounded-lg bg-stone-900 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {busy ? "Generating…" : "Generate link"}
+        </button>
+      </div>
+
+      {listed.id === "always_fresh" && (
+        <p className="text-xs text-stone-500">
+          This charges the first month only ({(listed.priceCents / 100).toFixed(0)}). Renewals are recorded with
+          &quot;Mark paid&quot; on the order until recurring billing exists.
+        </p>
+      )}
+
+      {error && (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
+          {error}
+        </p>
+      )}
+
+      {result && (
+        <div className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2">
+          <p className="text-xs font-semibold text-teal-800">
+            Link created for ${(result.priceCents / 100).toFixed(2)} — doesn&apos;t expire. Paste it wherever
+            you&apos;re closing the deal.
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              type="text"
+              readOnly
+              value={result.url}
+              onFocus={(e) => e.currentTarget.select()}
+              className="flex-1 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-800"
+            />
+            <button
+              type="button"
+              onClick={copy}
+              className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-100"
+            >
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

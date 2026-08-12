@@ -90,9 +90,9 @@ const COPY = {
     calcLabel: "Number of photos",
     calcTotal: "Total",
     calcCta: (n: number) => `Enhance ${n} ${n === 1 ? "photo" : "photos"}`,
-    guaranteeTitle: "Not happy? You don't pay.",
+    guaranteeTitle: "Not happy? We keep editing until you are.",
     guaranteeBody:
-      "If the enhanced photos don't beat what you have now, email us and we'll refund you. Your real dishes — same food, same plate, never invented.",
+      "If the enhanced photos don't beat what you have now, tell us what's off and we'll re-edit them — as many times as it takes, at no extra cost. Your real dishes — same food, same plate, never invented.",
     contactTitle: "Questions? Reach out anytime.",
     footer: "Real restaurant photos, professionally enhanced.",
   },
@@ -125,9 +125,9 @@ const COPY = {
     calcLabel: "Cantidad de fotos",
     calcTotal: "Total",
     calcCta: (n: number) => `Mejorar ${n} ${n === 1 ? "foto" : "fotos"}`,
-    guaranteeTitle: "¿No le gusta? No paga.",
+    guaranteeTitle: "¿No le gusta? Seguimos editando hasta que le guste.",
     guaranteeBody:
-      "Si las fotos mejoradas no superan lo que tiene ahora, escríbanos y le devolvemos su dinero. Sus platos reales — la misma comida, el mismo plato, nada inventado.",
+      "Si las fotos mejoradas no superan lo que tiene ahora, díganos qué no le gusta y las volvemos a editar — las veces que sea necesario, sin costo adicional. Sus platos reales — la misma comida, el mismo plato, nada inventado.",
     contactTitle: "¿Preguntas? Escríbanos cuando quiera.",
     footer: "Fotos reales de restaurantes, mejoradas profesionalmente.",
   },

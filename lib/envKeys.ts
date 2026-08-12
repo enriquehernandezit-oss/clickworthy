@@ -52,9 +52,15 @@ export const ENV_KEYS: EnvKey[] = [
   { name: "ALERT_EMAIL_FROM", scope: "both", required: false, blocks: "Falls back to alerts@clickworthytool.com — fine if that's a real mailbox." },
 
   // --- Compliance + funnel booking ------------------------------------------
-  { name: "OUTREACH_POSTAL_ADDRESS", scope: "worker", required: true, blocks: "CAN-SPAM footer ships a visible '[set OUTREACH_POSTAL_ADDRESS]' placeholder — every cold email is out of compliance." },
+  // NOTE: the outreach postal address and sender name used to live here as
+  // OUTREACH_POSTAL_ADDRESS / OUTREACH_SENDER_NAME. They're now app_settings
+  // values edited on /admin/photo/templates instead — a service-scoped env var
+  // meant a redrafted email on the web service could ship without a real
+  // address even when the worker's own env was fully configured. Set them on
+  // the Templates page, not here; the Setup checklist can't see them (that's
+  // the point — one DB-backed value, read by both services, never "missing on
+  // one service but not the other").
   { name: "NEXT_PUBLIC_BOOKING_URL", scope: "web", required: false, blocks: "Always Fresh tier's 'Book a call' button hidden — the tier still shows in the funnel." },
-  { name: "OUTREACH_SENDER_NAME", scope: "worker", required: false, blocks: "Email signature falls back to 'Enrique'." },
 ];
 
 // The list of names the worker checks on boot, published to the checklist.

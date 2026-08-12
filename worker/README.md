@@ -29,7 +29,6 @@ bun run worker
 | `GMAIL_SENDER` | sending + reading outreach | `mail@clickworthytool.com` |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Gmail auth | full service-account JSON key, one line (see below) |
 | `OUTREACH_ENABLED` | **live sending switch** | `true` to actually send cold email; anything else = log-only |
-| `OUTREACH_POSTAL_ADDRESS` | CAN-SPAM footer | real business mailing address |
 | `APP_ORIGIN` | magic-link URLs | e.g. `https://clickworthytool.com` |
 | `RESEND_API_KEY` | operator alerts + weekly report | shared with the web app |
 | `ALERT_EMAIL_TO` | who gets alerts/reports | your inbox |
@@ -38,6 +37,12 @@ bun run worker
 | `WORKER_SOURCE_LIMIT` | optional | max restaurants per sourcing run (default 20) |
 | `WORKER_TARGET_CITIES` | optional | semicolon-separated; default `Miami, FL; New York, NY; Chicago, IL; Los Angeles, CA` |
 | `WORKER_SOURCING_CRON` / `WORKER_SEND_CRON` / `WORKER_REPLY_POLL_CRON` | optional | cron overrides |
+
+The outreach postal address, sender name, and the Touch 1 / Touch 1.5 email
+copy itself are **not** env vars — they're `app_settings` rows edited on
+`/admin/photo/templates`, read fresh by both services on every run. This is
+deliberate: a Railway-service-scoped env var meant a redraft on the web
+service could silently ship without a real postal address.
 
 ### Gmail service account (one-time, Enrique's Workspace)
 

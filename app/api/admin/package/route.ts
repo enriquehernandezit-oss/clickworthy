@@ -1,22 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { magicLinks, restaurants } from "@/db/schema";
+import { magicLinks, restaurants, outreachJobs } from "@/db/schema";
 import { enhancePhoto } from "@/lib/claid";
 import { persistEnhancedFromUrl, storeImageBytes } from "@/lib/storage";
-import { sendOrderDeliveredEmail } from "@/lib/customerEmail";
+import { composeOrderDeliveredEmail, sendCustomerEmail } from "@/lib/customerEmail";
 import { FINALIZED_ENHANCEMENT_PROMPT } from "@/worker/lib/prompts";
+import { recordManualPayment } from "@/lib/paymentLedger";
+import { PACKAGES, isPackageId } from "@/lib/packages";
+
+type Original = { name: string; url: string };
 
 // Paid-order production actions (behind Basic Auth). A paid package lands as
 // `ready_for_review` with a Claid first pass already run; Enrique/Jose finish
 // each photo here and deliver.
 //   first_pass_one  — optional: re-run Claid on one photo's original
 //   upload_edited   — replace one photo's enhanced version with a human-finished file
-//   deliver         — mark the whole order `completed` (unlocks the delivery page)
-//   resend_delivery — re-send the delivery email (it fails soft, so a bounce or
-//                     a Resend outage otherwise leaves the customer never told)
+//   deliver         — requires a reviewed subject/body; marks the order `completed`
+//                     (unlocks the delivery page) and sends that exact text
+//   resend_delivery — re-send the LAST-SENT text verbatim, not a fresh compose —
+//                     it was already approved once, so a resend isn't a new
+//                     unreviewed communication. Recovers a bounce or a Resend
+//                     outage, which otherwise leaves the customer never told.
 //   mark_paid       — record a package paid off-Stripe (check/Zelle) so it can
 //                     enter the production pipeline
+//   retry           — re-queue a `failed` order for another Claid first pass.
+//                     packageStatus only reaches 'failed' when EVERY photo
+//                     failed (see worker/jobs/processPackage.ts), so resetting
+//                     packageResults here never discards a real success —
+//                     there isn't one to discard in this state. Without this,
+//                     a paid-but-failed package had NO recovery path from the
+//                     console at all (the production queue only lists
+//                     'ready_for_review', so no action buttons ever rendered).
+//   upload_originals — the admin-side counterpart to the customer's own upload
+//                     at /l/[token]/upload (app/api/outreach/enhance/route.ts).
+//                     Restaurant owners email a folder of photos regardless of
+//                     what the upload page says — this lets Jose drop those
+//                     files straight into the same pipeline, keyed by
+//                     magicLinkId instead of the customer's token. Mirrors that
+//                     route's validation exactly so both paths land in an
+//                     identical packageOriginals/packageStatus state.
 const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 type PackageResult = { name: string; originalUrl: string; enhancedUrl: string | null; error: string | null };
@@ -38,24 +61,48 @@ export async function POST(request: NextRequest) {
   const appOrigin = appOriginFrom(request);
   const results = (link.packageResults as PackageResult[] | null) ?? [];
 
-  // Sends the "your order is ready" email if the restaurant has an address.
-  // Returns whether it attempted a send (false = no email on file).
-  async function sendDelivery(): Promise<boolean> {
+  // Sends the given subject/body if the restaurant has an address, and logs an
+  // audit row either way (status reflects the true outcome) — that row is what
+  // lets resend_delivery below retry the exact same text rather than losing a
+  // hand-edit to a failed send. Returns whether it attempted a send (false =
+  // no email on file).
+  async function sendDelivery(subject: string, body: string): Promise<boolean> {
     if (link.restaurantId == null) return false;
     const [r] = await db.select().from(restaurants).where(eq(restaurants.id, link.restaurantId)).limit(1);
     if (!r?.email) return false;
-    await sendOrderDeliveredEmail({
-      to: r.email,
-      restaurantName: r.name,
-      language: r.language ?? "en",
-      deliveryUrl: `${appOrigin.replace(/\/$/, "")}/l/${link.token}/upload`,
+    const sent = await sendCustomerEmail({ to: r.email, subject, body });
+    const now = new Date();
+    await db.insert(outreachJobs).values({
+      restaurantId: link.restaurantId,
+      magicLinkId: id,
+      kind: "delivery",
+      touchNumber: null,
+      subject,
+      emailContent: body,
+      draftedAt: now,
+      approvedAt: now,
+      sentAt: sent ? now : null,
+      status: sent ? "sent" : "cancelled",
     });
-    return true;
+    return sent;
   }
 
   if (action === "deliver") {
+    // Re-validated here, not just the client's disabled-button gate — closing
+    // that gap while this handler's already being rewritten.
+    if (!(results.length > 0 && results.every((r) => r.enhancedUrl))) {
+      return NextResponse.json({ error: "Finish every photo before delivering." }, { status: 400 });
+    }
+    const subject = String(form.get("subject") ?? "").trim();
+    const body = String(form.get("body") ?? "").trim();
+    if (!subject || !body) {
+      return NextResponse.json({ error: "Subject and body are both required." }, { status: 400 });
+    }
+    // Fail-soft, deliberately: the order still marks delivered even if the
+    // email send fails — resend_delivery below is the recovery path for that,
+    // and a paid customer's page shouldn't stay locked over an email hiccup.
     await db.update(magicLinks).set({ packageStatus: "completed", deliveredAt: new Date() }).where(eq(magicLinks.id, id));
-    await sendDelivery();
+    await sendDelivery(subject, body);
     return NextResponse.json({ ok: true, packageStatus: "completed" });
   }
 
@@ -63,7 +110,37 @@ export async function POST(request: NextRequest) {
     if (link.packageStatus !== "completed") {
       return NextResponse.json({ error: "Only a delivered order's email can be resent." }, { status: 409 });
     }
-    const sent = await sendDelivery();
+
+    const [lastSend] = await db
+      .select({ subject: outreachJobs.subject, body: outreachJobs.emailContent })
+      .from(outreachJobs)
+      .where(and(eq(outreachJobs.magicLinkId, id), eq(outreachJobs.kind, "delivery")))
+      .orderBy(desc(outreachJobs.draftedAt))
+      .limit(1);
+
+    let subject: string;
+    let body: string;
+    if (lastSend?.subject && lastSend?.body) {
+      subject = lastSend.subject;
+      body = lastSend.body;
+    } else {
+      // No audit row — this order was delivered before this feature shipped.
+      // Fall back to a fresh compose from today's fixed copy.
+      if (link.restaurantId == null) {
+        return NextResponse.json({ error: "This order has no restaurant on file." }, { status: 400 });
+      }
+      const [r] = await db.select().from(restaurants).where(eq(restaurants.id, link.restaurantId)).limit(1);
+      if (!r) return NextResponse.json({ error: "This order has no restaurant on file." }, { status: 400 });
+      const composed = composeOrderDeliveredEmail({
+        restaurantName: r.name,
+        language: r.language ?? "en",
+        deliveryUrl: `${appOrigin.replace(/\/$/, "")}/l/${link.token}/upload`,
+      });
+      subject = composed.subject;
+      body = composed.body;
+    }
+
+    const sent = await sendDelivery(subject, body);
     return NextResponse.json(
       sent
         ? { ok: true }
@@ -77,8 +154,75 @@ export async function POST(request: NextRequest) {
     if (!link.packageSelected) {
       return NextResponse.json({ error: "No package selected on this link." }, { status: 400 });
     }
-    await db.update(magicLinks).set({ paidAt: new Date() }).where(eq(magicLinks.id, id));
+    const paidAt = new Date();
+    await db.update(magicLinks).set({ paidAt }).where(eq(magicLinks.id, id));
+    // Record an off-Stripe (check/Zelle) payment: real fee $0. Priced from the
+    // package list — a manual payment never has a Stripe amount to read.
+    if (isPackageId(link.packageSelected)) {
+      const pkg = PACKAGES[link.packageSelected];
+      await recordManualPayment({
+        line: "package",
+        magicLinkId: id,
+        restaurantId: link.restaurantId,
+        packageId: link.packageSelected,
+        grossCents: pkg.priceCents,
+        description: `${pkg.name.en} (manual)`,
+        paidAt,
+      });
+    }
     return NextResponse.json({ ok: true, paidAt: true });
+  }
+
+  if (action === "retry") {
+    if (link.packageStatus !== "failed") {
+      return NextResponse.json({ error: `Can only retry a failed order (this is ${link.packageStatus}).` }, { status: 409 });
+    }
+    await db.update(magicLinks).set({ packageStatus: "processing", packageResults: null }).where(eq(magicLinks.id, id));
+    return NextResponse.json({ ok: true, packageStatus: "processing" });
+  }
+
+  if (action === "upload_originals") {
+    if (!link.paidAt) return NextResponse.json({ error: "This order hasn't been paid yet." }, { status: 402 });
+    if (link.packageStatus === "processing" || link.packageStatus === "completed") {
+      return NextResponse.json({ error: "This order is already being processed." }, { status: 409 });
+    }
+    if (!isPackageId(link.packageSelected)) {
+      return NextResponse.json({ error: "No package on file for this link." }, { status: 400 });
+    }
+    const limit = PACKAGES[link.packageSelected].photoLimit;
+
+    const photos = form.getAll("photos").filter((e): e is File => e instanceof File);
+    if (photos.length === 0) return NextResponse.json({ error: "Choose at least one photo." }, { status: 400 });
+    if (photos.length > limit) {
+      return NextResponse.json({ error: `This package includes up to ${limit} photos.` }, { status: 400 });
+    }
+    for (const p of photos) {
+      if (!ALLOWED.has(p.type)) return NextResponse.json({ error: "Upload JPEG, PNG, or WEBP images only." }, { status: 400 });
+    }
+
+    try {
+      const originals: Original[] = await Promise.all(
+        photos.map(async (file, i) => {
+          const bytes = Buffer.from(await file.arrayBuffer());
+          const url = await storeImageBytes({
+            groupKey: `${link.token}-pkg`,
+            name: `${i}-${file.name}`,
+            bytes,
+            contentType: file.type,
+            appOrigin,
+          });
+          return { name: file.name, url };
+        })
+      );
+      await db
+        .update(magicLinks)
+        .set({ packageOriginals: originals, packageStatus: "processing", packageResults: null })
+        .where(eq(magicLinks.id, id));
+      return NextResponse.json({ ok: true, count: originals.length });
+    } catch (err) {
+      console.error("[admin-package] upload_originals failed:", err instanceof Error ? err.message : err);
+      return NextResponse.json({ error: "Failed to store the photos. Try again." }, { status: 502 });
+    }
   }
 
   const index = Number(form.get("photoIndex"));

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import type { CostKey } from "@/lib/costs";
 
 async function postSetting(key: string, value: boolean): Promise<string | null> {
   const fd = new FormData();
@@ -141,14 +142,19 @@ export function NumberSetting({
   nullable,
   suffix,
   formulaHint,
+  step,
+  min = 1,
 }: {
-  settingKey: "outreach_daily_cap" | "bump_after_days";
+  settingKey: "outreach_daily_cap" | "bump_after_days" | CostKey;
   label: string;
   help: string;
   value: number | null;
   nullable: boolean;
   suffix?: string;
   formulaHint?: string;
+  // Cost assumptions are fractional and can be 0 — pass step="0.1" min={0}.
+  step?: string | number;
+  min?: number;
 }) {
   const router = useRouter();
   const [raw, setRaw] = useState(value == null ? "" : String(value));
@@ -193,7 +199,8 @@ export function NumberSetting({
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <input
           type="number"
-          min={1}
+          min={min}
+          step={step}
           value={raw}
           onChange={(e) => setRaw(e.target.value)}
           placeholder={nullable ? "(auto)" : ""}

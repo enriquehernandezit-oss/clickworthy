@@ -6,9 +6,12 @@ import { usePathname } from "next/navigation";
 // Subtab row for the Photo venture. Gold accent (the venture's --accent).
 const TABS = [
   ["/admin/photo", "Overview"],
+  ["/admin/photo/approvals", "Approvals"],
   ["/admin/photo/outreach", "Outreach"],
   ["/admin/photo/samples", "Samples"],
   ["/admin/photo/orders", "Orders"],
+  ["/admin/photo/templates", "Templates"],
+  ["/admin/photo/financials", "Financials"],
   ["/admin/photo/restaurants", "Leads"],
   ["/admin/photo/suppressions", "Suppressions"],
   ["/admin/photo/controls", "Controls"],

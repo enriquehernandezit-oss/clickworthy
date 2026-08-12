@@ -7,6 +7,7 @@ import {
   boolean,
   timestamp,
   jsonb,
+  index,
 } from 'drizzle-orm/pg-core';
 
 export const restaurants = pgTable('restaurants', {
@@ -58,12 +59,25 @@ export const photos = pgTable('photos', {
 export const outreachJobs = pgTable('outreach_jobs', {
   id: serial('id').primaryKey(),
   restaurantId: integer('restaurant_id').references(() => restaurants.id),
+  // Which magic link this row's email belongs to, when it's tied to one
+  // (touch2/delivery/payment_confirmation always; reply usually; touch1/bump/
+  // manual never — no magic link exists yet at that point). Lets "resend the
+  // delivery email" for a repeat customer grab the right order instead of just
+  // the most recent one for the restaurant.
+  magicLinkId: integer('magic_link_id').references(() => magicLinks.id),
   touchNumber: integer('touch_number').default(1),
+  // What this row actually is — the discriminator every query must filter on.
+  // touchNumber alone is NOT enough (touch1 and bump both use 1). 'touch1' |
+  // 'bump' | 'touch2' | 'reply' | 'delivery' | 'payment_confirmation' | 'manual'.
+  // Nullable: old rows are backfilled once, every insert site going forward
+  // sets it explicitly.
+  kind: text('kind'),
   subject: text('subject'), // stored so the exact reviewed subject is what actually sends
   emailContent: text('email_content'),
   // Touch 1 approval flow: a run drafts (status 'draft', draftedAt set), a human
   // approves in /admin (status 'approved', approvedAt set), the next send run
   // sends it (status 'sent', sentAt + gmail ids set). Stale drafts -> 'cancelled'.
+  // 'denied' is the terminal "a human said no" state for bump/reply/payment_confirmation drafts.
   draftedAt: timestamp('drafted_at'),
   approvedAt: timestamp('approved_at'),
   sentAt: timestamp('sent_at'),
@@ -78,16 +92,82 @@ export const outreachJobs = pgTable('outreach_jobs', {
   // into a worker log.
   replyBody: text('reply_body'),
   replyFrom: text('reply_from'),
+  // Gmail message id of the most recently PROCESSED reply in this thread. The
+  // poller re-lists the same inbox window every run, so this is what lets it
+  // recognize "already handled" per-message rather than per-thread — without
+  // it, a second message in an already-replied thread either gets silently
+  // dropped (old behavior) or re-alerted on every 4-minute run for 7 days.
+  lastReplyMessageId: text('last_reply_message_id'),
 });
 
-export const payments = pgTable('payments', {
-  id: serial('id').primaryKey(),
-  restaurantId: integer('restaurant_id').references(() => restaurants.id),
-  amountCents: integer('amount_cents'),
-  stripePaymentId: text('stripe_payment_id'),
-  status: text('status'),
-  createdAt: timestamp('created_at').defaultNow(),
-});
+// Money ledger — one row per REAL money movement, across both revenue lines.
+// Redefined from the old dead `payments` table (nothing ever wrote it — see
+// HANDOFF.md "Dead tables"). ADDITIVE + analytics-only: fulfillment state still
+// lives on enhancementOrders.status / magicLinks.paidAt, and nothing in the
+// customer path reads this. Written by the Stripe webhook and the backfill
+// script (both via lib/paymentLedger.ts). The FK columns point at tables
+// declared later in this file; drizzle resolves the `() =>` thunks lazily, so
+// the forward reference is fine.
+export const payments = pgTable(
+  'payments',
+  {
+    id: serial('id').primaryKey(),
+
+    // Total natural key + idempotency handle. Stripe rows use the charge id;
+    // manual (check/Zelle) rows use "manual:ml:{magicLinkId}"; a Stripe row whose
+    // charge isn't known yet falls back to "session:{id}". One always-populated
+    // UNIQUE column means the webhook, its retries, and the backfill all converge
+    // on the same ON CONFLICT — a unique on stripe_charge_id alone wouldn't dedupe
+    // manual rows, since Postgres treats every NULL as distinct.
+    ledgerKey: text('ledger_key').notNull().unique(),
+
+    // What was sold.
+    line: text('line').notNull(), // 'self_serve' | 'package'
+    method: text('method').notNull(), // 'stripe' | 'manual'
+    // The package ACTUALLY paid for, snapshotted from session.metadata.package.
+    // magicLinks.packageSelected is overwritten on every checkout attempt, so it
+    // isn't trustworthy after the fact (see app/api/outreach/checkout/route.ts).
+    packageId: text('package_id'),
+    description: text('description'), // human-readable ledger line
+
+    // Money — all integer cents, Stripe's native unit.
+    grossCents: integer('gross_cents').notNull(),
+    feeCents: integer('fee_cents').notNull().default(0),
+    netCents: integer('net_cents').notNull(), // Stripe's own net (accounts for FX), not gross-fee
+    refundedCents: integer('refunded_cents').notNull().default(0),
+    currency: text('currency').notNull().default('usd'),
+    // 'stripe' = read off the charge's balance_transaction (authoritative)
+    // 'estimated' = 2.9% + $0.30 fallback (old rows, or the BT wasn't available)
+    // 'none' = manual/off-Stripe payment, there is no processor fee
+    feeSource: text('fee_source').notNull(),
+
+    // Who.
+    customerEmail: text('customer_email'), // session.customer_details.email
+    restaurantId: integer('restaurant_id').references(() => restaurants.id),
+
+    // What it paid for — two real FKs + the `line` discriminator, not a
+    // polymorphic (type, id) pair (which couldn't be a foreign key).
+    enhancementOrderId: integer('enhancement_order_id').references(() => enhancementOrders.id),
+    magicLinkId: integer('magic_link_id').references(() => magicLinks.id),
+
+    // Stripe references.
+    stripeSessionId: text('stripe_session_id'),
+    stripeChargeId: text('stripe_charge_id'),
+    stripePaymentIntentId: text('stripe_payment_intent_id'),
+    stripeBalanceTxnId: text('stripe_balance_txn_id'),
+
+    // Time. paidAt = when the money moved (charge.created); ALL P&L buckets on it.
+    // createdAt = when we wrote the row (differs for backfilled rows).
+    paidAt: timestamp('paid_at').notNull(),
+    refundedAt: timestamp('refunded_at'),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => [
+    index('payments_paid_at_idx').on(t.paidAt),
+    index('payments_restaurant_idx').on(t.restaurantId),
+    index('payments_charge_idx').on(t.stripeChargeId),
+  ]
+);
 
 // One row per /enhance checkout: the shared prompt, photo references, and
 // (once the webhook has run) the Claid enhancement results.

@@ -1,18 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { magicLinks } from "@/db/schema";
+import { magicLinks, restaurants, outreachJobs } from "@/db/schema";
 import { enhancePhoto } from "@/lib/claid";
 import { persistEnhancedFromUrl, storeImageBytes } from "@/lib/storage";
 import { FINALIZED_ENHANCEMENT_PROMPT } from "@/worker/lib/prompts";
+import { getSetting } from "@/lib/settings";
+import { sendEmail } from "@/worker/lib/gmail";
+import { hasComplianceFooter } from "@/worker/lib/outreachEmail";
+import { threadToReplyInto } from "@/worker/jobs/sendTouch2";
 
 // Free-sample production actions (behind the Basic Auth proxy — see proxy.ts).
 // The reply pipeline drops a sample as `awaiting_edit`; Enrique/Jose finish it
-// here by hand, then approve to send Touch 2. Everything is FormData so the
-// upload action can carry a file alongside the others.
+// here by hand, then review + edit + send Touch 2 in the same request.
+// Everything is FormData so the upload action can carry a file alongside the
+// others.
 //   first_pass       — optional: run Claid once on the original, store the rough
 //   upload_finished  — store the human-finished photo as the sample to send
-//   approve          — requires a finished photo; flips to `approved` (sends Touch 2)
+//   approve          — requires a finished photo + a reviewed subject/body;
+//                       composes AND sends Touch 2 synchronously, right here
 //   reject           — flips to `rejected`
 const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp"]);
 
@@ -74,8 +80,76 @@ export async function POST(request: NextRequest) {
     if (!link.freeSampleEnhancedUrl) {
       return NextResponse.json({ error: "Upload the finished photo before approving." }, { status: 400 });
     }
-    await db.update(magicLinks).set({ reviewStatus: "approved" }).where(eq(magicLinks.id, id));
-    return NextResponse.json({ ok: true, reviewStatus: "approved" });
+    const subject = String(form.get("subject") ?? "").trim();
+    const body = String(form.get("body") ?? "").trim();
+    if (!subject || !body) {
+      return NextResponse.json({ error: "Subject and body are both required." }, { status: 400 });
+    }
+    // Catches a hand-edit that deleted the postal address / STOP line — the
+    // same guard every other send path in this app applies before a real send.
+    if (!hasComplianceFooter(body)) {
+      return NextResponse.json(
+        { error: "This email is missing the postal address or STOP line — required on every commercial email." },
+        { status: 400 }
+      );
+    }
+    if (link.restaurantId == null) {
+      return NextResponse.json({ error: "This sample has no restaurant on file." }, { status: 400 });
+    }
+
+    // Re-checked here, synchronously — the cron this replaces was the only
+    // thing that checked these. Without this, a synchronous Touch 2 send would
+    // silently bypass both breakers.
+    if (await getSetting("outreach_paused")) {
+      return NextResponse.json({ error: "Sending is paused (Controls) — resume it, then try again." }, { status: 409 });
+    }
+    if (process.env.OUTREACH_ENABLED !== "true") {
+      return NextResponse.json(
+        { error: "Gmail sending isn't enabled on the worker (OUTREACH_ENABLED) — see Setup." },
+        { status: 409 }
+      );
+    }
+
+    const [r] = await db.select().from(restaurants).where(eq(restaurants.id, link.restaurantId)).limit(1);
+    if (!r || !r.email) {
+      return NextResponse.json({ error: "This restaurant has no email on file." }, { status: 400 });
+    }
+
+    const senderNameSetting = await getSetting("outreach_sender_name");
+
+    try {
+      const { threadId, inReplyTo } = await threadToReplyInto(r.id);
+      const sent = await sendEmail({
+        to: r.email,
+        subject,
+        body,
+        fromName: senderNameSetting,
+        threadId: threadId ?? undefined,
+        inReplyTo,
+      });
+      const now = new Date();
+      await db.update(magicLinks).set({ reviewStatus: "approved", touch2SentAt: now }).where(eq(magicLinks.id, id));
+      await db.insert(outreachJobs).values({
+        restaurantId: r.id,
+        magicLinkId: id,
+        kind: "touch2",
+        touchNumber: 2,
+        subject,
+        emailContent: body,
+        // Composed, approved, and sent in the same instant — no separate async
+        // phases for Touch 2, so all three timestamps land together.
+        draftedAt: now,
+        approvedAt: now,
+        sentAt: now,
+        status: "sent",
+        gmailMessageId: sent.id,
+        gmailThreadId: sent.threadId,
+      });
+      return NextResponse.json({ ok: true, reviewStatus: "approved" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return NextResponse.json({ error: `Send failed: ${msg}` }, { status: 502 });
+    }
   }
 
   if (action === "reject") {

@@ -102,6 +102,18 @@ export default function Sidebar({ userName, userRole }: { userName: string; user
         </svg>
         Overview
       </SideLink>
+      <SideLink href="/admin/financials" active={isActive("financials")} accent={CONSOLE.accent} onNav={() => setOpen(false)}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-[17px] w-[17px] opacity-85">
+          <path d="M12 2v20M6 9h9a3 3 0 0 1 0 6H6M6 6h11M6 18h11" />
+        </svg>
+        Financials
+      </SideLink>
+      <SideLink href="/admin/guide" active={isActive("guide")} accent={CONSOLE.accent} onNav={() => setOpen(false)}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-[17px] w-[17px] opacity-85">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20V4a2 2 0 0 0-2-2H6.5A2.5 2.5 0 0 0 4 4.5v15z" />
+        </svg>
+        Guide
+      </SideLink>
 
       <div className="px-3 pb-2 pt-3.5 font-mono-label text-[10.5px] uppercase tracking-wider text-white/35">Products</div>
       {VENTURES.map((v) => (

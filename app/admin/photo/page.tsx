@@ -46,8 +46,12 @@ async function getWeekly() {
 }
 
 async function getWork() {
+  // Matches getNeedsAttention()'s scope in lib/photoStats.ts — every kind that
+  // queues a draft awaiting a human decision (touch1/bump/reply/payment_confirmation).
   const [{ drafts }] = await db
-    .select({ drafts: sql<number>`count(*) filter (where ${outreachJobs.status} = 'draft')::int` })
+    .select({
+      drafts: sql<number>`count(*) filter (where ${outreachJobs.status} = 'draft' and ${outreachJobs.kind} in ('touch1','bump','reply','payment_confirmation'))::int`,
+    })
     .from(outreachJobs);
   const [{ awaitingEdit }] = await db
     .select({ awaitingEdit: sql<number>`count(*) filter (where ${magicLinks.reviewStatus} = 'awaiting_edit')::int` })
@@ -102,6 +106,7 @@ async function getActivity(): Promise<{ items: Activity[]; nowMs: number }> {
       rid: outreachJobs.restaurantId,
       touchNumber: outreachJobs.touchNumber,
       status: outreachJobs.status,
+      jobKind: outreachJobs.kind,
       draftedAt: outreachJobs.draftedAt,
       sentAt: outreachJobs.sentAt,
       repliedAt: outreachJobs.repliedAt,
@@ -114,10 +119,26 @@ async function getActivity(): Promise<{ items: Activity[]; nowMs: number }> {
     .limit(FEED);
   for (const j of jobs) {
     const who = j.name ?? "(unknown)";
-    if (j.draftedAt && !j.sentAt) items.push({ at: j.draftedAt, kind: "draft", text: `Drafted Touch 1 for ${who}`, href: restHref(j.rid) });
-    if (j.sentAt) {
-      const label = j.status === "bumped" ? "Sent bump to" : j.touchNumber === 2 ? "Sent sample to" : "Sent Touch 1 to";
-      items.push({ at: j.sentAt, kind: j.status === "bumped" ? "bumped" : "sent", text: `${label} ${who}`, href: restHref(j.rid) });
+    const isBump = j.jobKind === "bump" || j.status === "bumped"; // legacy rows predate `kind`
+
+    if (j.draftedAt && !j.sentAt) {
+      const label =
+        isBump ? "Drafted a bump for"
+        : j.jobKind === "reply" ? "Drafted a reply for"
+        : j.jobKind === "payment_confirmation" ? "Drafted a payment confirmation for"
+        : "Drafted Touch 1 for";
+      items.push({ at: j.draftedAt, kind: "draft", text: `${label} ${who}`, href: restHref(j.rid) });
+    }
+    // touch2/delivery sends are excluded here — they're already represented in
+    // the magicLinks loop below (touch2SentAt / deliveredAt), same event.
+    if (j.sentAt && j.jobKind !== "touch2" && j.jobKind !== "delivery") {
+      const label =
+        isBump ? "Sent bump to"
+        : j.jobKind === "reply" ? "Replied to"
+        : j.jobKind === "payment_confirmation" ? "Sent payment confirmation to"
+        : j.touchNumber === 2 ? "Sent sample to"
+        : "Sent Touch 1 to";
+      items.push({ at: j.sentAt, kind: isBump ? "bumped" : "sent", text: `${label} ${who}`, href: restHref(j.rid) });
     }
     if (j.repliedAt) {
       const snip = j.replyBody ? ` — “${j.replyBody.slice(0, 80)}${j.replyBody.length > 80 ? "…" : ""}”` : "";
@@ -174,7 +195,7 @@ export default async function AdminOverviewPage() {
       <section>
         <SectionHeading>Needs your attention</SectionHeading>
         <div className="mt-3 flex flex-wrap gap-3">
-          <StatChip value={work.drafts} label="drafts to review" href="/admin/photo/outreach?status=draft" />
+          <StatChip value={work.drafts} label="awaiting approval" href="/admin/photo/approvals" />
           <StatChip value={work.awaitingEdit} label="replies to edit" href="/admin/photo/samples" />
           <StatChip value={work.readyForReview} label="orders to finish" href="/admin/photo/orders" />
         </div>

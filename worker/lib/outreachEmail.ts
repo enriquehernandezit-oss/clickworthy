@@ -1,147 +1,174 @@
 // Composes the outreach emails (subject + body + CAN-SPAM footer) from the
-// APPROVED static templates. Merge fields: signature dish, owner first name
-// (graceful fallback), restaurant name. Touch 1 and the bump are deliberately
-// link-free and price-free — the only ask is a reply.
+// admin-editable templates in app_settings (see lib/settings.ts and
+// /admin/photo/templates). Merge fields: signature dish, owner first name
+// (graceful fallback), restaurant name, city, sender identity. Touch 1 and the
+// bump are deliberately link-free and price-free — the only ask is a reply.
+//
+// Compose functions are kept SYNCHRONOUS on purpose: callers fetch the
+// template + identity settings once per job run and pass them in, rather than
+// each function reading app_settings itself. That keeps this file pure and
+// unit-testable, and means a single Promise.all covers the whole batch instead
+// of one DB round-trip per restaurant.
 
-// Exported so every send site can use the same identity — the sign-off in the
-// body and the `From:` name must match, or the mail arrives from one name and
-// is signed by another. `||` (not `??`) deliberately: an env var present but
-// set to "" should still fall back.
-export function senderName(): string {
-  return process.env.OUTREACH_SENDER_NAME || "Enrique";
+import type { BumpTemplate, Touch1Template, Touch2Template } from "@/lib/settings";
+import { renderTemplate, sanitizeSubject, type TemplateVars } from "./renderTemplate";
+
+// The only placeholders a template may reference. Shared with the settings
+// validation route so "what can I use" and "what's allowed to save" can't drift.
+export const OUTREACH_TEMPLATE_VARS = ["restaurant", "dish", "firstName", "greeting", "city", "senderName"] as const;
+
+// Touch 2 adds two of its own on top of the shared set — both Touch-2-specific,
+// so they're not offered on Touch 1 / bump (which are deliberately link-free).
+export const TOUCH2_TEMPLATE_VARS = [...OUTREACH_TEMPLATE_VARS, "funnelUrl", "talkLine"] as const;
+
+export type Language = "en" | "es";
+
+export function normalizeLanguage(value: string | null | undefined): Language {
+  return value === "es" ? "es" : "en";
 }
 
-// CAN-SPAM requires a valid physical postal address in every commercial email.
-// Falls back to an obvious placeholder (not a silently blank line) so an
-// empty-string env var is caught by reading the email, not missed entirely.
-function postalAddress(): string {
-  return process.env.OUTREACH_POSTAL_ADDRESS || "Clickworthy — [set OUTREACH_POSTAL_ADDRESS]";
-}
+export type ComposeIdentity = { senderName: string; postalAddress: string };
 
-function greeting(firstName: string | null, language: string): string {
+function greeting(firstName: string | null, language: Language): string {
   if (firstName) return language === "es" ? `Hola ${firstName},` : `Hi ${firstName},`;
   return language === "es" ? "Hola," : "Hi there,";
 }
 
-// Link-free opt-out (Touch 1/bump are intentionally link-free): replying STOP
-// adds the sender to the suppression list (handled by the reply poller).
-function complianceFooter(language: string): string {
+// CAN-SPAM requires a valid physical postal address in every commercial email.
+// This stays CODE-OWNED, appended outside the editable template body — if a
+// template could own it, deleting it would be silent and unlawful. An unset
+// address renders an obvious placeholder rather than a blank line, so it's
+// caught by reading the email — and the pre-send assertion in sendOutreach.ts
+// blocks the send outright regardless.
+function complianceFooter(language: Language, postalAddress: string): string {
+  const address = postalAddress.trim() || "[set your postal address on the Templates page]";
   if (language === "es") {
     return (
-      `\n\n—\nClickworthy · ${postalAddress()}\n` +
+      `\n\n—\nClickworthy · ${address}\n` +
       `Si prefiere no recibir más mensajes, responda con STOP y no volveremos a escribirle.`
     );
   }
   return (
-    `\n\n—\nClickworthy · ${postalAddress()}\n` +
+    `\n\n—\nClickworthy · ${address}\n` +
     `Prefer not to hear from us? Reply STOP and we won't email you again.`
   );
 }
 
+// Pre-send guard (worker/jobs/sendOutreach.ts sendApproved(), sendBumps.ts):
+// confirms a composed body still carries the two CAN-SPAM-required markers
+// this footer writes, and that the address wasn't left unconfigured. Catches a
+// hand-edited draft that deleted the footer, or any other way the footer could
+// go missing, before the email actually sends.
+export function hasComplianceFooter(body: string): boolean {
+  return body.includes("Clickworthy ·") && /\bSTOP\b/.test(body) && !body.includes("[set your postal address");
+}
+
 export type OutreachEmail = { subject: string; body: string };
 
-// --- Touch 1 (cold, approved) ----------------------------------------------
+function baseVars(params: {
+  restaurantName: string;
+  firstName: string | null;
+  dish: string;
+  city: string | null;
+  language: Language;
+  senderName: string;
+}): TemplateVars {
+  return {
+    restaurant: params.restaurantName,
+    dish: params.dish,
+    firstName: params.firstName ?? "",
+    greeting: greeting(params.firstName, params.language),
+    city: params.city ?? "",
+    senderName: params.senderName,
+  };
+}
+
+// --- Touch 1 (cold, approved) ------------------------------------------------
 
 export function composeTouch1(params: {
   restaurantName: string;
   firstName: string | null;
   dish: string;
-  language: string;
+  city: string | null;
+  language: Language;
   subjectVariant: number; // rotate deterministically across restaurants
+  template: Touch1Template;
+  identity: ComposeIdentity;
 }): OutreachEmail {
-  const { restaurantName, firstName, dish, language } = params;
+  const { language, template, identity } = params;
+  const t = template[language] ?? template.en;
   const v = ((params.subjectVariant % 3) + 3) % 3;
 
-  const subject =
-    language === "es"
-      ? [`la foto de su ${dish}`, `una pregunta sobre las fotos de ${restaurantName}`, `el ${dish} de ${restaurantName}`][v]
-      : [`your ${dish} photo`, `quick question about ${restaurantName}'s photos`, `the ${dish} at ${restaurantName}`][v];
+  const vars = baseVars({ ...params, senderName: identity.senderName });
+  const subjectTemplate = t.subjects[v] ?? t.subjects[0];
 
-  const body =
-    language === "es"
-      ? `${greeting(firstName, language)}\n\n` +
-        `Estaba viendo ${restaurantName} en línea y el ${dish} me llamó la atención — pero honestamente, la foto no le hace justicia. Y hoy en día las fotos venden más que el menú.\n\n` +
-        `Tengo un estudio pequeño que mejora fotos reales de comida para restaurantes independientes (nada de fotos de banco ni comida falsa de IA — sus platos reales, con el aspecto que tienen en persona).\n\n` +
-        `¿Quiere verlo con su propia comida? Responda con una foto de cualquier plato — aunque sea del celular — y se la devuelvo mejorada en un día. Gratis, sin compromiso. Si no le encanta, la borra y ya.\n\n` +
-        `${senderName()}\nClickworthy`
-      : `${greeting(firstName, language)}\n\n` +
-        `I was looking at ${restaurantName} online and your ${dish} caught my eye — but honestly, the photo doesn't do it justice. And photos are doing more selling than menus these days.\n\n` +
-        `I run a small studio that enhances real food photos for independent restaurants (no stock images, no fake AI food — your actual dishes, made to look the way they do in person).\n\n` +
-        `Want to see it on your own food? Reply with one photo of any dish — even a phone shot — and I'll send it back enhanced within a day. Free, no strings. If you don't love it, delete it and that's that.\n\n` +
-        `${senderName()}\nClickworthy`;
-
-  return { subject, body: body + complianceFooter(language) };
+  const subject = sanitizeSubject(renderTemplate(subjectTemplate, vars));
+  const body = renderTemplate(t.body, vars) + complianceFooter(language, identity.postalAddress);
+  return { subject, body };
 }
 
 // --- Touch 1.5 bump (approved; sent in-thread, no new subject) --------------
+// Widened vs. the original (firstName + language only) so an edited template
+// can reference the restaurant and dish too — the caller already has the full
+// restaurant row loaded, so this costs nothing extra upstream.
 
-export function composeBump(params: { firstName: string | null; language: string }): string {
-  const { firstName, language } = params;
-  if (language === "es") {
-    return (
-      `${greeting(firstName, language)}\n\n` +
-      `Un recordatorio rápido por si esto quedó enterrado.\n\n` +
-      `La oferta sigue en pie: mándeme una foto de un plato y se la devuelvo mejorada profesionalmente, gratis. Le toma 30 segundos, no cuesta nada, y la foto es suya de todos modos.\n\n` +
-      `Si no le interesa, sin problema — dígamelo y no vuelvo a escribir.\n\n` +
-      `${senderName()}` +
-      complianceFooter(language)
-    );
-  }
-  return (
-    `${greeting(firstName, language)}\n\n` +
-    `Quick bump in case this got buried.\n\n` +
-    `The offer stands: send me one photo of a dish and I'll send it back professionally enhanced, free. Takes you 30 seconds, costs you nothing, and you keep the photo either way.\n\n` +
-    `If it's a no, no worries — just say so and I won't follow up again.\n\n` +
-    `${senderName()}` +
-    complianceFooter(language)
-  );
+export function composeBump(params: {
+  restaurantName: string;
+  firstName: string | null;
+  dish: string;
+  city: string | null;
+  language: Language;
+  template: BumpTemplate;
+  identity: ComposeIdentity;
+}): string {
+  const { language, template, identity } = params;
+  const t = template[language] ?? template.en;
+  const vars = baseVars({ ...params, senderName: identity.senderName });
+  return renderTemplate(t.body, vars) + complianceFooter(language, identity.postalAddress);
 }
 
-// --- Free-sample delivery / Touch 2 (approved) ------------------------------
+// --- Free-sample delivery / Touch 2 (solicited; sent the moment a human
+// approves the finished sample and its email together) ----------------------
+// Template-editable like Touch 1 / bump (see /admin/photo/templates). Unlike
+// those two, every send is ALSO reviewed and hand-editable in the moment (see
+// app/api/admin/sample/route.ts) — the template here only sets the SEED text,
+// not what actually ships.
 
 export function composeTouch2(params: {
   restaurantName: string;
   firstName: string | null;
   dish: string;
+  city: string | null;
   funnelUrl: string;
   bookingUrl: string | null;
-  language: string;
+  language: Language;
+  template: Touch2Template;
+  identity: ComposeIdentity;
 }): OutreachEmail {
-  const { firstName, dish, funnelUrl, bookingUrl, language } = params;
+  const { language, template, identity, funnelUrl, bookingUrl } = params;
+  const t = template[language] ?? template.en;
 
-  const subject = language === "es" ? `su ${dish}, mejorado` : `your ${dish}, enhanced`;
-
+  // Precomputed, not a template conditional — renderTemplate is flat
+  // {{var}} substitution only (see renderTemplate.ts). Empty string when no
+  // booking URL is configured, so {{funnelUrl}}{{talkLine}} degrades cleanly.
   const talkLine = bookingUrl
     ? language === "es"
       ? `\n\nO si prefiere hablar primero: ${bookingUrl} — 15 minutos, sin discurso de ventas.`
       : `\n\nOr if you'd rather talk first: ${bookingUrl} — 15 minutes, no pitch marathon.`
     : "";
 
-  const body =
-    language === "es"
-      ? `${greeting(firstName, language)}\n\n` +
-        `Aquí está — su ${dish}, mejorado. La misma foto que envió, nada inventado.\n\n` +
-        `Esa foto es suya. Úsela donde quiera, sin costo, sin trampa.\n\n` +
-        `Ahora, la parte que pocos dueños han calculado: las apps de delivery se quedan con 15–30% de cada orden — más bien 30–40% cuando suman promociones y cargos — mientras que su propio sitio web, perfil de Google e Instagram le pagan el 100%. Pero en la mayoría de los restaurantes, las apps se ven mejor que los canales propios. Y por eso la gente ordena por ahí.\n\n` +
-        `Eso es lo que arreglamos. Tomamos sus 20–30 platos principales, los mejoramos como el de arriba, y se los entregamos listos para su sitio web, Google Business Profile, Instagram y Yelp — para que sus propios canales vendan más que su página de DoorDash. Un fotógrafo cobra $1,200–$3,500 por una sesión así. Nosotros lo hacemos por una fracción, con fotos que ya tiene o que toma con su celular.\n\n` +
-        `Todo está aquí, incluyendo su antes y después: ${funnelUrl}${talkLine}\n\n` +
-        `De cualquier forma, disfrute la foto.\n\n` +
-        `${senderName()}\nClickworthy`
-      : `${greeting(firstName, language)}\n\n` +
-        `Here it is — your ${dish}, enhanced. Same photo you sent, nothing invented.\n\n` +
-        `That photo is yours. Use it anywhere, no charge, no catch.\n\n` +
-        `Here's the part most owners haven't done the math on: the delivery apps take 15–30% of every order — closer to 30–40% once promos and fees pile on — while your own website, Google profile, and Instagram pay you 100%. But for most restaurants, the apps' listings look better than their own channels. So that's where people order.\n\n` +
-        `We fix that. We take your top 20–30 dishes, enhance them like the one above, and deliver them sized and ready for your website, Google Business Profile, Instagram, and Yelp — so your own channels finally outsell your DoorDash page. A photographer charges $1,200–$3,500 for a session like that. We do it for a fraction, using photos you already have or shoot on your phone.\n\n` +
-        `Everything's here, including your before/after: ${funnelUrl}${talkLine}\n\n` +
-        `Either way, enjoy the photo.\n\n` +
-        `${senderName()}\nClickworthy`;
+  const vars: TemplateVars = { ...baseVars({ ...params, senderName: identity.senderName }), funnelUrl, talkLine };
 
-  return { subject, body: body + complianceFooter(language) };
+  const subject = sanitizeSubject(renderTemplate(t.subject, vars));
+  const body = renderTemplate(t.body, vars) + complianceFooter(language, identity.postalAddress);
+  return { subject, body };
 }
 
 // Detects a "STOP"/opt-out reply (plain, case-insensitive, tolerant of
 // surrounding whitespace/punctuation). Kept conservative so a genuine reply
-// that merely contains the word "stop" mid-sentence isn't misread.
+// that merely contains the word "stop" mid-sentence isn't misread. Coupled to
+// the footer's opt-out instruction above — if that copy ever stops saying
+// "STOP", this list needs to move with it.
 export function isOptOut(replyText: string): boolean {
   const firstLine = replyText.trim().split(/\r?\n/)[0]?.trim().toLowerCase() ?? "";
   const normalized = firstLine.replace(/[.!,]/g, "");
