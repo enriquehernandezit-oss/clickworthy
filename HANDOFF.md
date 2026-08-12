@@ -128,7 +128,10 @@ SET/MISSING for every key on both the web and worker services, with the
 - **Gmail service account** (to send from `mail@clickworthytool.com`): GCP
   project → enable Gmail API → service account + JSON key → in Workspace Admin,
   add **domain-wide delegation** with scopes `gmail.send` + `gmail.readonly`.
-- **Resend**: verify the sending domain so `alerts@clickworthytool.com` can send.
+- **Resend**: verify the sending domain — covers every `@clickworthytool.com`
+  address at once, both `alerts@` (internal operator notifications,
+  lib/alerts.ts) and `contact@` (customer-facing delivery + payment
+  confirmation, lib/customerEmail.ts).
 - **Cloudflare R2** (optional): bucket + account ID + public URL.
 - **Railway**: second service (`worker`) from the same repo, start command
   `bun run worker`; set env on both services; confirm `clickworthytool.com`.

@@ -102,7 +102,11 @@ const DEFAULTS: SettingsMap = {
   cost_sample_per_reply_cents: 30.0, // revenue-impact copy + the optional Claid first pass
   cost_claid_per_photo_cents: 6.0, // 2 billable ops/photo. PROVISIONAL — the 3-way Claid test (HANDOFF §C.2) sets the real number
   cost_storage_per_photo_cents: 0.2, // nothing is ever deleted — rough NPV of storing one photo forever
-  opex_monthly_cents: 3620, // ~$36.20/mo: Railway ~$10 + Workspace (3 seats) $25.20 + domain ~$1; Resend free, Lemwarm dropped
+  // ~$36.20/mo: Railway ~$10 + Workspace (3 seats) $25.20 + domain ~$1; Resend free.
+  // TODO: Lemwarm is active (confirmed 2026-08-12, not dropped as previously assumed
+  // here) and its real monthly cost isn't folded into this figure yet — update once
+  // known, on /admin/photo/financials or directly here.
+  opex_monthly_cents: 3620,
 
   outreach_sender_name: "Enrique",
   outreach_postal_address: "", // unset — footer shows a placeholder and sending is blocked until this is filled in

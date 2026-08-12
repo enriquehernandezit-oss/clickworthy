@@ -6,7 +6,10 @@
 // audit row with the true outcome, or to know whether a resend is needed).
 export async function sendCustomerEmail(params: { to: string; subject: string; body: string }): Promise<boolean> {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.ALERT_EMAIL_FROM ?? "alerts@clickworthytool.com";
+  // Deliberately its own env var, not ALERT_EMAIL_FROM (lib/alerts.ts's) — that
+  // one is for internal operator notifications only. This is customer-facing
+  // mail, so it belongs under the customer-service identity, not the alerting one.
+  const from = process.env.CUSTOMER_EMAIL_FROM ?? "contact@clickworthytool.com";
   if (!apiKey) {
     console.warn(`[customer-email] RESEND_API_KEY not set — would have sent "${params.subject}" to ${params.to}`);
     return false;

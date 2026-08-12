@@ -47,9 +47,10 @@ export const ENV_KEYS: EnvKey[] = [
   { name: "GMAIL_SENDER", scope: "both", required: true, blocks: "Gmail service account has nothing to impersonate — same failure mode as no key." },
 
   // --- Transactional email (Resend) -----------------------------------------
-  { name: "RESEND_API_KEY", scope: "both", required: true, blocks: "Operator alerts + the customer 'photos are ready' email — both fail silently." },
+  { name: "RESEND_API_KEY", scope: "both", required: true, blocks: "Operator alerts + every customer-facing Resend email (delivery, payment confirmation) — all fail silently." },
   { name: "ALERT_EMAIL_TO", scope: "both", required: true, blocks: "You never learn a restaurant replied or an order failed." },
-  { name: "ALERT_EMAIL_FROM", scope: "both", required: false, blocks: "Falls back to alerts@clickworthytool.com — fine if that's a real mailbox." },
+  { name: "ALERT_EMAIL_FROM", scope: "both", required: false, blocks: "Internal operator alerts only (lib/alerts.ts). Falls back to alerts@clickworthytool.com — fine if that's a real mailbox." },
+  { name: "CUSTOMER_EMAIL_FROM", scope: "web", required: false, blocks: "Customer-facing Resend mail only (lib/customerEmail.ts) — delivery + payment confirmation. Falls back to contact@clickworthytool.com — fine if that's a real mailbox." },
 
   // --- Compliance + funnel booking ------------------------------------------
   // NOTE: the outreach postal address and sender name used to live here as
