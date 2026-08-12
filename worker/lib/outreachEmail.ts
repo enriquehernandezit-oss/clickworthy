@@ -10,12 +10,16 @@
 // unit-testable, and means a single Promise.all covers the whole batch instead
 // of one DB round-trip per restaurant.
 
-import type { BumpTemplate, Touch1Template } from "@/lib/settings";
+import type { BumpTemplate, Touch1Template, Touch2Template } from "@/lib/settings";
 import { renderTemplate, sanitizeSubject, type TemplateVars } from "./renderTemplate";
 
 // The only placeholders a template may reference. Shared with the settings
 // validation route so "what can I use" and "what's allowed to save" can't drift.
 export const OUTREACH_TEMPLATE_VARS = ["restaurant", "dish", "firstName", "greeting", "city", "senderName"] as const;
+
+// Touch 2 adds two of its own on top of the shared set — both Touch-2-specific,
+// so they're not offered on Touch 1 / bump (which are deliberately link-free).
+export const TOUCH2_TEMPLATE_VARS = [...OUTREACH_TEMPLATE_VARS, "funnelUrl", "talkLine"] as const;
 
 export type Language = "en" | "es";
 
@@ -123,50 +127,41 @@ export function composeBump(params: {
   return renderTemplate(t.body, vars) + complianceFooter(language, identity.postalAddress);
 }
 
-// --- Free-sample delivery / Touch 2 (locked copy, not template-editable) ----
-// Out of scope for the template editor (only Touch 1 / 1.5 were asked for),
-// but it shares the same identity settings, so it takes `identity` instead of
-// the old module-level senderName()/postalAddress() functions.
+// --- Free-sample delivery / Touch 2 (solicited; sent the moment a human
+// approves the finished sample and its email together) ----------------------
+// Template-editable like Touch 1 / bump (see /admin/photo/templates). Unlike
+// those two, every send is ALSO reviewed and hand-editable in the moment (see
+// app/api/admin/sample/route.ts) — the template here only sets the SEED text,
+// not what actually ships.
 
 export function composeTouch2(params: {
   restaurantName: string;
   firstName: string | null;
   dish: string;
+  city: string | null;
   funnelUrl: string;
   bookingUrl: string | null;
   language: Language;
+  template: Touch2Template;
   identity: ComposeIdentity;
 }): OutreachEmail {
-  const { firstName, dish, funnelUrl, bookingUrl, language, identity } = params;
+  const { language, template, identity, funnelUrl, bookingUrl } = params;
+  const t = template[language] ?? template.en;
 
-  const subject = language === "es" ? `su ${dish}, mejorado` : `your ${dish}, enhanced`;
-
+  // Precomputed, not a template conditional — renderTemplate is flat
+  // {{var}} substitution only (see renderTemplate.ts). Empty string when no
+  // booking URL is configured, so {{funnelUrl}}{{talkLine}} degrades cleanly.
   const talkLine = bookingUrl
     ? language === "es"
       ? `\n\nO si prefiere hablar primero: ${bookingUrl} — 15 minutos, sin discurso de ventas.`
       : `\n\nOr if you'd rather talk first: ${bookingUrl} — 15 minutes, no pitch marathon.`
     : "";
 
-  const body =
-    language === "es"
-      ? `${greeting(firstName, language)}\n\n` +
-        `Aquí está — su ${dish}, mejorado. La misma foto que envió, nada inventado.\n\n` +
-        `Esa foto es suya. Úsela donde quiera, sin costo, sin trampa.\n\n` +
-        `Ahora, la parte que pocos dueños han calculado: las apps de delivery se quedan con 15–30% de cada orden — más bien 30–40% cuando suman promociones y cargos — mientras que su propio sitio web, perfil de Google e Instagram le pagan el 100%. Pero en la mayoría de los restaurantes, las apps se ven mejor que los canales propios. Y por eso la gente ordena por ahí.\n\n` +
-        `Eso es lo que arreglamos. Tomamos sus 20–30 platos principales, los mejoramos como el de arriba, y se los entregamos listos para su sitio web, Google Business Profile, Instagram y Yelp — para que sus propios canales vendan más que su página de DoorDash. Un fotógrafo cobra $1,200–$3,500 por una sesión así. Nosotros lo hacemos por una fracción, con fotos que ya tiene o que toma con su celular.\n\n` +
-        `Todo está aquí, incluyendo su antes y después: ${funnelUrl}${talkLine}\n\n` +
-        `De cualquier forma, disfrute la foto.\n\n` +
-        `${identity.senderName}\nClickworthy`
-      : `${greeting(firstName, language)}\n\n` +
-        `Here it is — your ${dish}, enhanced. Same photo you sent, nothing invented.\n\n` +
-        `That photo is yours. Use it anywhere, no charge, no catch.\n\n` +
-        `Here's the part most owners haven't done the math on: the delivery apps take 15–30% of every order — closer to 30–40% once promos and fees pile on — while your own website, Google profile, and Instagram pay you 100%. But for most restaurants, the apps' listings look better than their own channels. So that's where people order.\n\n` +
-        `We fix that. We take your top 20–30 dishes, enhance them like the one above, and deliver them sized and ready for your website, Google Business Profile, Instagram, and Yelp — so your own channels finally outsell your DoorDash page. A photographer charges $1,200–$3,500 for a session like that. We do it for a fraction, using photos you already have or shoot on your phone.\n\n` +
-        `Everything's here, including your before/after: ${funnelUrl}${talkLine}\n\n` +
-        `Either way, enjoy the photo.\n\n` +
-        `${identity.senderName}\nClickworthy`;
+  const vars: TemplateVars = { ...baseVars({ ...params, senderName: identity.senderName }), funnelUrl, talkLine };
 
-  return { subject, body: body + complianceFooter(language, identity.postalAddress) };
+  const subject = sanitizeSubject(renderTemplate(t.subject, vars));
+  const body = renderTemplate(t.body, vars) + complianceFooter(language, identity.postalAddress);
+  return { subject, body };
 }
 
 // Detects a "STOP"/opt-out reply (plain, case-insensitive, tolerant of

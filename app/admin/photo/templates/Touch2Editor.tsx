@@ -2,12 +2,15 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { BumpTemplate } from "@/lib/settings";
-import { composeBump, hasComplianceFooter } from "@/worker/lib/outreachEmail";
+import type { Touch2Template } from "@/lib/settings";
+import { composeTouch2, hasComplianceFooter } from "@/worker/lib/outreachEmail";
 import { TemplateRenderError } from "@/worker/lib/renderTemplate";
 
 type PreviewRestaurant = { name: string; contactFirstName: string | null; signatureDish: string; city: string | null };
 type Identity = { senderName: string; postalAddress: string };
+
+// A clearly-fake link, only for the on-page preview below — never sent.
+const PREVIEW_FUNNEL_URL = "https://clickworthytool.com/l/preview-token";
 
 const VARS_HELP: { key: string; desc: string }[] = [
   { key: "restaurant", desc: "restaurant name" },
@@ -16,24 +19,26 @@ const VARS_HELP: { key: string; desc: string }[] = [
   { key: "greeting", desc: `"Hi Maria," or "Hi there," — already handles the missing-firstName fallback` },
   { key: "city", desc: "city (may be empty)" },
   { key: "senderName", desc: "the sender name set above" },
+  { key: "funnelUrl", desc: "the /l/[token] link to their before/after + packages — Touch 2 only" },
+  { key: "talkLine", desc: "an optional \"or talk first\" booking line — Touch 2 only, empty unless a booking URL is configured" },
 ];
 
-// Editor for the Touch 1.5 bump — body only, per language, no subject (it
-// replies into the original Touch 1 thread). Like Touch 1, a bump is drafted
-// automatically and then waits for a human to approve or deny it in
-// Approvals — saving here only changes what a NEW draft starts out saying;
-// anything already drafted keeps its current copy.
-export default function BumpEditor({
+// Editor for Touch 2 — subject + body, per language. Unlike Touch 1 / bump,
+// this template only sets the SEED text: every real send is also reviewed and
+// hand-editable in the moment on the Samples page (approving a finished photo
+// reveals this text, editable, right there) — saving here just changes what
+// that editable box starts out saying.
+export default function Touch2Editor({
   initialTemplate,
   identity,
   previewRestaurant,
 }: {
-  initialTemplate: BumpTemplate;
+  initialTemplate: Touch2Template;
   identity: Identity;
   previewRestaurant: PreviewRestaurant;
 }) {
   const router = useRouter();
-  const [template, setTemplate] = useState<BumpTemplate>(initialTemplate);
+  const [template, setTemplate] = useState<Touch2Template>(initialTemplate);
   const [lang, setLang] = useState<"en" | "es">("en");
   const [busy, setBusy] = useState<"save" | "test" | null>(null);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
@@ -43,23 +48,28 @@ export default function BumpEditor({
 
   const preview = useMemo(() => {
     try {
-      const body = composeBump({
+      const composed = composeTouch2({
         restaurantName: previewRestaurant.name,
         firstName: previewRestaurant.contactFirstName,
         dish: previewRestaurant.signatureDish,
         city: previewRestaurant.city,
+        funnelUrl: PREVIEW_FUNNEL_URL,
+        bookingUrl: null,
         language: lang,
         template,
         identity,
       });
-      return { ok: true as const, body };
+      return { ok: true as const, ...composed };
     } catch (err) {
       return { ok: false as const, error: err instanceof TemplateRenderError ? err.message : "Preview error." };
     }
   }, [template, lang, previewRestaurant, identity]);
 
   function setBody(text: string) {
-    setTemplate((t) => ({ ...t, [lang]: { body: text } }));
+    setTemplate((t) => ({ ...t, [lang]: { ...t[lang], body: text } }));
+  }
+  function setSubject(text: string) {
+    setTemplate((t) => ({ ...t, [lang]: { ...t[lang], subject: text } }));
   }
 
   async function save() {
@@ -67,14 +77,14 @@ export default function BumpEditor({
     setMsg(null);
     try {
       const fd = new FormData();
-      fd.set("key", "outreach_bump_template");
+      fd.set("key", "outreach_touch2_template");
       fd.set("value", JSON.stringify(template));
       const res = await fetch("/api/admin/settings", { method: "POST", body: fd });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         setMsg({ text: body?.error ?? "Failed.", ok: false });
       } else {
-        setMsg({ text: "Saved. New bump drafts will use this — still waiting on your approval before they send.", ok: true });
+        setMsg({ text: "Saved. New Touch 2 emails will start from this.", ok: true });
         router.refresh();
       }
     } catch {
@@ -90,7 +100,7 @@ export default function BumpEditor({
     try {
       const fd = new FormData();
       fd.set("action", "test_send");
-      fd.set("which", "bump");
+      fd.set("which", "touch2");
       fd.set("language", lang);
       fd.set("template", JSON.stringify(template));
       fd.set("senderName", identity.senderName);
@@ -116,10 +126,10 @@ export default function BumpEditor({
     <div className="rounded-xl border border-stone-200 bg-white p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <div>
-          <div className="text-base font-semibold text-stone-900">Touch 1.5 — the bump</div>
+          <div className="text-base font-semibold text-stone-900">Touch 2 — the sample delivery</div>
           <p className="mt-1 max-w-xl text-sm text-stone-600">
-            One-time, same-thread follow-up when Touch 1 gets no reply. Drafted automatically —
-            approve or deny each one in Approvals.
+            Sent the moment you approve a finished free sample. This sets the SEED text only — every
+            send is reviewed and hand-editable on the Samples page before it goes out.
           </p>
         </div>
         <div className="flex gap-1 rounded-lg border border-stone-200 p-1">
@@ -140,11 +150,20 @@ export default function BumpEditor({
         {/* Editor */}
         <div className="flex flex-col gap-3">
           <div>
-            <label className="text-xs font-medium text-stone-500">Body (no subject — replies into the Touch 1 thread)</label>
+            <label className="text-xs font-medium text-stone-500">Subject</label>
+            <input
+              type="text"
+              value={branch.subject}
+              onChange={(e) => setSubject(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-stone-500">Body</label>
             <textarea
               value={branch.body}
               onChange={(e) => setBody(e.target.value)}
-              rows={10}
+              rows={12}
               className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 font-mono text-xs text-stone-800"
             />
           </div>
@@ -168,7 +187,8 @@ export default function BumpEditor({
           <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
             {preview.ok ? (
               <>
-                <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-stone-700">{preview.body}</pre>
+                <div className="border-b border-stone-200 pb-2 text-sm font-semibold text-stone-900">{preview.subject}</div>
+                <pre className="mt-2 whitespace-pre-wrap font-sans text-sm leading-relaxed text-stone-700">{preview.body}</pre>
                 {!hasComplianceFooter(preview.body) && (
                   <p className="mt-2 text-xs font-semibold text-red-600">
                     ⚠ Missing compliance footer — set the postal address above.

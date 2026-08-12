@@ -72,7 +72,9 @@ const SUPPRESSION_RATE_MAX = 0.08; // 8%
 // without going near the send loop.
 export const DELIVERABILITY = { sampleMin: SUPPRESSION_SAMPLE_MIN, rateMax: SUPPRESSION_RATE_MAX };
 
-async function deliverabilityHealthy(): Promise<boolean> {
+// Exported so other send phases (bump) can gate on the same guard without
+// duplicating it.
+export async function deliverabilityHealthy(): Promise<boolean> {
   const weekAgo = new Date(Date.now() - 7 * 86_400_000);
   const [{ sends }] = await db
     .select({ sends: sql<number>`count(*)::int` })
@@ -113,7 +115,9 @@ async function pendingCount(): Promise<number> {
     .from(outreachJobs)
     .where(
       and(
-        eq(outreachJobs.touchNumber, 1),
+        // kind, not touchNumber — a pending BUMP also carries touchNumber 1 and
+        // must not eat into Touch 1's own drafting budget.
+        eq(outreachJobs.kind, "touch1"),
         isNull(outreachJobs.sentAt),
         sql`${outreachJobs.status} in ('draft','approved')`
       )
@@ -214,6 +218,7 @@ async function draftBatch(autosend: boolean): Promise<void> {
     await db.insert(outreachJobs).values({
       restaurantId: r.id,
       touchNumber: 1,
+      kind: "touch1",
       subject,
       emailContent: body,
       draftedAt: now,
@@ -234,11 +239,15 @@ async function sendApproved(): Promise<void> {
 
   const enabled = process.env.OUTREACH_ENABLED === "true" && !config.dryRun;
 
+  // kind, not touchNumber — a bump is ALSO touchNumber 1. Getting this wrong
+  // would let an approved bump get picked up here and sent via sendEmail() with
+  // no threadId: a brand-new, unthreaded cold email duplicating what the
+  // recipient already got. Bumps send from sendApprovedBumps() only.
   const ready = await db
     .select({ job: outreachJobs, r: restaurants })
     .from(outreachJobs)
     .innerJoin(restaurants, eq(outreachJobs.restaurantId, restaurants.id))
-    .where(and(eq(outreachJobs.status, "approved"), eq(outreachJobs.touchNumber, 1), isNull(outreachJobs.sentAt)))
+    .where(and(eq(outreachJobs.status, "approved"), eq(outreachJobs.kind, "touch1"), isNull(outreachJobs.sentAt)))
     .orderBy(asc(outreachJobs.approvedAt))
     .limit(remaining);
 

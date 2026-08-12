@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { magicLinks, restaurants } from "@/db/schema";
+import { magicLinks, restaurants, outreachJobs } from "@/db/schema";
 import { enhancePhoto } from "@/lib/claid";
 import { persistEnhancedFromUrl, storeImageBytes } from "@/lib/storage";
-import { sendOrderDeliveredEmail } from "@/lib/customerEmail";
+import { composeOrderDeliveredEmail, sendCustomerEmail } from "@/lib/customerEmail";
 import { FINALIZED_ENHANCEMENT_PROMPT } from "@/worker/lib/prompts";
 import { recordManualPayment } from "@/lib/paymentLedger";
 import { PACKAGES, isPackageId } from "@/lib/packages";
@@ -16,9 +16,12 @@ type Original = { name: string; url: string };
 // each photo here and deliver.
 //   first_pass_one  — optional: re-run Claid on one photo's original
 //   upload_edited   — replace one photo's enhanced version with a human-finished file
-//   deliver         — mark the whole order `completed` (unlocks the delivery page)
-//   resend_delivery — re-send the delivery email (it fails soft, so a bounce or
-//                     a Resend outage otherwise leaves the customer never told)
+//   deliver         — requires a reviewed subject/body; marks the order `completed`
+//                     (unlocks the delivery page) and sends that exact text
+//   resend_delivery — re-send the LAST-SENT text verbatim, not a fresh compose —
+//                     it was already approved once, so a resend isn't a new
+//                     unreviewed communication. Recovers a bounce or a Resend
+//                     outage, which otherwise leaves the customer never told.
 //   mark_paid       — record a package paid off-Stripe (check/Zelle) so it can
 //                     enter the production pipeline
 //   retry           — re-queue a `failed` order for another Claid first pass.
@@ -58,24 +61,48 @@ export async function POST(request: NextRequest) {
   const appOrigin = appOriginFrom(request);
   const results = (link.packageResults as PackageResult[] | null) ?? [];
 
-  // Sends the "your order is ready" email if the restaurant has an address.
-  // Returns whether it attempted a send (false = no email on file).
-  async function sendDelivery(): Promise<boolean> {
+  // Sends the given subject/body if the restaurant has an address, and logs an
+  // audit row either way (status reflects the true outcome) — that row is what
+  // lets resend_delivery below retry the exact same text rather than losing a
+  // hand-edit to a failed send. Returns whether it attempted a send (false =
+  // no email on file).
+  async function sendDelivery(subject: string, body: string): Promise<boolean> {
     if (link.restaurantId == null) return false;
     const [r] = await db.select().from(restaurants).where(eq(restaurants.id, link.restaurantId)).limit(1);
     if (!r?.email) return false;
-    await sendOrderDeliveredEmail({
-      to: r.email,
-      restaurantName: r.name,
-      language: r.language ?? "en",
-      deliveryUrl: `${appOrigin.replace(/\/$/, "")}/l/${link.token}/upload`,
+    const sent = await sendCustomerEmail({ to: r.email, subject, body });
+    const now = new Date();
+    await db.insert(outreachJobs).values({
+      restaurantId: link.restaurantId,
+      magicLinkId: id,
+      kind: "delivery",
+      touchNumber: null,
+      subject,
+      emailContent: body,
+      draftedAt: now,
+      approvedAt: now,
+      sentAt: sent ? now : null,
+      status: sent ? "sent" : "cancelled",
     });
-    return true;
+    return sent;
   }
 
   if (action === "deliver") {
+    // Re-validated here, not just the client's disabled-button gate — closing
+    // that gap while this handler's already being rewritten.
+    if (!(results.length > 0 && results.every((r) => r.enhancedUrl))) {
+      return NextResponse.json({ error: "Finish every photo before delivering." }, { status: 400 });
+    }
+    const subject = String(form.get("subject") ?? "").trim();
+    const body = String(form.get("body") ?? "").trim();
+    if (!subject || !body) {
+      return NextResponse.json({ error: "Subject and body are both required." }, { status: 400 });
+    }
+    // Fail-soft, deliberately: the order still marks delivered even if the
+    // email send fails — resend_delivery below is the recovery path for that,
+    // and a paid customer's page shouldn't stay locked over an email hiccup.
     await db.update(magicLinks).set({ packageStatus: "completed", deliveredAt: new Date() }).where(eq(magicLinks.id, id));
-    await sendDelivery();
+    await sendDelivery(subject, body);
     return NextResponse.json({ ok: true, packageStatus: "completed" });
   }
 
@@ -83,7 +110,37 @@ export async function POST(request: NextRequest) {
     if (link.packageStatus !== "completed") {
       return NextResponse.json({ error: "Only a delivered order's email can be resent." }, { status: 409 });
     }
-    const sent = await sendDelivery();
+
+    const [lastSend] = await db
+      .select({ subject: outreachJobs.subject, body: outreachJobs.emailContent })
+      .from(outreachJobs)
+      .where(and(eq(outreachJobs.magicLinkId, id), eq(outreachJobs.kind, "delivery")))
+      .orderBy(desc(outreachJobs.draftedAt))
+      .limit(1);
+
+    let subject: string;
+    let body: string;
+    if (lastSend?.subject && lastSend?.body) {
+      subject = lastSend.subject;
+      body = lastSend.body;
+    } else {
+      // No audit row — this order was delivered before this feature shipped.
+      // Fall back to a fresh compose from today's fixed copy.
+      if (link.restaurantId == null) {
+        return NextResponse.json({ error: "This order has no restaurant on file." }, { status: 400 });
+      }
+      const [r] = await db.select().from(restaurants).where(eq(restaurants.id, link.restaurantId)).limit(1);
+      if (!r) return NextResponse.json({ error: "This order has no restaurant on file." }, { status: 400 });
+      const composed = composeOrderDeliveredEmail({
+        restaurantName: r.name,
+        language: r.language ?? "en",
+        deliveryUrl: `${appOrigin.replace(/\/$/, "")}/l/${link.token}/upload`,
+      });
+      subject = composed.subject;
+      body = composed.body;
+    }
+
+    const sent = await sendDelivery(subject, body);
     return NextResponse.json(
       sent
         ? { ok: true }

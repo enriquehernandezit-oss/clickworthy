@@ -16,7 +16,6 @@ import { runSourcing, type SourceJobData } from "./jobs/sourceLeads";
 import { runEnrichment, type EnrichJobData } from "./jobs/enrichRestaurant";
 import { runSendOutreach, RAMP } from "./jobs/sendOutreach";
 import { runReplyPoll } from "./jobs/pollReplies";
-import { runSendTouch2 } from "./jobs/sendTouch2";
 import { runSendBumps } from "./jobs/sendBumps";
 import { runProcessPackages } from "./jobs/processPackage";
 import { runProcessEnhancementOrders, recoverStuckPendingOrders } from "./jobs/processEnhancementOrders";
@@ -72,12 +71,13 @@ async function main() {
     for (let i = 0; i < jobs.length; i++) await runSendOutreach();
   });
 
-  // Reply cycle — poll Gmail for replies (+ bump), then send any approved Touch 2s.
+  // Reply cycle — poll Gmail for replies, then draft/send any due bumps. Touch 2
+  // has no worker-driven phase anymore: approving a finished sample sends it
+  // synchronously (see app/api/admin/sample/route.ts).
   await boss.work(REPLY_QUEUE, async (jobs) => {
     for (let i = 0; i < jobs.length; i++) {
       await runReplyPoll();
       await runSendBumps();
-      await runSendTouch2();
     }
   });
 

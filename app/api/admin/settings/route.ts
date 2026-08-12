@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { setSetting, type SettingsMap, type Touch1Template, type BumpTemplate } from "@/lib/settings";
+import { setSetting, type SettingsMap, type Touch1Template, type BumpTemplate, type Touch2Template } from "@/lib/settings";
 import { COST_KEYS } from "@/lib/costs";
-import { OUTREACH_TEMPLATE_VARS } from "@/worker/lib/outreachEmail";
+import { OUTREACH_TEMPLATE_VARS, TOUCH2_TEMPLATE_VARS } from "@/worker/lib/outreachEmail";
 import { validateTemplateSyntax, TemplateRenderError } from "@/worker/lib/renderTemplate";
 
 // Editable settings from /admin/photo/controls, /admin/photo/financials, and
@@ -18,7 +18,7 @@ const NON_NEG_NUMBER_KEYS = new Set<string>(COST_KEYS);
 const TEXT_KEYS = new Set(["outreach_sender_name", "outreach_postal_address"]);
 const MAX_TEXT_LEN = 300;
 // Whole template objects, sent as a JSON-encoded string in the `value` field.
-const TEMPLATE_KEYS = new Set(["outreach_touch1_template", "outreach_bump_template"]);
+const TEMPLATE_KEYS = new Set(["outreach_touch1_template", "outreach_bump_template", "outreach_touch2_template"]);
 
 function templateErrorMessage(err: unknown): string {
   return err instanceof TemplateRenderError || err instanceof Error ? err.message : "Invalid template.";
@@ -101,6 +101,19 @@ export async function POST(request: NextRequest) {
           validateTemplateSyntax(branch.body, OUTREACH_TEMPLATE_VARS);
           for (const s of branch.subjects) validateTemplateSyntax(s, OUTREACH_TEMPLATE_VARS);
         }
+      } else if (key === "outreach_touch2_template") {
+        const t = parsed as Partial<Touch2Template> | null;
+        for (const lang of ["en", "es"] as const) {
+          const branch = t?.[lang];
+          if (!branch || typeof branch.body !== "string" || !branch.body.trim()) {
+            throw new TemplateRenderError(`${lang.toUpperCase()} body is required.`);
+          }
+          if (typeof branch.subject !== "string" || !branch.subject.trim()) {
+            throw new TemplateRenderError(`${lang.toUpperCase()} needs a subject line.`);
+          }
+          validateTemplateSyntax(branch.body, TOUCH2_TEMPLATE_VARS);
+          validateTemplateSyntax(branch.subject, TOUCH2_TEMPLATE_VARS);
+        }
       } else {
         const t = parsed as Partial<BumpTemplate> | null;
         for (const lang of ["en", "es"] as const) {
@@ -115,7 +128,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: templateErrorMessage(err) }, { status: 400 });
     }
 
-    await setSetting(key as "outreach_touch1_template" | "outreach_bump_template", parsed as never);
+    await setSetting(
+      key as "outreach_touch1_template" | "outreach_bump_template" | "outreach_touch2_template",
+      parsed as never
+    );
     return NextResponse.json({ ok: true, key });
   }
 

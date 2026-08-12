@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
     const updated = await db
       .update(outreachJobs)
       .set({ status: "approved", approvedAt: new Date() })
-      .where(eq(outreachJobs.status, "draft"))
+      .where(and(eq(outreachJobs.status, "draft"), eq(outreachJobs.kind, "touch1")))
       .returning({ id: outreachJobs.id });
     return NextResponse.json({ ok: true, count: updated.length });
   }
@@ -81,7 +81,14 @@ export async function POST(request: NextRequest) {
       .select({ job: outreachJobs, r: restaurants })
       .from(outreachJobs)
       .innerJoin(restaurants, eq(outreachJobs.restaurantId, restaurants.id))
-      .where(and(eq(outreachJobs.status, "draft"), eq(outreachJobs.touchNumber, 1), isNull(outreachJobs.sentAt)));
+      .where(
+        and(
+          eq(outreachJobs.status, "draft"),
+          eq(outreachJobs.touchNumber, 1),
+          eq(outreachJobs.kind, "touch1"),
+          isNull(outreachJobs.sentAt)
+        )
+      );
 
     let updated = 0;
     const skipped: string[] = [];
@@ -142,6 +149,11 @@ export async function POST(request: NextRequest) {
   if (action === "redraft") {
     if (job.status !== "draft" && job.status !== "approved") {
       return NextResponse.json({ error: `Can only redraft a draft/approved row (this is ${job.status}).` }, { status: 409 });
+    }
+    // Guards against overwriting a bump/reply/etc. draft with Touch-1
+    // boilerplate — this endpoint only knows how to recompose Touch 1.
+    if (job.kind !== "touch1") {
+      return NextResponse.json({ error: `Can only redraft a Touch 1 row (this is ${job.kind ?? "unknown"}).` }, { status: 409 });
     }
     if (job.restaurantId == null) return NextResponse.json({ error: "Draft has no restaurant" }, { status: 400 });
     const [r] = await db.select().from(restaurants).where(eq(restaurants.id, job.restaurantId)).limit(1);

@@ -6,17 +6,22 @@ import { useRouter } from "next/navigation";
 type PackageResult = { name: string; originalUrl: string; enhancedUrl: string | null; error: string | null };
 
 // Paid-order production: per-photo finish (optional Claid re-run or upload an
-// edited version), then deliver the whole order (unlocks the customer's page).
+// edited version), then review + edit the delivery email and send it (which
+// unlocks the customer's page).
 export default function PackageActions({
   magicLinkId,
   results,
+  seed,
 }: {
   magicLinkId: number;
   results: PackageResult[];
+  seed: { subject: string; body: string } | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [subject, setSubject] = useState(seed?.subject ?? "");
+  const [body, setBody] = useState(seed?.body ?? "");
 
   const post = async (action: string, extra: Record<string, string>, file?: File) => {
     const key = `${action}:${extra.photoIndex ?? "order"}`;
@@ -52,18 +57,40 @@ export default function PackageActions({
         ))}
       </div>
 
+      {allFinished && (
+        <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
+          <div className="text-xs font-medium text-stone-500">
+            Delivery email — review and edit before sending. The order unlocks the moment you send.
+          </div>
+          <div className="mt-2 flex flex-col gap-2">
+            <input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              className="w-full rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800"
+              placeholder="Subject"
+            />
+            <textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={6}
+              className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 font-sans text-sm leading-relaxed text-stone-800"
+            />
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center gap-3">
         <button
           type="button"
-          disabled={busy !== null || !allFinished}
+          disabled={busy !== null || !allFinished || !subject.trim() || !body.trim()}
           title={allFinished ? "" : "Finish every photo before delivering"}
           onClick={() => {
-            if (!window.confirm("Deliver this order? The customer gets an email now and the delivery page unlocks. No further edits after this.")) return;
-            post("deliver", {});
+            if (!window.confirm("Send this delivery email? The delivery page unlocks the moment it sends. No further edits after this.")) return;
+            post("deliver", { subject, body });
           }}
           className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:text-stone-500"
         >
-          {busy === "deliver:order" ? "Delivering…" : "Deliver order"}
+          {busy === "deliver:order" ? "Sending…" : "Send delivery email"}
         </button>
         {error && <span className="text-sm text-red-600">{error}</span>}
       </div>

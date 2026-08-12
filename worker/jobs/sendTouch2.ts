@@ -1,123 +1,47 @@
-// Touch 2 sender. Picks up magic links a human APPROVED in /admin (review_status
-// = approved, enhanced sample present, not yet sent) and emails the restaurant
-// their enhanced photo plus the conversion link. Runs on the reply-poll cadence.
-//
-// Gated by OUTREACH_ENABLED like Touch 1 — even though this is a solicited
-// message, we keep all Gmail sending behind one switch during testing.
+// Touch 2 no longer has a worker-driven send phase — approving a finished
+// sample composes AND sends it in the same request (see
+// app/api/admin/sample/route.ts's `approve` action), since a human is already
+// there in the moment. threadToReplyInto() is what's left here: the shared
+// "find the conversation to reply into" lookup, reused by that route and by
+// the bump's own send phase (worker/jobs/sendBumps.ts).
 
-import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { db } from "@/db";
-import { magicLinks, restaurants, outreachJobs } from "@/db/schema";
-import { config } from "../config";
-import { getSetting } from "@/lib/settings";
-import { sendEmail, getThreadTail } from "../lib/gmail";
-import { composeTouch2, normalizeLanguage, type ComposeIdentity } from "../lib/outreachEmail";
-import { withRetry } from "../lib/retry";
+import { outreachJobs } from "@/db/schema";
+import { getThreadTail } from "../lib/gmail";
 
-// The conversation this restaurant is already in. Touch 1 and the bump share a
-// thread, so the most recent job with a thread id points at the right one.
-// Returns nulls on any failure — a missing thread must never block delivery of
-// a photo someone is waiting for; we just send it standalone instead.
-async function threadToReplyInto(
+// The conversation this restaurant is already in — shared by every kind that
+// replies in-thread (touch2, bump, and reply-sends). The most recent SENT job
+// with a thread id points at the right one. Returns nulls on any failure — a
+// missing thread must never block delivery; callers send standalone instead.
+//
+// isNotNull(sentAt) matters, not just isNotNull(gmailThreadId): Postgres sorts
+// NULL FIRST in `desc` order by default, so an unsent draft that already has a
+// gmailThreadId set (e.g. a queued reply, still awaiting a human) would
+// otherwise outrank the actual last-sent message below.
+export async function threadToReplyInto(
   restaurantId: number
-): Promise<{ threadId: string | null; inReplyTo: string | null }> {
+): Promise<{ threadId: string | null; inReplyTo: string | null; subject: string | null }> {
   const [prior] = await db
     .select({ threadId: outreachJobs.gmailThreadId })
     .from(outreachJobs)
-    .where(and(eq(outreachJobs.restaurantId, restaurantId), isNotNull(outreachJobs.gmailThreadId)))
+    .where(
+      and(
+        eq(outreachJobs.restaurantId, restaurantId),
+        isNotNull(outreachJobs.gmailThreadId),
+        isNotNull(outreachJobs.sentAt)
+      )
+    )
     .orderBy(desc(outreachJobs.sentAt))
     .limit(1);
 
-  if (!prior?.threadId) return { threadId: null, inReplyTo: null };
+  if (!prior?.threadId) return { threadId: null, inReplyTo: null, subject: null };
 
   try {
-    const { messageId } = await getThreadTail(prior.threadId);
-    return { threadId: prior.threadId, inReplyTo: messageId };
+    const { messageId, subject } = await getThreadTail(prior.threadId);
+    return { threadId: prior.threadId, inReplyTo: messageId, subject };
   } catch (err) {
-    console.warn(`[touch2] thread lookup failed for ${prior.threadId}:`, err instanceof Error ? err.message : err);
-    return { threadId: prior.threadId, inReplyTo: null };
-  }
-}
-
-export async function runSendTouch2(): Promise<void> {
-  if (await getSetting("outreach_paused")) {
-    console.warn("[touch2] outreach_paused — skipping.");
-    return;
-  }
-  const enabled = process.env.OUTREACH_ENABLED === "true" && !config.dryRun;
-
-  const ready = await db
-    .select()
-    .from(magicLinks)
-    .where(
-      and(
-        eq(magicLinks.reviewStatus, "approved"),
-        isNotNull(magicLinks.freeSampleEnhancedUrl),
-        isNull(magicLinks.touch2SentAt)
-      )
-    );
-
-  if (ready.length === 0) return;
-  console.log(`[touch2] ${ready.length} approved sample(s) ready (sending ${enabled ? "ENABLED" : "DISABLED — log only"})`);
-
-  const [senderNameSetting, postalAddressSetting] = await Promise.all([
-    getSetting("outreach_sender_name"),
-    getSetting("outreach_postal_address"),
-  ]);
-  const identity: ComposeIdentity = { senderName: senderNameSetting, postalAddress: postalAddressSetting };
-
-  for (const link of ready) {
-    if (link.restaurantId == null) continue;
-    const [r] = await db.select().from(restaurants).where(eq(restaurants.id, link.restaurantId)).limit(1);
-    if (!r || !r.email) continue;
-
-    const language = normalizeLanguage(r.language);
-    const magicLinkUrl = `${config.appOrigin.replace(/\/$/, "")}/l/${link.token}`;
-    const { subject, body } = composeTouch2({
-      restaurantName: r.name,
-      firstName: r.contactFirstName,
-      dish: r.signatureDish ?? (language === "es" ? "plato" : "dish"),
-      funnelUrl: magicLinkUrl,
-      bookingUrl: process.env.NEXT_PUBLIC_BOOKING_URL ?? null,
-      language,
-      identity,
-    });
-
-    if (!enabled) {
-      console.log(`[touch2] (dry) -> ${r.email} | ${magicLinkUrl}`);
-      continue;
-    }
-
-    try {
-      // Land in the thread they replied in. The approved Touch 2 subject is
-      // kept as-is (it's locked copy) — In-Reply-To/References carry the
-      // threading, and Gmail additionally honours threadId directly.
-      const { threadId, inReplyTo } = await threadToReplyInto(r.id);
-      const sent = await withRetry(
-        () =>
-          sendEmail({
-            to: r.email!,
-            subject,
-            body,
-            fromName: senderNameSetting,
-            threadId: threadId ?? undefined,
-            inReplyTo,
-          }),
-        { label: `gmail touch2 ${r.email}`, attempts: 2 }
-      );
-      await db.update(magicLinks).set({ touch2SentAt: new Date() }).where(eq(magicLinks.id, link.id));
-      await db.insert(outreachJobs).values({
-        restaurantId: r.id,
-        touchNumber: 2,
-        emailContent: body,
-        sentAt: new Date(),
-        status: "sent",
-        gmailMessageId: sent.id,
-        gmailThreadId: sent.threadId,
-      });
-      console.log(`[touch2] sent -> ${r.email} (${r.name})`);
-    } catch (err) {
-      console.error(`[touch2] FAILED -> ${r.email}:`, err instanceof Error ? err.message : err);
-    }
+    console.warn(`[thread] lookup failed for ${prior.threadId}:`, err instanceof Error ? err.message : err);
+    return { threadId: prior.threadId, inReplyTo: null, subject: null };
   }
 }

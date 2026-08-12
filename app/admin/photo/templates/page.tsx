@@ -6,6 +6,7 @@ import { SectionHeading } from "../../ui";
 import IdentityForm from "./IdentityForm";
 import Touch1Editor from "./Touch1Editor";
 import BumpEditor from "./BumpEditor";
+import Touch2Editor from "./Touch2Editor";
 
 // Where Touch 1 / Touch 1.5 copy and the sender identity are edited — moved
 // out of worker/lib/outreachEmail.ts and into app_settings so neither needs a
@@ -41,7 +42,14 @@ async function getPendingDraftCount(): Promise<number> {
   const [{ n }] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(outreachJobs)
-    .where(and(eq(outreachJobs.touchNumber, 1), eq(outreachJobs.status, "draft"), isNull(outreachJobs.sentAt)));
+    .where(
+      and(
+        eq(outreachJobs.touchNumber, 1),
+        eq(outreachJobs.kind, "touch1"),
+        eq(outreachJobs.status, "draft"),
+        isNull(outreachJobs.sentAt)
+      )
+    );
   return n ?? 0;
 }
 
@@ -64,11 +72,11 @@ export default async function TemplatesPage() {
       </section>
 
       <section>
-        <SectionHeading>Touch 1 &amp; Touch 1.5</SectionHeading>
+        <SectionHeading>Touch 1, Touch 1.5 &amp; Touch 2</SectionHeading>
         <p className="mt-1 max-w-2xl text-sm text-stone-600">
-          Editing here changes what the worker composes on its next run — no deploy needed. Touch 2
-          (the enhanced-photo delivery) is locked copy and isn&apos;t editable, since it carries the
-          approved pricing pitch.
+          Editing here changes what a new draft starts out saying — no deploy needed. Touch 1 and the
+          bump still need a human to approve them before they send; Touch 2 is reviewed and
+          hand-editable in the moment on the Samples page, so this only sets its starting text.
         </p>
         <div className="mt-4 flex flex-col gap-6">
           <Touch1Editor
@@ -79,6 +87,11 @@ export default async function TemplatesPage() {
           />
           <BumpEditor
             initialTemplate={values.outreach_bump_template}
+            identity={identity}
+            previewRestaurant={previewRestaurant}
+          />
+          <Touch2Editor
+            initialTemplate={values.outreach_touch2_template}
             identity={identity}
             previewRestaurant={previewRestaurant}
           />

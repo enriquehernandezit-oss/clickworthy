@@ -48,11 +48,13 @@ export async function runReplyPoll(): Promise<void> {
 
   for (const { id: messageId, threadId } of messages) {
     // ANY Touch-1 row for this thread — not just unreplied ones (see header
-    // comment). Per-message dedup happens below via lastReplyMessageId.
+    // comment). Per-message dedup happens below via lastReplyMessageId. kind,
+    // not touchNumber — a bump replies into this SAME thread and also carries
+    // touchNumber 1, which without this would make the match ambiguous.
     const [job] = await db
       .select()
       .from(outreachJobs)
-      .where(and(eq(outreachJobs.gmailThreadId, threadId), eq(outreachJobs.touchNumber, 1)))
+      .where(and(eq(outreachJobs.gmailThreadId, threadId), eq(outreachJobs.kind, "touch1")))
       .limit(1);
     if (!job || job.restaurantId == null) continue;
 
@@ -98,31 +100,57 @@ export async function runReplyPoll(): Promise<void> {
     if (!restaurant) continue;
 
     // A second (or later) message in a thread already marked replied. The
-    // pipeline only auto-handles the FIRST reply (photo -> sample, or an
-    // alert to answer by hand); anything after that is a live back-and-forth
-    // — always surface it, never try to auto-create a second magic link.
+    // pipeline only auto-handles the FIRST reply (photo -> sample, or a
+    // queued draft reply); anything after that is a live back-and-forth —
+    // always surface it, never try to auto-create a second magic link. Queues
+    // a blank draft (no LLM drafting — a human writes every word) alongside
+    // the alert, same as the no-photo branch below.
     if (!isFirstReply) {
+      await db.insert(outreachJobs).values({
+        restaurantId: job.restaurantId,
+        kind: "reply",
+        touchNumber: null,
+        emailContent: "",
+        replyBody: full.bodyText,
+        replyFrom: sender,
+        gmailThreadId: threadId,
+        draftedAt: new Date(),
+        status: "draft",
+      });
       await sendAlert(
         "New message in an existing reply thread",
         `${restaurant.name} (${restaurant.city ?? "?"}) — ${sender} — sent another message in a thread ` +
           `already marked replied.\n\n"${full.bodyText.trim().slice(0, 500)}"\n\n` +
-          `Read it in /admin (Outreach tab) and continue from your own Gmail inbox.`
+          `Draft a reply in Approvals — nothing sends until you write it and click send.`
       );
-      console.log(`[poll] follow-up message from ${sender} — alerted (not auto-processed)`);
+      console.log(`[poll] follow-up message from ${sender} — draft queued + alerted`);
       continue;
     }
 
     const image = full.imageAttachments[0];
     if (!image) {
       // A real human wrote back with a question or interest — the pipeline only
-      // auto-handles photo replies and STOP, so this needs YOU, today.
+      // auto-handles photo replies and STOP, so this needs YOU, today. Queues a
+      // blank draft rather than answering for you: no LLM-authored replies, by
+      // design — you write every word before it can send.
+      await db.insert(outreachJobs).values({
+        restaurantId: job.restaurantId,
+        kind: "reply",
+        touchNumber: null,
+        emailContent: "",
+        replyBody: full.bodyText,
+        replyFrom: sender,
+        gmailThreadId: threadId,
+        draftedAt: new Date(),
+        status: "draft",
+      });
       await sendAlert(
         "New reply — needs your answer",
         `${restaurant.name} (${restaurant.city ?? "?"}) — ${sender} — replied to Touch 1 without a photo.\n\n` +
           `"${full.bodyText.trim().slice(0, 500)}"\n\n` +
-          `Read it in /admin (Outreach tab) and answer from your own Gmail inbox — nothing is sent automatically.`
+          `Draft a reply in Approvals — nothing sends until you write it and click send.`
       );
-      console.log(`[poll] reply from ${sender} with no photo — recorded + alerted`);
+      console.log(`[poll] reply from ${sender} with no photo — draft queued + alerted`);
       continue;
     }
 

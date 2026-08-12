@@ -40,6 +40,14 @@ export type BumpTemplate = {
   es: { body: string };
 };
 
+// One subject (not 3 rotating variants like Touch 1) — Touch 2 is solicited,
+// sent once someone's already replied with a photo, so there's no cold-open
+// A/B need.
+export type Touch2Template = {
+  en: { subject: string; body: string };
+  es: { subject: string; body: string };
+};
+
 export type SettingsMap = {
   outreach_paused: boolean; // panic button: blocks all Gmail sending
   outreach_autosend: boolean; // false = approval mode; true = drafts auto-approve + send
@@ -60,6 +68,7 @@ export type SettingsMap = {
   outreach_postal_address: string; // CAN-SPAM requires a real physical address in every commercial email; empty renders a loud placeholder AND blocks sending (see sendApproved's pre-send assertion)
   outreach_touch1_template: Touch1Template; // the cold-open email
   outreach_bump_template: BumpTemplate; // the one-time Touch 1.5 follow-up
+  outreach_touch2_template: Touch2Template; // the enhanced-sample delivery + funnel link
 
   // --- Financials: editable unit-cost assumptions (all in CENTS, decimals ok) ---
   // These drive /admin/photo/financials. Every one is an ESTIMATE — Clickworthy
@@ -145,6 +154,37 @@ const DEFAULTS: SettingsMap = {
         "La oferta sigue en pie: mándeme una foto de un plato y se la devuelvo mejorada profesionalmente, gratis. Le toma 30 segundos, no cuesta nada, y la foto es suya de todos modos.\n\n" +
         "Si no le interesa, sin problema — dígamelo y no vuelvo a escribir.\n\n" +
         "{{senderName}}",
+    },
+  },
+  // Character-for-character today's hardcoded composeTouch2() prose, with the
+  // literal interpolations swapped for {{placeholders}} — same "ships changing
+  // nothing" guarantee as the touch1/bump defaults above. {{funnelUrl}} and
+  // {{talkLine}} are Touch-2-specific (talkLine is precomputed empty-or-not by
+  // whether a booking URL is configured — see worker/lib/outreachEmail.ts).
+  outreach_touch2_template: {
+    en: {
+      subject: "your {{dish}}, enhanced",
+      body:
+        "{{greeting}}\n\n" +
+        "Here it is — your {{dish}}, enhanced. Same photo you sent, nothing invented.\n\n" +
+        "That photo is yours. Use it anywhere, no charge, no catch.\n\n" +
+        "Here's the part most owners haven't done the math on: the delivery apps take 15–30% of every order — closer to 30–40% once promos and fees pile on — while your own website, Google profile, and Instagram pay you 100%. But for most restaurants, the apps' listings look better than their own channels. So that's where people order.\n\n" +
+        "We fix that. We take your top 20–30 dishes, enhance them like the one above, and deliver them sized and ready for your website, Google Business Profile, Instagram, and Yelp — so your own channels finally outsell your DoorDash page. A photographer charges $1,200–$3,500 for a session like that. We do it for a fraction, using photos you already have or shoot on your phone.\n\n" +
+        "Everything's here, including your before/after: {{funnelUrl}}{{talkLine}}\n\n" +
+        "Either way, enjoy the photo.\n\n" +
+        "{{senderName}}\nClickworthy",
+    },
+    es: {
+      subject: "su {{dish}}, mejorado",
+      body:
+        "{{greeting}}\n\n" +
+        "Aquí está — su {{dish}}, mejorado. La misma foto que envió, nada inventado.\n\n" +
+        "Esa foto es suya. Úsela donde quiera, sin costo, sin trampa.\n\n" +
+        "Ahora, la parte que pocos dueños han calculado: las apps de delivery se quedan con 15–30% de cada orden — más bien 30–40% cuando suman promociones y cargos — mientras que su propio sitio web, perfil de Google e Instagram le pagan el 100%. Pero en la mayoría de los restaurantes, las apps se ven mejor que los canales propios. Y por eso la gente ordena por ahí.\n\n" +
+        "Eso es lo que arreglamos. Tomamos sus 20–30 platos principales, los mejoramos como el de arriba, y se los entregamos listos para su sitio web, Google Business Profile, Instagram y Yelp — para que sus propios canales vendan más que su página de DoorDash. Un fotógrafo cobra $1,200–$3,500 por una sesión así. Nosotros lo hacemos por una fracción, con fotos que ya tiene o que toma con su celular.\n\n" +
+        "Todo está aquí, incluyendo su antes y después: {{funnelUrl}}{{talkLine}}\n\n" +
+        "De cualquier forma, disfrute la foto.\n\n" +
+        "{{senderName}}\nClickworthy",
     },
   },
 };

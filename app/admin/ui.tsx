@@ -187,6 +187,7 @@ const BADGE_TONES: Record<string, string> = {
   needs_manual_email: "bg-amber-50 text-amber-700 ring-amber-200",
   rejected: "bg-red-50 text-red-700 ring-red-200",
   failed: "bg-red-50 text-red-700 ring-red-200",
+  denied: "bg-red-50 text-red-700 ring-red-200",
 };
 
 export function Badge({ value }: { value: string | null }) {

@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
     await db.insert(outreachJobs).values({
       restaurantId: r.id,
       touchNumber: 0, // 'manual' — excluded from ramp / bump / touch-2 flow
+      kind: "manual",
       subject,
       emailContent: body,
       sentAt: new Date(),

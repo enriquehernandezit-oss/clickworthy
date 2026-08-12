@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { enhancementOrders, magicLinks, payments, restaurants } from "@/db/schema";
+import { enhancementOrders, magicLinks, payments, restaurants, outreachJobs } from "@/db/schema";
 import { getStripe } from "@/lib/stripe";
 import { sendAlert } from "@/lib/alerts";
 import { recordStripePayment } from "@/lib/paymentLedger";
-import { sendPackagePaymentConfirmationEmail } from "@/lib/customerEmail";
+import { composePackagePaymentConfirmationEmail } from "@/lib/customerEmail";
 import { PACKAGES, isPackageId } from "@/lib/packages";
 
 function appOriginFrom(request: NextRequest): string {
@@ -136,9 +136,18 @@ export async function POST(request: NextRequest) {
         description: isPackageId(pkgId) ? PACKAGES[pkgId].name.en : "Package",
       });
 
-      // Without this, closing the tab right after paying — easy on a slow
-      // connection, or if the owner just gets pulled away — meant the ONLY way
-      // back to the upload page was asking us for the link again.
+      // Drafts the confirmation instead of sending it directly — a human
+      // approves (and can edit) before it goes out; see
+      // app/api/admin/approvals/route.ts. Without SOME form of this, closing
+      // the tab right after paying — easy on a slow connection, or if the
+      // owner just gets pulled away — meant the ONLY way back to the upload
+      // page was asking us for the link again. The customer's OWN path there
+      // is unaffected either way: Stripe's own success redirect fires
+      // instantly regardless of this email, which is only the "in case you
+      // closed the tab" backup.
+      //
+      // firstDelivery.length > 0 is the same atomic paidAt guard used above —
+      // a Stripe redelivery of this event can't queue a second draft.
       if (firstDelivery.length > 0 && link.restaurantId != null) {
         const [restaurant] = await db
           .select({ name: restaurants.name, email: restaurants.email, language: restaurants.language })
@@ -147,11 +156,20 @@ export async function POST(request: NextRequest) {
           .limit(1);
         if (restaurant?.email) {
           const appOrigin = appOriginFrom(request);
-          await sendPackagePaymentConfirmationEmail({
-            to: restaurant.email,
+          const { subject, body } = composePackagePaymentConfirmationEmail({
             restaurantName: restaurant.name,
             language: restaurant.language ?? "en",
             uploadUrl: `${appOrigin}/l/${token}/upload`,
+          });
+          await db.insert(outreachJobs).values({
+            restaurantId: link.restaurantId,
+            magicLinkId: link.id,
+            kind: "payment_confirmation",
+            touchNumber: null,
+            subject,
+            emailContent: body,
+            draftedAt: new Date(),
+            status: "draft",
           });
         }
       }

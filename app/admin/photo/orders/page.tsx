@@ -3,6 +3,8 @@ import { db } from "@/db";
 import { magicLinks, restaurants, enhancementOrders } from "@/db/schema";
 import { PACKAGES, isPackageId, formatCents as formatPackageCents } from "@/lib/packages";
 import { formatCents as formatPhotoCents } from "@/lib/pricing";
+import { composeOrderDeliveredEmail } from "@/lib/customerEmail";
+import { config } from "@/worker/config";
 import Link from "next/link";
 import PackageActions from "../PackageActions";
 import RetryOrderButton from "./RetryOrderButton";
@@ -24,12 +26,13 @@ const LIMIT = 25;
 type PackageResult = { name: string; originalUrl: string; enhancedUrl: string | null; error: string | null };
 
 async function getQueue() {
-  return db
+  const rows = await db
     .select({
       id: magicLinks.id,
       token: magicLinks.token,
       results: magicLinks.packageResults,
       restaurantName: restaurants.name,
+      language: restaurants.language,
     })
     .from(magicLinks)
     .leftJoin(restaurants, eq(magicLinks.restaurantId, restaurants.id))
@@ -38,6 +41,21 @@ async function getQueue() {
     // doesn't render hundreds of images at once.
     .orderBy(desc(magicLinks.createdAt))
     .limit(20);
+
+  // Seeds the editable delivery-email box in PackageActions.tsx — a human can
+  // rewrite any of it before the final send. config.appOrigin (not the real
+  // request origin) is fine here: this is a preview seed only, the actual send
+  // in app/api/admin/package/route.ts derives the real origin from the request.
+  return rows.map((item) => ({
+    ...item,
+    seed: item.restaurantName
+      ? composeOrderDeliveredEmail({
+          restaurantName: item.restaurantName,
+          language: item.language ?? "en",
+          deliveryUrl: `${config.appOrigin.replace(/\/$/, "")}/l/${item.token}/upload`,
+        })
+      : null,
+  }));
 }
 
 async function getPackageOrders(page: number) {
@@ -116,7 +134,7 @@ export default async function OrdersPage({
                   <h3 className="font-semibold">{pkg.restaurantName ?? "(unknown)"}</h3>
                   <span className="text-xs text-stone-500">{results.length} photos</span>
                 </div>
-                <PackageActions magicLinkId={pkg.id} results={results} />
+                <PackageActions magicLinkId={pkg.id} results={results} seed={pkg.seed} />
               </Card>
             );
           })}

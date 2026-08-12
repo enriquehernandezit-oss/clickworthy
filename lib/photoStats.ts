@@ -121,8 +121,14 @@ export async function getDeliverability(): Promise<Deliverability> {
 // silently disagree about what's outstanding — same principle as the rest of
 // this file: one query, every consumer reads it the same way.
 export async function getNeedsAttention(): Promise<AttentionItem[]> {
+  // Every kind that queues a draft awaiting a human decision — Touch 1, the
+  // bump, a reply, and a payment confirmation. Touch 2 and delivery aren't
+  // counted here: both are reviewed and sent in one screen the moment they're
+  // triggered (Samples / Orders), so there's never a queued draft for them.
   const [{ drafts }] = await db
-    .select({ drafts: sql<number>`count(*) filter (where ${outreachJobs.status} = 'draft')::int` })
+    .select({
+      drafts: sql<number>`count(*) filter (where ${outreachJobs.status} = 'draft' and ${outreachJobs.kind} in ('touch1','bump','reply','payment_confirmation'))::int`,
+    })
     .from(outreachJobs);
   const [{ replies }] = await db
     .select({ replies: sql<number>`count(*) filter (where ${magicLinks.reviewStatus} = 'awaiting_edit')::int` })
@@ -155,7 +161,7 @@ export async function getNeedsAttention(): Promise<AttentionItem[]> {
     .where(and(eq(enhancementOrders.status, "pending"), lt(enhancementOrders.createdAt, stuckCutoff)));
 
   const items: AttentionItem[] = [];
-  if (drafts) items.push({ title: `${drafts} cold-email draft${drafts > 1 ? "s" : ""} to review`, sub: "Photo Enhancement · nothing sends until approved", href: "/admin/photo/outreach", n: drafts, tone: "gold" });
+  if (drafts) items.push({ title: `${drafts} email${drafts > 1 ? "s" : ""} awaiting your approval`, sub: "Photo Enhancement · nothing sends until you approve or send it", href: "/admin/photo/approvals", n: drafts, tone: "gold" });
   if (replies) items.push({ title: `${replies} repl${replies > 1 ? "ies" : "y"} to edit`, sub: "Photo Enhancement · edit + approve the free sample", href: "/admin/photo/samples", n: replies, tone: "coral" });
   if (orders) items.push({ title: `${orders} paid order${orders > 1 ? "s" : ""} to finish`, sub: "Photo Enhancement · finish + deliver", href: "/admin/photo/orders", n: orders, tone: "coral" });
   if (undelivered) items.push({ title: `${undelivered} paid, not yet delivered`, sub: "Photo Enhancement · awaiting upload or delivery", href: "/admin/photo/orders", n: undelivered, tone: "gold" });

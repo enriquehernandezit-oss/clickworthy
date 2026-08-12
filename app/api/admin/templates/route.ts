@@ -7,11 +7,12 @@ import { sendEmail } from "@/worker/lib/gmail";
 import {
   composeTouch1,
   composeBump,
+  composeTouch2,
   hasComplianceFooter,
   normalizeLanguage,
   type ComposeIdentity,
 } from "@/worker/lib/outreachEmail";
-import type { Touch1Template, BumpTemplate } from "@/lib/settings";
+import type { Touch1Template, BumpTemplate, Touch2Template } from "@/lib/settings";
 
 // test_send — composes the SUBMITTED (possibly unsaved) template against a
 // real restaurant and sends it to the signed-in admin's own inbox, so a
@@ -91,8 +92,24 @@ export async function POST(request: NextRequest) {
         template: templateJson as BumpTemplate,
         identity,
       });
+    } else if (which === "touch2") {
+      // No real magic link for a test send — a clearly-fake token, never sent
+      // for real (this whole path ignores OUTREACH_ENABLED and writes no row).
+      const composed = composeTouch2({
+        restaurantName: r.name,
+        firstName: r.contactFirstName,
+        dish: r.signatureDish,
+        city: r.city,
+        funnelUrl: "https://clickworthytool.com/l/preview-token",
+        bookingUrl: process.env.NEXT_PUBLIC_BOOKING_URL ?? null,
+        language,
+        template: templateJson as Touch2Template,
+        identity,
+      });
+      subject = composed.subject;
+      body = composed.body;
     } else {
-      return NextResponse.json({ error: "`which` must be 'touch1' or 'bump'." }, { status: 400 });
+      return NextResponse.json({ error: "`which` must be 'touch1', 'bump', or 'touch2'." }, { status: 400 });
     }
   } catch (err) {
     return NextResponse.json(

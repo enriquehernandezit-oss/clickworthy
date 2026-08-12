@@ -1,14 +1,15 @@
 // Transactional email TO customers (as opposed to lib/alerts.ts, which is
 // operator-only). Sent via Resend — never Gmail, which is reserved for cold
 // outreach + replies. Fails soft: a failed notification never blocks the
-// action that triggered it (e.g. delivering an order).
-
-async function sendResendEmail(params: { to: string; subject: string; body: string }): Promise<void> {
+// action that triggered it (e.g. delivering an order) — callers that need to
+// know whether it actually sent read the boolean return value (e.g. to log an
+// audit row with the true outcome, or to know whether a resend is needed).
+export async function sendCustomerEmail(params: { to: string; subject: string; body: string }): Promise<boolean> {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.ALERT_EMAIL_FROM ?? "alerts@clickworthytool.com";
   if (!apiKey) {
     console.warn(`[customer-email] RESEND_API_KEY not set — would have sent "${params.subject}" to ${params.to}`);
-    return;
+    return false;
   }
   try {
     const res = await fetch("https://api.resend.com/emails", {
@@ -18,9 +19,12 @@ async function sendResendEmail(params: { to: string; subject: string; body: stri
     });
     if (!res.ok) {
       console.error(`[customer-email] Resend send failed (${res.status}): ${await res.text()}`);
+      return false;
     }
+    return true;
   } catch (err) {
     console.error("[customer-email] send threw:", err instanceof Error ? err.message : err);
+    return false;
   }
 }
 
@@ -56,36 +60,30 @@ const PAYMENT_CONFIRMATION_COPY = {
   },
 } as const;
 
-// Sent once an admin marks a paid order `completed` — the customer's page was
-// gated on this status, so this email is what actually tells them to go look.
-export async function sendOrderDeliveredEmail(params: {
-  to: string;
+// Pure — seeds the editable delivery-email box on the Orders page
+// (app/admin/photo/PackageActions.tsx). What actually sends can differ from
+// this: a human reviews and can rewrite it before clicking Send.
+export function composeOrderDeliveredEmail(params: {
   restaurantName: string;
   language: string;
   deliveryUrl: string;
-}): Promise<void> {
+}): { subject: string; body: string } {
   const copy = COPY[params.language === "es" ? "es" : "en"];
-  await sendResendEmail({
-    to: params.to,
-    subject: copy.subject(params.restaurantName),
-    body: copy.body(params.restaurantName, params.deliveryUrl),
-  });
+  return { subject: copy.subject(params.restaurantName), body: copy.body(params.restaurantName, params.deliveryUrl) };
 }
 
-// Sent once, right after a package payment is confirmed (the Stripe webhook's
-// outreach branch) — without it, closing the tab after paying (easy on a slow
-// connection, or if the owner gets pulled away) meant the ONLY way back to
-// /l/[token]/upload was asking us for the link again.
-export async function sendPackagePaymentConfirmationEmail(params: {
-  to: string;
+// Pure — seeds the editable draft the Stripe webhook queues (see
+// app/api/webhooks/stripe/route.ts and app/api/admin/approvals/route.ts).
+// Drafted once, right after a package payment is confirmed — without SOME
+// form of this, closing the tab after paying (easy on a slow connection, or
+// if the owner gets pulled away) meant the ONLY way back to /l/[token]/upload
+// was asking us for the link again. A human still approves + can edit before
+// it actually sends.
+export function composePackagePaymentConfirmationEmail(params: {
   restaurantName: string;
   language: string;
   uploadUrl: string;
-}): Promise<void> {
+}): { subject: string; body: string } {
   const copy = PAYMENT_CONFIRMATION_COPY[params.language === "es" ? "es" : "en"];
-  await sendResendEmail({
-    to: params.to,
-    subject: copy.subject(params.restaurantName),
-    body: copy.body(params.restaurantName, params.uploadUrl),
-  });
+  return { subject: copy.subject(params.restaurantName), body: copy.body(params.restaurantName, params.uploadUrl) };
 }

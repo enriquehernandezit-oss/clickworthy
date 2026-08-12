@@ -1,62 +1,37 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { outreachJobs, restaurants } from "@/db/schema";
 import { Badge, Card, EmptyState, Pager, SectionHeading, fmtDateTime } from "../../ui";
-import DraftActions, { ApproveAllButton } from "./DraftActions";
 import UnapproveButton from "./UnapproveButton";
 
-// Top: Touch-1 drafts awaiting your approval (nothing sends until you approve).
-// Below: the full log of every email the pipeline has sent, with exact bodies.
+// The cold-outreach track's historical log — Touch 1, the bump, and manual
+// one-off sends (same Gmail channel). Drafts awaiting a decision live on
+// Approvals now, not here; this page is read-only, a record of what happened
+// and what's queued to send next.
 export const dynamic = "force-dynamic";
 
 const LIMIT = 25;
-const STATUSES = ["draft", "approved", "sent", "bumped", "replied"] as const;
+const STATUSES = ["draft", "approved", "sent", "bumped", "denied", "replied"] as const;
+const LOG_KINDS = ["touch1", "bump", "manual"] as const;
 
-// Touch 1 and the bump are both touchNumber 1 — the bump is distinguished by
-// status, so label from the pair rather than the number alone.
-function touchLabel(touchNumber: number | null, status: string | null): string {
-  if (status === "bumped") return "Bump (1.5)";
-  if (touchNumber === 2) return "Touch 2";
+// `kind` is the real discriminator (touchNumber/status alone collide — a bump
+// and a Touch 1 share touchNumber 1, and a NEW bump uses the ordinary
+// draft/approved/sent status lifecycle, not a "bumped" status). status ===
+// "bumped" is kept as a fallback for historical rows sent before `kind` existed.
+function touchLabel(touchNumber: number | null, status: string | null, kind: string | null): string {
+  if (kind === "bump" || status === "bumped") return "Bump (1.5)";
+  if (kind === "manual") return "Manual";
   return "Touch 1";
 }
 
-// The review queue: Touch-1 rows drafted and awaiting approval, oldest first.
-async function getDrafts() {
-  return db
-    .select({
-      id: outreachJobs.id,
-      subject: outreachJobs.subject,
-      emailContent: outreachJobs.emailContent,
-      draftedAt: outreachJobs.draftedAt,
-      restaurantName: restaurants.name,
-      city: restaurants.city,
-      email: restaurants.email,
-      language: restaurants.language,
-    })
-    .from(outreachJobs)
-    .innerJoin(restaurants, eq(outreachJobs.restaurantId, restaurants.id))
-    .where(eq(outreachJobs.status, "draft"))
-    // Cap the review pile so a build-up doesn't render 500 full email bodies.
-    // Anything past this is still counted in the "N drafts" badge.
-    .orderBy(asc(outreachJobs.draftedAt))
-    .limit(100);
-}
-
-async function getApprovedCount() {
-  const [{ n }] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(outreachJobs)
-    .where(and(eq(outreachJobs.status, "approved"), sql`${outreachJobs.sentAt} is null`));
-  return n ?? 0;
-}
-
 async function getJobs(status: string, page: number) {
-  const where = status === "all" ? undefined : eq(outreachJobs.status, status);
+  const where = status === "all" ? inArray(outreachJobs.kind, LOG_KINDS) : and(inArray(outreachJobs.kind, LOG_KINDS), eq(outreachJobs.status, status));
   return db
     .select({
       id: outreachJobs.id,
       touchNumber: outreachJobs.touchNumber,
       status: outreachJobs.status,
+      kind: outreachJobs.kind,
       subject: outreachJobs.subject,
       draftedAt: outreachJobs.draftedAt,
       approvedAt: outreachJobs.approvedAt,
@@ -73,7 +48,7 @@ async function getJobs(status: string, page: number) {
     })
     .from(outreachJobs)
     .leftJoin(restaurants, eq(outreachJobs.restaurantId, restaurants.id))
-    .where(where ? and(where) : undefined)
+    .where(where)
     .orderBy(sql`coalesce(${outreachJobs.sentAt}, ${outreachJobs.draftedAt}) desc nulls last`, desc(outreachJobs.id))
     .limit(LIMIT + 1)
     .offset((page - 1) * LIMIT);
@@ -88,69 +63,19 @@ export default async function OutreachPage({
   const status = typeof sp.status === "string" && (STATUSES as readonly string[]).includes(sp.status) ? sp.status : "all";
   const page = Math.max(1, Number(sp.page) || 1);
 
-  const [drafts, approvedCount, rows] = await Promise.all([getDrafts(), getApprovedCount(), getJobs(status, page)]);
+  const rows = await getJobs(status, page);
   const jobs = rows.slice(0, LIMIT);
 
   return (
-    <>
-      {/* Drafts awaiting approval */}
-      <section className="mb-12">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <SectionHeading>Drafts awaiting approval ({drafts.length})</SectionHeading>
-          {drafts.length > 0 && <ApproveAllButton count={drafts.length} />}
-        </div>
-
-        {drafts.length === 0 ? (
-          <EmptyState>
-            No drafts right now. The nightly send job composes them; approve here and they send on the next run.
-          </EmptyState>
-        ) : (
-          <div className="mt-4 flex flex-col gap-4">
-            {drafts.map((d) => (
-              <Card key={d.id} className="border-orange-200">
-                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-semibold">{d.restaurantName}</h3>
-                    <Badge value="draft" />
-                    {d.language === "es" && (
-                      <span className="rounded bg-stone-100 px-1.5 py-0.5 text-xs font-medium text-stone-600">ES</span>
-                    )}
-                  </div>
-                  <div className="text-xs tabular-nums text-stone-500">drafted {fmtDateTime(d.draftedAt)}</div>
-                </div>
-                <div className="mt-1 text-xs text-stone-500">
-                  {d.email ?? "no email"}
-                  {d.city ? ` · ${d.city}` : ""}
-                </div>
-                <p className="mt-3 text-sm font-semibold text-stone-900">{d.subject}</p>
-                {d.emailContent && (
-                  <details className="mt-2">
-                    <summary className="cursor-pointer text-sm font-medium text-orange-700 hover:underline">
-                      View email
-                    </summary>
-                    <pre className="mt-2 whitespace-pre-wrap rounded-lg bg-stone-50 p-3 font-sans text-sm leading-relaxed text-stone-700">
-                      {d.emailContent}
-                    </pre>
-                  </details>
-                )}
-                <DraftActions outreachJobId={d.id} subject={d.subject ?? ""} body={d.emailContent ?? ""} />
-              </Card>
-            ))}
-          </div>
-        )}
-
-        {approvedCount > 0 && (
-          <p className="mt-4 text-sm text-stone-600">
-            <a href="/admin/photo/outreach?status=approved" className="font-medium text-orange-700 hover:underline">
-              {approvedCount} approved
-            </a>{" "}
-            — sends on the next send run (subject to the daily cap).
-          </p>
-        )}
-      </section>
-
-      <section>
-        <SectionHeading>Outreach log</SectionHeading>
+    <section>
+      <SectionHeading>Outreach log</SectionHeading>
+      <p className="mt-1 text-sm text-stone-500">
+        Touch 1, the bump, and manual sends. Drafts awaiting your decision are on{" "}
+        <a href="/admin/photo/approvals" className="font-medium text-orange-700 hover:underline">
+          Approvals
+        </a>
+        .
+      </p>
 
       <div className="mt-3 flex flex-wrap gap-2">
         {(["all", ...STATUSES] as const).map((value) => (
@@ -178,7 +103,7 @@ export default async function OutreachPage({
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="font-semibold">{job.restaurantName ?? "(unknown restaurant)"}</h3>
                   <span className="rounded bg-stone-100 px-1.5 py-0.5 text-xs font-medium text-stone-600">
-                    {touchLabel(job.touchNumber, job.status)}
+                    {touchLabel(job.touchNumber, job.status, job.kind)}
                   </span>
                   <Badge value={job.status} />
                   {job.language === "es" && (
@@ -243,8 +168,7 @@ export default async function OutreachPage({
         </div>
       )}
 
-        <Pager base="/admin/photo/outreach" page={page} hasNext={rows.length > LIMIT} params={{ status }} />
-      </section>
-    </>
+      <Pager base="/admin/photo/outreach" page={page} hasNext={rows.length > LIMIT} params={{ status }} />
+    </section>
   );
 }

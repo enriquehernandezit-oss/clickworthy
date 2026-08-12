@@ -1,6 +1,9 @@
 import { desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { magicLinks, restaurants } from "@/db/schema";
+import { getSetting } from "@/lib/settings";
+import { composeTouch2, normalizeLanguage, type ComposeIdentity } from "@/worker/lib/outreachEmail";
+import { config } from "@/worker/config";
 import SampleActions from "../SampleActions";
 import UnrejectButton from "./UnrejectButton";
 import { Badge, Card, EmptyState, Figure, Pager, SectionHeading, fmtDate } from "../../ui";
@@ -14,24 +17,65 @@ const LIMIT = 25;
 const HISTORY_STATUSES = ["approved", "rejected"] as const;
 
 async function getQueue() {
-  return db
-    .select({
-      id: magicLinks.id,
-      token: magicLinks.token,
-      original: magicLinks.freeSampleOriginalUrl,
-      firstPass: magicLinks.freeSampleFirstPassUrl,
-      enhanced: magicLinks.freeSampleEnhancedUrl,
-      revenueCopy: magicLinks.revenueImpactCopy,
-      restaurantName: restaurants.name,
-      city: restaurants.city,
-    })
-    .from(magicLinks)
-    .leftJoin(restaurants, eq(magicLinks.restaurantId, restaurants.id))
-    .where(eq(magicLinks.reviewStatus, "awaiting_edit"))
-    // Each card renders 3 full-size photos; cap so a backlog doesn't blow up
-    // the page. The overview's "N replies to edit" chip stays truthful.
-    .orderBy(desc(magicLinks.createdAt))
-    .limit(50);
+  const [rows, touch2Template, senderNameSetting, postalAddressSetting] = await Promise.all([
+    db
+      .select({
+        id: magicLinks.id,
+        token: magicLinks.token,
+        original: magicLinks.freeSampleOriginalUrl,
+        firstPass: magicLinks.freeSampleFirstPassUrl,
+        enhanced: magicLinks.freeSampleEnhancedUrl,
+        revenueCopy: magicLinks.revenueImpactCopy,
+        restaurantName: restaurants.name,
+        city: restaurants.city,
+        contactFirstName: restaurants.contactFirstName,
+        signatureDish: restaurants.signatureDish,
+        language: restaurants.language,
+      })
+      .from(magicLinks)
+      .leftJoin(restaurants, eq(magicLinks.restaurantId, restaurants.id))
+      .where(eq(magicLinks.reviewStatus, "awaiting_edit"))
+      // Each card renders 3 full-size photos; cap so a backlog doesn't blow up
+      // the page. The overview's "N replies to edit" chip stays truthful.
+      .orderBy(desc(magicLinks.createdAt))
+      .limit(50),
+    getSetting("outreach_touch2_template"),
+    getSetting("outreach_sender_name"),
+    getSetting("outreach_postal_address"),
+  ]);
+  const identity: ComposeIdentity = { senderName: senderNameSetting, postalAddress: postalAddressSetting };
+
+  // The Touch 2 seed is only shown once a photo's actually finished (that's
+  // when SampleActions reveals the editable email) — composed here, server
+  // side, so the client only ever edits pre-built text, same as Touch 1's
+  // drafts (DraftActions.tsx). This is a SEED, not what necessarily ships —
+  // the human can rewrite any of it before Approve & Send.
+  return rows.map((item) => {
+    if (!item.enhanced) return { ...item, seed: null as { subject: string; body: string } | null, seedError: undefined as string | undefined };
+    if (!item.restaurantName || !item.signatureDish) {
+      return {
+        ...item,
+        seed: null,
+        seedError: "Missing restaurant name or signature dish — can't compose Touch 2. Set a signature dish on the restaurant's page, then refresh.",
+      };
+    }
+    try {
+      const seed = composeTouch2({
+        restaurantName: item.restaurantName,
+        firstName: item.contactFirstName,
+        dish: item.signatureDish,
+        city: item.city,
+        funnelUrl: `${config.appOrigin.replace(/\/$/, "")}/l/${item.token}`,
+        bookingUrl: process.env.NEXT_PUBLIC_BOOKING_URL ?? null,
+        language: normalizeLanguage(item.language),
+        template: touch2Template,
+        identity,
+      });
+      return { ...item, seed, seedError: undefined as string | undefined };
+    } catch (err) {
+      return { ...item, seed: null, seedError: err instanceof Error ? err.message : "Couldn't compose the Touch 2 email." };
+    }
+  });
 }
 
 async function getHistory(status: string, page: number) {
@@ -91,7 +135,12 @@ export default async function SamplesPage({
               {item.revenueCopy && (
                 <p className="mt-4 rounded-lg bg-stone-50 p-3 text-sm text-stone-600">{item.revenueCopy}</p>
               )}
-              <SampleActions magicLinkId={item.id} hasFinished={Boolean(item.enhanced)} />
+              <SampleActions
+                magicLinkId={item.id}
+                hasFinished={Boolean(item.enhanced)}
+                seed={item.seed}
+                seedError={item.seedError}
+              />
             </Card>
           ))}
         </div>

@@ -59,12 +59,25 @@ export const photos = pgTable('photos', {
 export const outreachJobs = pgTable('outreach_jobs', {
   id: serial('id').primaryKey(),
   restaurantId: integer('restaurant_id').references(() => restaurants.id),
+  // Which magic link this row's email belongs to, when it's tied to one
+  // (touch2/delivery/payment_confirmation always; reply usually; touch1/bump/
+  // manual never — no magic link exists yet at that point). Lets "resend the
+  // delivery email" for a repeat customer grab the right order instead of just
+  // the most recent one for the restaurant.
+  magicLinkId: integer('magic_link_id').references(() => magicLinks.id),
   touchNumber: integer('touch_number').default(1),
+  // What this row actually is — the discriminator every query must filter on.
+  // touchNumber alone is NOT enough (touch1 and bump both use 1). 'touch1' |
+  // 'bump' | 'touch2' | 'reply' | 'delivery' | 'payment_confirmation' | 'manual'.
+  // Nullable: old rows are backfilled once, every insert site going forward
+  // sets it explicitly.
+  kind: text('kind'),
   subject: text('subject'), // stored so the exact reviewed subject is what actually sends
   emailContent: text('email_content'),
   // Touch 1 approval flow: a run drafts (status 'draft', draftedAt set), a human
   // approves in /admin (status 'approved', approvedAt set), the next send run
   // sends it (status 'sent', sentAt + gmail ids set). Stale drafts -> 'cancelled'.
+  // 'denied' is the terminal "a human said no" state for bump/reply/payment_confirmation drafts.
   draftedAt: timestamp('drafted_at'),
   approvedAt: timestamp('approved_at'),
   sentAt: timestamp('sent_at'),
