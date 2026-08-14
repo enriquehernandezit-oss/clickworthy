@@ -38,7 +38,9 @@ function startOfToday(): Date {
 }
 
 // Daily cap ramps 20 -> 50 over a week+ of sending, protecting deliverability.
-async function dailyCap(): Promise<number> {
+// Exported so the bump sender shares the SAME cap — the sending domain cares
+// about total emails/day, not the Touch 1 vs. bump split.
+export async function dailyCap(): Promise<number> {
   // A manual override in app_settings wins over the ramp formula. Handy when
   // you want to throttle during list-warmup or open the tap all the way on a
   // proven list. Positive int only — null means "use the formula".
@@ -53,7 +55,9 @@ async function dailyCap(): Promise<number> {
   return Math.min(RAMP_CAP, RAMP_START + RAMP_STEP * days);
 }
 
-async function sentToday(): Promise<number> {
+// Counts BOTH Touch 1 and bump sends today (both carry touchNumber 1), so the
+// shared daily cap covers total volume. Exported for the bump sender.
+export async function sentToday(): Promise<number> {
   const [{ n }] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(outreachJobs)

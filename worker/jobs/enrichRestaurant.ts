@@ -6,6 +6,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants } from "@/db/schema";
+import { config } from "../config";
 import { priceLevelToInt, fetchPhotoBytes } from "../lib/places";
 import { discoverEmail } from "../lib/emailDiscovery";
 import { verifyEmail, isContactable } from "../lib/neverbounce";
@@ -25,28 +26,36 @@ export type EnrichJobData = {
 //   rejected          -> disqualified (chain / hospitality group)
 type FinalStatus = "queued" | "needs_manual_email" | "rejected";
 
+// Photo scoring is the dominant per-restaurant cost (a Google fetch + a Claude
+// Vision call each), so it's ADAPTIVE: score photos one at a time and stop the
+// moment we have a signature dish — which is the only thing the cold email
+// actually needs. Restaurants' Google photos are usually food-forward, so the
+// typical cost is 1–2 photos; `limit` is just the worst-case ceiling for the
+// unlucky case where the first few photos are storefront/interior shots.
 async function scorePhotos(
-  photoNames: string[]
+  photoNames: string[],
+  limit: number
 ): Promise<{ avg: number | null; count: number; signatureDish: string | null }> {
   if (photoNames.length === 0) return { avg: null, count: 0, signatureDish: null };
 
   const scores: number[] = [];
-  const dishes: { dish: string; score: number }[] = [];
-  for (const name of photoNames) {
+  let signatureDish: string | null = null;
+  for (const name of photoNames.slice(0, limit)) {
     try {
       const { bytes, contentType } = await fetchPhotoBytes(name);
       const result = await scorePhoto(bytes, contentType);
       scores.push(result.score);
-      if (result.dish) dishes.push({ dish: result.dish, score: result.score });
       // bytes intentionally go out of scope here — never persisted.
+      if (result.dish) {
+        // First real dish found — that's the personalization we came for. Stop
+        // spending on further Vision calls.
+        signatureDish = result.dish;
+        break;
+      }
     } catch (err) {
       console.warn(`[enrich] photo score failed for ${name}:`, err instanceof Error ? err.message : err);
     }
   }
-
-  // Signature dish = the dish from the best-looking food photo (most confidently
-  // a real, nameable dish). Used verbatim in the cold email's opening line.
-  const signatureDish = dishes.sort((a, b) => b.score - a.score)[0]?.dish ?? null;
 
   if (scores.length === 0) return { avg: null, count: 0, signatureDish };
   const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
@@ -65,20 +74,28 @@ export async function runEnrichment(data: EnrichJobData): Promise<void> {
     return;
   }
 
-  // 1. Chain / hospitality-group disqualifier (Claude + web search). Do this
-  //    first — if it's a group we can skip the email + photo work entirely.
-  const group = await checkHospitalityGroup(restaurant.name, restaurant.city ?? "");
-  if (group.isGroup) {
-    await db
-      .update(restaurants)
-      .set({
-        isHospitalityGroup: true,
-        enrichmentStatus: "rejected",
-        rejectionReason: `Chain / hospitality group: ${group.reasoning}`,
-      })
-      .where(eq(restaurants.id, restaurant.id));
-    console.log(`[enrich] "${restaurant.name}" rejected: hospitality group (${group.reasoning})`);
-    return;
+  // 1. Chain / hospitality-group disqualifier (Claude + web search). Off by
+  //    default under the wide-net strategy — it's a paid disqualifier (~6¢/call)
+  //    and we'd rather email a franchise than pay to exclude it. When enabled,
+  //    a group verdict short-circuits the rest of the (paid) enrichment.
+  //    ownerFirstName is a byproduct of this call; without it, Touch 1 falls
+  //    back to a generic "Hi there," greeting (see worker/lib/outreachEmail.ts).
+  let ownerFirstName: string | null = null;
+  if (config.enableChainCheck) {
+    const group = await checkHospitalityGroup(restaurant.name, restaurant.city ?? "");
+    if (group.isGroup) {
+      await db
+        .update(restaurants)
+        .set({
+          isHospitalityGroup: true,
+          enrichmentStatus: "rejected",
+          rejectionReason: `Chain / hospitality group: ${group.reasoning}`,
+        })
+        .where(eq(restaurants.id, restaurant.id));
+      console.log(`[enrich] "${restaurant.name}" rejected: hospitality group (${group.reasoning})`);
+      return;
+    }
+    ownerFirstName = group.ownerFirstName;
   }
 
   // 2. Email discovery + NeverBounce verification.
@@ -102,7 +119,7 @@ export async function runEnrichment(data: EnrichJobData): Promise<void> {
   }
 
   // 3. Photo scoring (aggregates only) + the signature dish for the cold email.
-  const { avg: avgPhotoScore, count, signatureDish } = await scorePhotos(data.photoNames);
+  const { avg: avgPhotoScore, count, signatureDish } = await scorePhotos(data.photoNames, config.photoScoreLimit);
 
   // 4. Priority score from all signals.
   const score = priorityScore({
@@ -127,9 +144,11 @@ export async function runEnrichment(data: EnrichJobData): Promise<void> {
       emailRank,
       emailSource,
       signatureDish,
-      contactFirstName: group.ownerFirstName,
+      contactFirstName: ownerFirstName,
       avgPhotoScore,
-      photoCount: count > 0 ? count : restaurant.photoCount,
+      // photosScored (how many we ran Vision on), NOT photoCount — leave the
+      // raw Places photo count set at sourcing intact as the priority signal.
+      photosScored: count,
       priorityScore: score,
       isHospitalityGroup: false,
       enrichmentStatus: finalStatus,

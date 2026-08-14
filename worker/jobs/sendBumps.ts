@@ -18,7 +18,7 @@ import { getSetting } from "@/lib/settings";
 import { sendAlert } from "@/lib/alerts";
 import { sendEmail } from "../lib/gmail";
 import { threadToReplyInto } from "./sendTouch2";
-import { deliverabilityHealthy } from "./sendOutreach";
+import { deliverabilityHealthy, dailyCap, sentToday } from "./sendOutreach";
 import { composeBump, hasComplianceFooter, normalizeLanguage, type ComposeIdentity } from "../lib/outreachEmail";
 import { isSuppressed } from "../lib/suppression";
 import { withRetry } from "../lib/retry";
@@ -117,19 +117,35 @@ async function draftBumps(): Promise<void> {
   }
 }
 
-// Phase 2: send every approved-but-unsent bump. Re-checks the safety-critical
-// fields at send time because a draft can sit approved for days.
+// Phase 2: send approved-but-unsent bumps, up to the remaining daily cap.
+// Re-checks the safety-critical fields at send time because a draft can sit
+// approved for days.
 async function sendApprovedBumps(): Promise<void> {
   const enabled = process.env.OUTREACH_ENABLED === "true" && !config.dryRun;
+
+  // Bumps share Touch 1's daily cap — same domain, same reputation track, and
+  // sentToday() already counts both (both are touchNumber 1). WITHOUT this limit
+  // an operator who approves a pile of bumps ships them all in one 4-minute tick,
+  // blowing far past the configured cap on a warming domain. This runs every 4
+  // min, so it drains the approved queue a capful at a time across the day.
+  const cap = await dailyCap();
+  const already = await sentToday();
+  const remaining = Math.max(0, cap - already);
+
+  if (remaining === 0) {
+    console.log(`[bump] daily cap reached (${already}/${cap}) — no bumps this run.`);
+    return;
+  }
 
   const ready = await db
     .select({ job: outreachJobs, r: restaurants })
     .from(outreachJobs)
     .innerJoin(restaurants, eq(outreachJobs.restaurantId, restaurants.id))
     .where(and(eq(outreachJobs.status, "approved"), eq(outreachJobs.kind, "bump"), isNull(outreachJobs.sentAt)))
-    .orderBy(asc(outreachJobs.approvedAt));
+    .orderBy(asc(outreachJobs.approvedAt))
+    .limit(remaining);
 
-  console.log(`[bump] ${ready.length} approved ready (sending ${enabled ? "ENABLED" : "DISABLED — log only"})`);
+  console.log(`[bump] ${ready.length} approved ready, remaining cap ${remaining} (sending ${enabled ? "ENABLED" : "DISABLED — log only"})`);
   if (ready.length === 0) return;
 
   if (!enabled) {

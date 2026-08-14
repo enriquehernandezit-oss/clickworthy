@@ -71,7 +71,10 @@ export async function searchRestaurants(query: string, max: number): Promise<Pla
       },
       body: JSON.stringify({
         textQuery: query,
-        pageSize: Math.min(20, max - collected.length),
+        // Always 20 (the API max). A SHRINKING pageSize on a continuation
+        // request (pageToken present) is documented to return INVALID_ARGUMENT;
+        // the final .slice(0, max) trims any overshoot instead.
+        pageSize: 20,
         ...(pageToken ? { pageToken } : {}),
       }),
     });

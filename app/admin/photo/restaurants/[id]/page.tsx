@@ -153,7 +153,14 @@ export default async function RestaurantDetailPage({ params }: { params: Promise
       <section>
         <SectionHeading>Send an email</SectionHeading>
         <div className="mt-3">
-          <ComposeForm restaurantId={r.id} hasEmail={Boolean(r.email)} />
+          {r.suppressed ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              This restaurant is on the do-not-contact list (opted out or bounced) — emailing them is
+              blocked. Remove them from Suppressions first if this was a mistake.
+            </p>
+          ) : (
+            <ComposeForm restaurantId={r.id} hasEmail={Boolean(r.email)} />
+          )}
         </div>
       </section>
 

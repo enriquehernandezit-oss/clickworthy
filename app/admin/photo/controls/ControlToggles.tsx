@@ -45,8 +45,8 @@ export function PauseControl({ paused }: { paused: boolean }) {
           </div>
           <p className="mt-1 text-sm text-stone-600">
             {paused
-              ? "No Touch 1, bumps, or Touch 2 will send. Reply reading + drafting still run."
-              : "The panic button — stops all Gmail sending immediately, without touching your drafts or settings."}
+              ? "No Touch 1, bumps, or Touch 2 will send — including ones you've already approved. Reply reading + drafting still run."
+              : "The panic button — stops all Gmail sending immediately. Only holds back already-approved sends; it never approves or skips anything on its own."}
           </p>
         </div>
         {paused ? (
@@ -105,11 +105,13 @@ export function AutosendControl({ autosend }: { autosend: boolean }) {
           </div>
           <p className="mt-1 max-w-xl text-sm text-stone-600">
             {autosend
-              ? "The nightly job drafts AND sends automatically, up to the daily cap. No human review."
-              : "The nightly job only drafts — you approve each one in Outreach before it sends."}
+              ? "The nightly job drafts AND approves itself automatically, up to the daily cap. No human review."
+              : "The nightly job only drafts — you approve each one in Approvals before it can ever send."}
           </p>
           <p className="mt-1 text-xs text-stone-500">
-            Flipping this on does not approve drafts already waiting — use “Approve all” in Outreach for those.
+            Flipping this on does not approve drafts already waiting — use “Approve all” in Approvals for those.
+            {" "}This decides whether a draft gets approved at all — it&apos;s separate from Pause/Resume above, which
+            only holds back sends that are already approved.
           </p>
         </div>
         <button

@@ -29,6 +29,7 @@ export const restaurants = pgTable('restaurants', {
   language: text('language').default('en'), // 'en' | 'es' — US-based; Miami may skew bilingual, set per-restaurant
   priorityScore: real('priority_score'), // higher = contact sooner (see lib/priority.ts)
   photoCount: integer('photo_count'), // owner-uploaded photo count from Google (priority signal, never a filter)
+  photosScored: integer('photos_scored'), // how many photos enrichment actually ran Claude Vision on (cost/coverage; distinct from photoCount so the priority signal stays the raw Google count)
   avgPhotoScore: real('avg_photo_score'), // mean Claude Vision score across scored photos
   emailSource: text('email_source'), // 'website' | 'manual' | null — where `email` came from
   // Personalization for the cold email (derived in enrichment):

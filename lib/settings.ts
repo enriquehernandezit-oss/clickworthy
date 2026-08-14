@@ -95,7 +95,7 @@ const DEFAULTS: SettingsMap = {
 
   // Provisional defaults — order-of-magnitude, meant to be replaced with real
   // invoice numbers. Rationale for each is on the SettingsMap field above.
-  cost_source_per_lead_cents: 0.4, // ~$0.035/Text Search ÷ 20 results ÷ ~40% filter pass
+  cost_source_per_lead_cents: 0.2, // Text Search ~$0.035 ÷ 20 results, spread over the wide-net pass rate; the search itself is rounding error — enrichment (photo scoring, capped) is the real per-lead cost, in cost_photo_score_per_photo_cents
   cost_enrich_per_lead_cents: 4.0, // Sonnet ~1.5k in/300 out ≈ $0.009 + up to 3 web searches + NeverBounce ~$0.008
   cost_photo_score_per_photo_cents: 0.6, // Places Photo ~$0.007 + Sonnet vision on one image
   cost_email_per_send_cents: 0.0, // Gmail API is free; knob exists so swapping to a paid ESP is one edit

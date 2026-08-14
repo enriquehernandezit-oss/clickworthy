@@ -2,6 +2,18 @@
 // here (rather than process.env scattered everywhere) keeps the "which keys
 // are missing" story in one place and lets jobs fail with a clear message.
 
+// Parse a positive-integer env var, falling back on anything nonsensical.
+// Treats unset, "", "0", and non-numeric ("abc") all as "use the default" —
+// which is deliberate: none of the knobs below has a meaningful zero, and "0"
+// / "" were exactly the values that used to fall through the old `|| 60`
+// footgun and silently triple the API spend.
+export function intEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
 export const config = {
   databaseUrl: process.env.DATABASE_URL,
   googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
@@ -16,9 +28,32 @@ export const config = {
   // outbound — for reviewing sourced/enriched data before going live.
   dryRun: process.env.WORKER_DRY_RUN === "true",
 
-  // Hard cap on restaurants processed per sourcing run (protects the free-tier
-  // API budgets while testing). 0 = no cap.
-  sourceLimit: Number(process.env.WORKER_SOURCE_LIMIT ?? "20"),
+  // How many Places candidates to pull PER CITY per sourcing run. Text Search
+  // tops out at 60 (3 pages of 20), so 60 = "everything Google will give us."
+  // Kept a multiple of 20 so pagination never sends a shrinking pageSize.
+  perCityLimit: intEnv("WORKER_PER_CITY_LIMIT", 60),
+
+  // Retained only for worker/run-once.ts (the manual one-off sourcing script).
+  sourceLimit: intEnv("WORKER_SOURCE_LIMIT", 20),
+
+  // Max photos scored per restaurant during enrichment. Scoring is the dominant
+  // per-restaurant cost (a Google fetch + a Claude Vision call each), so this is
+  // the main cost dial. Scoring stops EARLY once a signature dish is found — this
+  // is just the worst-case ceiling (see scorePhotos in enrichRestaurant.ts).
+  photoScoreLimit: intEnv("WORKER_PHOTO_SCORE_LIMIT", 4),
+
+  // The chain/hospitality-group check (Claude + up to 3 web searches, ~6¢ each)
+  // is a paid disqualifier. Off by default under the wide-net strategy — we'd
+  // rather email a franchise than pay to exclude it. Flip to true to re-enable.
+  enableChainCheck: process.env.WORKER_ENABLE_CHAIN_CHECK === "true",
+
+  // Politeness delay between Places search calls in the sourcing loop (ms).
+  placesThrottleMs: intEnv("WORKER_PLACES_THROTTLE_MS", 200),
+
+  // Optional hard cap on NEW restaurants enqueued for enrichment per run. 0/unset
+  // = no cap (source as much as the per-city depth yields). Raise the send cap
+  // alongside this if you set it — otherwise you bank a backlog you can't email.
+  nightlyEnrichCap: intEnv("WORKER_NIGHTLY_ENRICH_CAP", 0),
 
   // Cities to source, SEMICOLON-separated (so each entry can be "City, State").
   // Clickworthy is 100% US-based: Miami, New York, Chicago, Los Angeles.

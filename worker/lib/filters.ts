@@ -1,38 +1,69 @@
-// Hard filters from PROJECT_CONTEXT Section 7. A place must pass ALL of these
-// to enter the outreach pipeline. Photo count is deliberately NOT here — it's a
-// priority signal only (see lib/priority.ts), never a disqualifier.
+// Hard filters for the wide-net sourcing strategy. A place must pass ALL of
+// these to enter the outreach pipeline. Photo count is deliberately NOT here —
+// it's a priority signal only (see lib/priority.ts), never a disqualifier.
+//
+// These thresholds ARE the targeting thesis, so they live in code (git is the
+// right audit trail for changing who we email), but they're injectable so a
+// test can sweep values at zero API cost.
 
 import type { Place } from "./places";
 import { priceLevelToInt } from "./places";
 
 export type FilterResult = { pass: true } | { pass: false; reason: string };
 
-export function passesHardFilters(place: Place): FilterResult {
+export type FilterThresholds = {
+  minReviews: number;
+  maxPriceLevel: number; // 1 = $, 2 = $$, ...
+  requireWebsite: boolean;
+  maxRating: number | null; // null = no rating ceiling (wide net)
+};
+
+// Wide-net defaults: any operational, affordable, real-but-not-fine-dining
+// restaurant with a website we can scrape an email from. No rating ceiling —
+// we email regardless of how good their current photos already look.
+export const DEFAULT_FILTER_THRESHOLDS: FilterThresholds = {
+  minReviews: 20,
+  maxPriceLevel: 2,
+  requireWebsite: true,
+  maxRating: null,
+};
+
+export function passesHardFilters(
+  place: Place,
+  t: FilterThresholds = DEFAULT_FILTER_THRESHOLDS
+): FilterResult {
   const rating = place.rating ?? null;
   const reviews = place.userRatingCount ?? null;
   const price = priceLevelToInt(place.priceLevel);
 
-  // Rating <= 4.0 (under-performing photos are the whole thesis; well-rated
-  // places with great photos aren't the target). Require a rating to exist.
-  if (rating === null) return { pass: false, reason: "no rating" };
-  if (rating > 4.0) return { pass: false, reason: `rating ${rating} > 4.0` };
+  // Rating ceiling is optional under the wide net. When set, compare with `>`
+  // so an exact-boundary value passes (4.2 > 4.2 is false in IEEE754). A place
+  // with no rating at all is allowed through — a new spot with few reviews is a
+  // fine target, and the review floor below already screens out empty listings.
+  if (t.maxRating !== null && rating !== null && rating > t.maxRating) {
+    return { pass: false, reason: `rating ${rating} > ${t.maxRating}` };
+  }
 
-  // Reviews between 30 and 500 (enough signal, not a big established brand).
+  // Enough reviews to be a real, operating business — not a fake/placeholder
+  // listing. No upper bound: a well-reviewed independent is still a fine lead.
   if (reviews === null) return { pass: false, reason: "no review count" };
-  if (reviews < 30) return { pass: false, reason: `only ${reviews} reviews (<30)` };
-  if (reviews > 500) return { pass: false, reason: `${reviews} reviews (>500)` };
+  if (reviews < t.minReviews) return { pass: false, reason: `only ${reviews} reviews (<${t.minReviews})` };
 
-  // Price level $ or $$ only.
+  // Price $ or $$ only — fine dining already pays for professional photography.
   if (price === null) return { pass: false, reason: "no/unknown price level" };
-  if (price > 2) return { pass: false, reason: `price level ${price} (> $$)` };
+  if (price > t.maxPriceLevel) return { pass: false, reason: `price level ${price} (> ${t.maxPriceLevel})` };
 
-  // Must be operational (not temporarily/permanently closed).
+  // Must be operational.
   if (place.businessStatus && place.businessStatus !== "OPERATIONAL") {
     return { pass: false, reason: `business status ${place.businessStatus}` };
   }
 
-  // NOTE: "not a chain" and "not part of a hospitality group" are checked
-  // separately (Claude + web search) in the enrichment step, since they can't
-  // be determined from the Places response alone.
+  // Require a website. Email discovery scrapes the website for a contact
+  // address, so no website means an un-emailable lead — filtering here, BEFORE
+  // enrichment, avoids paying to photo-score a restaurant we could never email.
+  if (t.requireWebsite && !place.websiteUri) {
+    return { pass: false, reason: "no website" };
+  }
+
   return { pass: true };
 }

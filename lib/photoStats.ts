@@ -139,9 +139,16 @@ export async function getNeedsAttention(): Promise<AttentionItem[]> {
   // Excludes 'failed' — that gets its own more specific bucket below (a
   // generic "not yet delivered" undersells a paid order that's actually
   // broken and needs a Retry click, not just more waiting).
+  //
+  // The `package_status is null` disjunct is load-bearing, not redundant:
+  // `NULL not in (...)` evaluates to NULL (not true) in SQL, and `filter (where
+  // NULL)` drops the row. packageStatus is exactly NULL in the paid→uploaded
+  // window — the most common post-sale state and the one this counter names
+  // ("awaiting upload or delivery"). Without the disjunct, a paid customer who
+  // hasn't uploaded yet is invisible in every work list.
   const [{ undelivered }] = await db
     .select({
-      undelivered: sql<number>`count(*) filter (where ${magicLinks.paidAt} is not null and ${magicLinks.deliveredAt} is null and ${magicLinks.packageStatus} not in ('ready_for_review', 'failed'))::int`,
+      undelivered: sql<number>`count(*) filter (where ${magicLinks.paidAt} is not null and ${magicLinks.deliveredAt} is null and (${magicLinks.packageStatus} is null or ${magicLinks.packageStatus} not in ('ready_for_review', 'failed')))::int`,
     })
     .from(magicLinks);
   const [{ failedPackages }] = await db
@@ -160,6 +167,22 @@ export async function getNeedsAttention(): Promise<AttentionItem[]> {
     .from(enhancementOrders)
     .where(and(eq(enhancementOrders.status, "pending"), lt(enhancementOrders.createdAt, stuckCutoff)));
 
+  // Orders marked delivered whose customer email FAILED to send (Resend down,
+  // no email on file). The order still completed — so it's invisible in every
+  // other queue — but the customer was never told their photos are ready. We
+  // count magic links whose MOST RECENT delivery attempt is 'cancelled', so a
+  // successful resend (which writes a newer 'sent' row) clears it.
+  const failedDeliveryRows = (await db.execute(sql`
+    select count(*)::int as n from (
+      select distinct on (magic_link_id) status
+      from outreach_jobs
+      where kind = 'delivery' and magic_link_id is not null
+      order by magic_link_id, drafted_at desc
+    ) latest
+    where status = 'cancelled'
+  `)) as unknown as { n: number }[];
+  const failedDelivery = failedDeliveryRows[0]?.n ?? 0;
+
   const items: AttentionItem[] = [];
   if (drafts) items.push({ title: `${drafts} email${drafts > 1 ? "s" : ""} awaiting your approval`, sub: "Photo Enhancement · nothing sends until you approve or send it", href: "/admin/photo/approvals", n: drafts, tone: "gold" });
   if (replies) items.push({ title: `${replies} repl${replies > 1 ? "ies" : "y"} to edit`, sub: "Photo Enhancement · edit + approve the free sample", href: "/admin/photo/samples", n: replies, tone: "coral" });
@@ -168,5 +191,6 @@ export async function getNeedsAttention(): Promise<AttentionItem[]> {
   if (failedPackages) items.push({ title: `${failedPackages} paid package${failedPackages > 1 ? "s" : ""} failed`, sub: "Photo Enhancement · every photo errored — retry from the order row", href: "/admin/photo/orders", n: failedPackages, tone: "coral" });
   if (failedOrders) items.push({ title: `${failedOrders} self-serve order${failedOrders > 1 ? "s" : ""} failed`, sub: "Photo Enhancement · retry or refund", href: "/admin/photo/orders", n: failedOrders, tone: "coral" });
   if (stuckPending) items.push({ title: `${stuckPending} self-serve order${stuckPending > 1 ? "s" : ""} stuck pending >1h`, sub: "Photo Enhancement · may be a Stripe webhook problem — check Setup", href: "/admin/photo/orders", n: stuckPending, tone: "coral" });
+  if (failedDelivery) items.push({ title: `${failedDelivery} delivery email${failedDelivery > 1 ? "s" : ""} failed to send`, sub: "Photo Enhancement · order delivered but the customer wasn't emailed — resend from the order row", href: "/admin/photo/orders", n: failedDelivery, tone: "coral" });
   return items;
 }

@@ -119,6 +119,12 @@ export default async function ControlsPage() {
       {/* Toggles */}
       <section className="flex flex-col gap-4">
         <SectionHeading>Controls</SectionHeading>
+        <p className="-mt-2 max-w-2xl text-sm text-stone-600">
+          Two separate gates, in this order: <strong>Approval mode</strong> decides whether a new draft needs your
+          click before it&apos;s approved at all. <strong>Pause/Resume</strong> decides whether something
+          already approved is allowed to actually leave. Pausing never approves or skips your review — it only
+          holds the door shut on sends that already passed it.
+        </p>
         <PauseControl paused={values.outreach_paused} />
         <AutosendControl autosend={values.outreach_autosend} />
         <NumberSetting

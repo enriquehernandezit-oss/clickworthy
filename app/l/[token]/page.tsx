@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { magicLinks, restaurants } from "@/db/schema";
@@ -22,6 +23,7 @@ async function loadFunnel(token: string) {
       reviewStatus: magicLinks.reviewStatus,
       expiresAt: magicLinks.expiresAt,
       viewedAt: magicLinks.viewedAt,
+      paidAt: magicLinks.paidAt,
     })
     .from(magicLinks)
     .where(eq(magicLinks.token, token))
@@ -30,6 +32,12 @@ async function loadFunnel(token: string) {
   // A rejected or nonexistent link should read as "not found" — don't leak that
   // a token exists but was rejected.
   if (!link || link.reviewStatus === "rejected") return null;
+
+  // Already paid → this page's pricing/checkout must never render again (a paid
+  // customer reopening their emailed link could otherwise pay a SECOND time, and
+  // the second payment can't even be fulfilled — the upload route 409s on the
+  // already-processing order). Send them where they actually need to be.
+  if (link.paidAt) redirect(`/l/${token}/upload`);
 
   const [restaurant] = link.restaurantId
     ? await db.select().from(restaurants).where(eq(restaurants.id, link.restaurantId)).limit(1)

@@ -23,6 +23,12 @@ export async function POST(request: NextRequest) {
   if (!link || link.reviewStatus !== "approved") {
     return NextResponse.json({ error: "This link isn't available." }, { status: 404 });
   }
+  // Already paid — refuse a second checkout independently of the funnel page's
+  // redirect (a direct POST bypasses the page). The second payment couldn't be
+  // fulfilled anyway (the upload route 409s on the in-flight order).
+  if (link.paidAt) {
+    return NextResponse.json({ error: "This order has already been paid." }, { status: 409 });
+  }
   if (link.expiresAt && new Date(link.expiresAt).getTime() < Date.now()) {
     return NextResponse.json({ error: "This link has expired." }, { status: 410 });
   }

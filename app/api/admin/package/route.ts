@@ -101,9 +101,13 @@ export async function POST(request: NextRequest) {
     // Fail-soft, deliberately: the order still marks delivered even if the
     // email send fails — resend_delivery below is the recovery path for that,
     // and a paid customer's page shouldn't stay locked over an email hiccup.
+    // BUT surface the failure — otherwise the operator sees a clean success,
+    // the order leaves the "not delivered" list, and the customer is never told
+    // their photos are ready. The false send is also logged as a
+    // kind='delivery', status='cancelled' row (in sendDelivery) for the audit.
     await db.update(magicLinks).set({ packageStatus: "completed", deliveredAt: new Date() }).where(eq(magicLinks.id, id));
-    await sendDelivery(subject, body);
-    return NextResponse.json({ ok: true, packageStatus: "completed" });
+    const emailSent = await sendDelivery(subject, body);
+    return NextResponse.json({ ok: true, packageStatus: "completed", emailSent });
   }
 
   if (action === "resend_delivery") {

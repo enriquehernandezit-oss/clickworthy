@@ -11,8 +11,8 @@
 //     price is <= $$$ (a $$ place with 40 reviews outranks a $$$ with 480).
 
 export type PriorityInputs = {
-  rating: number | null; // <= 4.0 after filtering
-  reviewCount: number | null; // 30–500 after filtering
+  rating: number | null; // any rating (wide net — no ceiling); the curve still bumps lower ratings
+  reviewCount: number | null; // >= 20 after filtering (no upper bound)
   priceLevelInt: number | null; // 1–4
   deliveryEnabled: boolean;
   photoCount: number | null; // owner-uploaded photo count

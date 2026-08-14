@@ -113,6 +113,18 @@ export async function POST(request: NextRequest) {
   const [job] = await db.select().from(outreachJobs).where(eq(outreachJobs.id, id)).limit(1);
   if (!job) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  // Every per-id action in this route is Touch-1-only — bump/reply/payment_confirmation
+  // drafts live on Approvals and are handled by /api/admin/approvals. Without this,
+  // posting `approve` against a reply/payment_confirmation draft flips it to
+  // 'approved', which strands it: gone from the Approvals queue (filters status='draft'),
+  // and its own *_send action refuses a non-'draft' row — no UI path back.
+  if (job.kind !== "touch1") {
+    return NextResponse.json(
+      { error: `This action only applies to Touch 1 (this is ${job.kind ?? "unknown"}). Use Approvals for other kinds.` },
+      { status: 409 }
+    );
+  }
+
   if (action === "approve") {
     if (job.status !== "draft") {
       return NextResponse.json({ error: `Can only approve a draft (this is ${job.status}).` }, { status: 409 });
@@ -150,11 +162,7 @@ export async function POST(request: NextRequest) {
     if (job.status !== "draft" && job.status !== "approved") {
       return NextResponse.json({ error: `Can only redraft a draft/approved row (this is ${job.status}).` }, { status: 409 });
     }
-    // Guards against overwriting a bump/reply/etc. draft with Touch-1
-    // boilerplate — this endpoint only knows how to recompose Touch 1.
-    if (job.kind !== "touch1") {
-      return NextResponse.json({ error: `Can only redraft a Touch 1 row (this is ${job.kind ?? "unknown"}).` }, { status: 409 });
-    }
+    // (kind==='touch1' already enforced by the central guard above.)
     if (job.restaurantId == null) return NextResponse.json({ error: "Draft has no restaurant" }, { status: 400 });
     const [r] = await db.select().from(restaurants).where(eq(restaurants.id, job.restaurantId)).limit(1);
     if (!r) return NextResponse.json({ error: "Restaurant not found" }, { status: 404 });

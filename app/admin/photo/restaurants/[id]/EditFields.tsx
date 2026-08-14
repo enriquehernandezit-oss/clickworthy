@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 // Inline dossier edit — the place to fix a wrong signature dish or name before
-// approving the draft (then use Redraft in Outreach to recompose from these).
+// approving the draft (then use Redraft in Approvals to recompose from these).
 export default function EditFields({
   restaurantId,
   email,
@@ -92,7 +92,7 @@ export default function EditFields({
         </button>
         {msg && <span className={`text-sm ${msg.ok ? "text-green-700" : "text-red-600"}`}>{msg.text}</span>}
         <span className="text-xs text-stone-500">
-          Fixing the dish or name? Redraft the pending Touch 1 in Outreach afterward.
+          Fixing the dish or name? Redraft the pending Touch 1 in Approvals afterward.
         </span>
       </div>
     </div>

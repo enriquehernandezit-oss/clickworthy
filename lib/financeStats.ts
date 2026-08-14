@@ -112,7 +112,7 @@ export async function getCostDrivers(from: Date, to: Date): Promise<CostDrivers>
     select
       count(*)::int as sourced,
       count(*) filter (where ${ENRICHED_FILTER})::int as enriched,
-      coalesce(sum(coalesce(photo_count, 0)), 0)::int as scored
+      coalesce(sum(coalesce(photos_scored, photo_count, 0)), 0)::int as scored
     from restaurants
     where created_at >= ${fromIso}::timestamptz and created_at < ${toIso}::timestamptz
   `)) as unknown as { sourced: number; enriched: number; scored: number }[];
@@ -315,7 +315,7 @@ export async function getMonthlySeries(range: Range, a: CostAssumptions): Promis
     select to_char(date_trunc('month', created_at), 'YYYY-MM') as month,
            count(*)::int as sourced,
            count(*) filter (where ${ENRICHED_FILTER})::int as enriched,
-           coalesce(sum(coalesce(photo_count, 0)), 0)::int as scored
+           coalesce(sum(coalesce(photos_scored, photo_count, 0)), 0)::int as scored
     from restaurants
     where created_at >= ${fromIso}::timestamptz and created_at < ${toIso}::timestamptz
     group by 1
@@ -466,7 +466,7 @@ export async function getClientEconomics(a: CostAssumptions): Promise<ClientRow[
       group by ml.restaurant_id
     )
     select r.id, r.name, r.city, r.is_new_opening,
-           coalesce(r.photo_count, 0) as photo_count,
+           coalesce(r.photos_scored, r.photo_count, 0) as photo_count,
            coalesce(pay.gross, 0) as gross,
            coalesce(pay.refunded, 0) as refunded,
            coalesce(pay.net, 0) as net,
@@ -622,7 +622,7 @@ export async function getCityEconomics(a: CostAssumptions): Promise<CityRow[]> {
     select coalesce(r.city, '—') as city,
            count(*)::int as leads,
            count(pay.restaurant_id)::int as payers,
-           coalesce(sum(coalesce(r.photo_count, 0)), 0)::int as scored,
+           coalesce(sum(coalesce(r.photos_scored, r.photo_count, 0)), 0)::int as scored,
            coalesce(sum(coalesce(sends.n, 0)), 0)::int as sends,
            coalesce(sum(coalesce(links.n, 0)), 0)::int as n_links,
            coalesce(sum(coalesce(pay.gross, 0)), 0)::int as gross,

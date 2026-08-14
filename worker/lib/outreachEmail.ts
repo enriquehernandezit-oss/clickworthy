@@ -40,7 +40,7 @@ function greeting(firstName: string | null, language: Language): string {
 // address renders an obvious placeholder rather than a blank line, so it's
 // caught by reading the email — and the pre-send assertion in sendOutreach.ts
 // blocks the send outright regardless.
-function complianceFooter(language: Language, postalAddress: string): string {
+export function complianceFooter(language: Language, postalAddress: string): string {
   const address = postalAddress.trim() || "[set your postal address on the Templates page]";
   if (language === "es") {
     return (

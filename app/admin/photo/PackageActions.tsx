@@ -20,10 +20,13 @@ export default function PackageActions({
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [emailFailed, setEmailFailed] = useState(false);
   const [subject, setSubject] = useState(seed?.subject ?? "");
   const [body, setBody] = useState(seed?.body ?? "");
 
-  const post = async (action: string, extra: Record<string, string>, file?: File) => {
+  // Returns the parsed response body on success, or null on failure (error is
+  // already set). Callers that need to react to the payload (deliver) read it.
+  const post = async (action: string, extra: Record<string, string>, file?: File): Promise<Record<string, unknown> | null> => {
     const key = `${action}:${extra.photoIndex ?? "order"}`;
     setBusy(key);
     setError(null);
@@ -37,14 +40,41 @@ export default function PackageActions({
       if (!res.ok) {
         setError((await res.json().catch(() => ({})))?.error ?? "Something went wrong.");
         setBusy(null);
-        return;
+        return null;
       }
-      router.refresh();
+      return (await res.json().catch(() => ({}))) as Record<string, unknown>;
     } catch {
       setError("Network error.");
+      return null;
     } finally {
       setBusy(null);
     }
+  };
+
+  // Deliver, then react to whether the customer email actually sent. On failure
+  // we deliberately do NOT refresh — refreshing drops this order out of the
+  // production queue (it's now "completed"), which would unmount this component
+  // and hide the failure. Instead we keep it mounted with a resend affordance.
+  // (A Needs-Attention bucket for kind='delivery'/status='cancelled' is the
+  // durable backstop if they navigate away — see lib/photoStats.ts.)
+  const deliver = async () => {
+    if (!window.confirm("Send this delivery email? The delivery page unlocks the moment it sends. No further edits after this.")) return;
+    const res = await post("deliver", { subject, body });
+    if (!res) return;
+    if (res.emailSent === false) {
+      setEmailFailed(true);
+    } else {
+      router.refresh();
+    }
+  };
+
+  const resend = async () => {
+    // resend_delivery 409s (→ post sets error, returns null) when it can't send;
+    // a null return means the failure is already surfaced.
+    const res = await post("resend_delivery", {});
+    if (!res) return;
+    setEmailFailed(false);
+    router.refresh();
   };
 
   const allFinished = results.length > 0 && results.every((r) => r.enhancedUrl);
@@ -79,21 +109,38 @@ export default function PackageActions({
         </div>
       )}
 
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          disabled={busy !== null || !allFinished || !subject.trim() || !body.trim()}
-          title={allFinished ? "" : "Finish every photo before delivering"}
-          onClick={() => {
-            if (!window.confirm("Send this delivery email? The delivery page unlocks the moment it sends. No further edits after this.")) return;
-            post("deliver", { subject, body });
-          }}
-          className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:text-stone-500"
-        >
-          {busy === "deliver:order" ? "Sending…" : "Send delivery email"}
-        </button>
-        {error && <span className="text-sm text-red-600">{error}</span>}
-      </div>
+      {emailFailed && (
+        <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+          <p className="font-semibold">The order was marked delivered, but the email didn&apos;t send.</p>
+          <p className="mt-1">
+            The customer hasn&apos;t been told their photos are ready. Check their email on file and the
+            Resend key (Setup), then resend.
+          </p>
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={resend}
+            className="mt-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:opacity-50"
+          >
+            {busy === "resend_delivery:order" ? "Resending…" : "Resend delivery email"}
+          </button>
+        </div>
+      )}
+
+      {!emailFailed && (
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            disabled={busy !== null || !allFinished || !subject.trim() || !body.trim()}
+            title={allFinished ? "" : "Finish every photo before delivering"}
+            onClick={deliver}
+            className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:text-stone-500"
+          >
+            {busy === "deliver:order" ? "Sending…" : "Send delivery email"}
+          </button>
+          {error && <span className="text-sm text-red-600">{error}</span>}
+        </div>
+      )}
     </div>
   );
 }
