@@ -49,9 +49,13 @@ export function passesHardFilters(
   if (reviews === null) return { pass: false, reason: "no review count" };
   if (reviews < t.minReviews) return { pass: false, reason: `only ${reviews} reviews (<${t.minReviews})` };
 
-  // Price $ or $$ only — fine dining already pays for professional photography.
-  if (price === null) return { pass: false, reason: "no/unknown price level" };
-  if (price > t.maxPriceLevel) return { pass: false, reason: `price level ${price} (> ${t.maxPriceLevel})` };
+  // Reject only KNOWN-expensive places ($$$+); fine dining already pays for
+  // professional photography. A missing price level is NOT a rejection under the
+  // wide net — Google leaves plenty of ordinary independents unclassified, and
+  // dropping them for missing data (not for being expensive) costs real volume.
+  if (price !== null && price > t.maxPriceLevel) {
+    return { pass: false, reason: `price level ${price} (> ${t.maxPriceLevel})` };
+  }
 
   // Must be operational.
   if (place.businessStatus && place.businessStatus !== "OPERATIONAL") {
