@@ -28,6 +28,8 @@ async function getRestaurants(status: string, q: string, page: number) {
       enrichmentStatus: restaurants.enrichmentStatus,
       signatureDish: restaurants.signatureDish,
       contactFirstName: restaurants.contactFirstName,
+      avgPhotoScore: restaurants.avgPhotoScore,
+      photosScored: restaurants.photosScored,
       priorityScore: restaurants.priorityScore,
       language: restaurants.language,
       suppressed: restaurants.suppressed,
@@ -112,14 +114,29 @@ export default async function RestaurantsPage({
         <EmptyState>No restaurants match this filter.</EmptyState>
       ) : (
         <div className="mt-5 overflow-x-auto">
-          <table className="w-full min-w-[64rem] border-collapse text-sm">
+          <table className="w-full min-w-[72rem] border-collapse text-sm">
             <thead>
               <tr className="border-b border-stone-200 text-left text-xs uppercase tracking-wide text-stone-500">
                 <th className="px-3 py-2 font-semibold">Restaurant</th>
                 <th className="px-3 py-2 font-semibold">Status</th>
                 <th className="px-3 py-2 font-semibold">Signature dish</th>
                 <th className="px-3 py-2 font-semibold">Contact</th>
-                <th className="px-3 py-2 font-semibold">Score</th>
+                <th className="px-3 py-2 font-semibold">
+                  <span
+                    className="cursor-help border-b border-dotted border-stone-400"
+                    title="Claude Vision photo-quality grade, 2–6. HIGHER = BETTER photos (6 = already professional, 2 = dark/blurry). Shown as x.x/6."
+                  >
+                    Photo score
+                  </span>
+                </th>
+                <th className="px-3 py-2 font-semibold">
+                  <span
+                    className="cursor-help border-b border-dotted border-stone-400"
+                    title="Lead priority, ~0–100. HIGHER = contact sooner / more upside. Blends worse photos, fewer reviews, lower rating, delivery enabled, and few owner photos. Note: worse photos RAISE priority but LOWER the photo score — the two run opposite directions."
+                  >
+                    Priority
+                  </span>
+                </th>
                 <th className="px-3 py-2 font-semibold">Email &amp; actions</th>
               </tr>
             </thead>
@@ -153,6 +170,16 @@ export default async function RestaurantsPage({
                   <td className="px-3 py-3 text-stone-700">{r.signatureDish ?? <span className="text-stone-400">—</span>}</td>
                   <td className="px-3 py-3 text-stone-700">
                     {r.contactFirstName ?? <span className="text-stone-400">—</span>}
+                  </td>
+                  <td className="px-3 py-3 tabular-nums text-stone-600">
+                    {r.avgPhotoScore == null ? (
+                      <span className="text-stone-400">—</span>
+                    ) : (
+                      <span title={`${r.photosScored ?? 0} photo${r.photosScored === 1 ? "" : "s"} scored by Claude Vision`}>
+                        {r.avgPhotoScore.toFixed(1)}
+                        <span className="ml-0.5 text-xs text-stone-400">/6</span>
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-3 tabular-nums text-stone-600">
                     {r.priorityScore == null ? "—" : r.priorityScore.toFixed(1)}

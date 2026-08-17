@@ -131,11 +131,12 @@ export async function runEnrichment(data: EnrichJobData): Promise<void> {
     avgPhotoScore,
   });
 
-  // 5. Final status. Ready to auto-contact only with BOTH a contactable email
-  //    and a signature dish (the cold email's personalization hinges on the
-  //    dish — a generic Touch 1 is a deleted Touch 1). Otherwise it waits for a
-  //    human (manual email lookup or a hand-picked dish).
-  const finalStatus: FinalStatus = email && signatureDish ? "queued" : "needs_manual_email";
+  // 5. Final status. A contactable email is all that's required to queue. A
+  //    signature dish still personalizes Touch 1 when present, but a dish-less
+  //    lead now drafts too (with a generic {{dish}} fallback — see outreachEmail)
+  //    rather than being held; the human reviews/tailors every draft anyway.
+  //    Only a missing email holds a lead as needs_manual_email.
+  const finalStatus: FinalStatus = email ? "queued" : "needs_manual_email";
 
   await db
     .update(restaurants)

@@ -29,10 +29,17 @@ const FIELD_MASK = [
   "places.dineIn",
 ].join(",");
 
+export type PhotoAuthorAttribution = {
+  displayName?: string; // the contributor's name — the business's own name for owner uploads
+  uri?: string;
+  photoUri?: string;
+};
+
 export type PlacePhoto = {
   name: string; // "places/{id}/photos/{ref}"
   widthPx?: number;
   heightPx?: number;
+  authorAttributions?: PhotoAuthorAttribution[];
 };
 
 export type Place = {
@@ -110,6 +117,28 @@ export async function fetchPhotoBytes(
   const contentType = res.headers.get("content-type") || "image/jpeg";
   const bytes = Buffer.from(await res.arrayBuffer());
   return { bytes, contentType };
+}
+
+// Google's `photos` array mixes the business's OWN uploads with customer photos
+// and exposes no "isOwner" flag — but a business's own uploads are attributed to
+// the business's own name (verified against live Places data: the owner photos
+// carry authorAttributions.displayName === the place's displayName). We treat a
+// photo as owner-authored when any of its attributions matches the place name.
+//
+// This is the difference between scoring a restaurant's own listing photos —
+// which they can actually replace, and which the cold email's "your photo
+// doesn't do it justice" pitch is about — and scoring a diner's phone snapshot.
+// Ordering alone won't do it: owner photos usually come first, but not always.
+export function ownerPhotos(place: Place): PlacePhoto[] {
+  const placeName = normalizePhotoAuthor(place.displayName?.text);
+  if (!placeName) return [];
+  return (place.photos ?? []).filter((p) =>
+    (p.authorAttributions ?? []).some((a) => normalizePhotoAuthor(a.displayName) === placeName)
+  );
+}
+
+function normalizePhotoAuthor(value: string | undefined): string {
+  return (value ?? "").trim().toLowerCase();
 }
 
 // PRICE_LEVEL_* enum -> the 1–4 integer the schema/filters use ($ = 1 ... $$$$ = 4).

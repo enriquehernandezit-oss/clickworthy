@@ -52,18 +52,20 @@ async function getQueue() {
   // the human can rewrite any of it before Approve & Send.
   return rows.map((item) => {
     if (!item.enhanced) return { ...item, seed: null as { subject: string; body: string } | null, seedError: undefined as string | undefined };
-    if (!item.restaurantName || !item.signatureDish) {
+    if (!item.restaurantName) {
       return {
         ...item,
         seed: null,
-        seedError: "Missing restaurant name or signature dish — can't compose Touch 2. Set a signature dish on the restaurant's page, then refresh.",
+        seedError: "Missing restaurant name — can't compose Touch 2.",
       };
     }
     try {
       const seed = composeTouch2({
         restaurantName: item.restaurantName,
         firstName: item.contactFirstName,
-        dish: item.signatureDish,
+        // A dish personalizes Touch 2 when present; dish-less samples fall back
+        // to generic {{dish}} wording (see outreachEmail) instead of blocking.
+        dish: item.signatureDish ?? "",
         city: item.city,
         funnelUrl: `${config.appOrigin.replace(/\/$/, "")}/l/${item.token}`,
         bookingUrl: process.env.NEXT_PUBLIC_BOOKING_URL ?? null,

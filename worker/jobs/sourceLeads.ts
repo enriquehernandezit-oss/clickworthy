@@ -9,7 +9,7 @@ import { db } from "@/db";
 import { restaurants } from "@/db/schema";
 import { config } from "../config";
 import { sendAlert } from "@/lib/alerts";
-import { searchRestaurants, priceLevelToInt, type Place } from "../lib/places";
+import { searchRestaurants, priceLevelToInt, ownerPhotos, type Place } from "../lib/places";
 import { passesHardFilters } from "../lib/filters";
 import { ENRICH_QUEUE, type EnrichJobData } from "./enrichRestaurant";
 
@@ -84,7 +84,7 @@ async function upsertRestaurant(place: Place, city: string): Promise<UpsertResul
       website: place.websiteUri ?? null,
       temporarilyClosed: place.businessStatus === "CLOSED_TEMPORARILY",
       deliveryEnabled: Boolean(place.delivery),
-      photoCount: place.photos?.length ?? 0,
+      photoCount: ownerPhotos(place).length, // owner-uploaded only — the count the priority signal claims to be
       enrichmentStatus: "sourced" as const,
     })
     .returning({ id: restaurants.id });
@@ -144,7 +144,9 @@ export async function runSourcing(boss: PgBoss, data: SourceJobData): Promise<vo
       // past the scoring budget.
       const enrichData: EnrichJobData = {
         restaurantId: result.id,
-        photoNames: (place.photos ?? []).map((p) => p.name).slice(0, config.photoScoreLimit),
+        // Score only the restaurant's OWN photos — customer snapshots aren't
+        // theirs to replace and shouldn't drive the score or the signature dish.
+        photoNames: ownerPhotos(place).map((p) => p.name).slice(0, config.photoScoreLimit),
       };
       if (config.dryRun) {
         // Dry run: exercise the real search/filter/upsert path (and the row it

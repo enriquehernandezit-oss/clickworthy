@@ -30,6 +30,14 @@ const RAMP_CAP = 50;
 // Exposed so the worker can report the live ramp in its boot-info snapshot.
 export const RAMP = { start: RAMP_START, step: RAMP_STEP, cap: RAMP_CAP };
 
+// How many Touch 1 drafts may sit awaiting review at once. DELIBERATELY separate
+// from the daily SEND cap: in manual-approval mode a human wants to review a full
+// batch of drafts up front, while sendApproved() still throttles actual sends to
+// dailyCap()/day. (Previously drafting was bounded by the send cap, which froze
+// the review pile at ~cap whenever sending was paused.) A ceiling, not a target —
+// it just stops the pile growing without bound if drafts never get actioned.
+const DRAFT_REVIEW_CAP = 200;
+
 function startOfToday(): Date {
   // Note: Date.now()/new Date() are fine at runtime in the worker (this is not a
   // workflow script); only the Workflow tool forbids them.
@@ -134,13 +142,14 @@ async function pendingCount(): Promise<number> {
 // fired). Restaurants stay `queued` while drafted — the NOT EXISTS guard below
 // stops a second run from drafting them again.
 async function draftBatch(autosend: boolean): Promise<void> {
-  const cap = await dailyCap();
-  const already = await sentToday();
+  // Drafting fills the review pile up to DRAFT_REVIEW_CAP, independent of the
+  // daily send cap (which sendApproved enforces separately). This lets a full
+  // batch of drafts be reviewed at once even while sending is capped or paused.
   const pending = await pendingCount();
-  const room = Math.max(0, cap - already - pending);
+  const room = Math.max(0, DRAFT_REVIEW_CAP - pending);
 
   console.log(
-    `[draft] cap ${cap}, sent today ${already}, pending ${pending}, drafting up to ${room}` +
+    `[draft] review pile ${pending}/${DRAFT_REVIEW_CAP}, drafting up to ${room}` +
       (config.dryRun ? " [DRY RUN — no writes]" : "") +
       (autosend ? " [AUTOSEND — drafts self-approve]" : "")
   );
@@ -182,22 +191,17 @@ async function draftBatch(autosend: boolean): Promise<void> {
       continue;
     }
 
-    // The approved Touch 1 hinges on a real signature dish — hold anyone the
-    // enricher couldn't find one for (they wait as needs_manual_email).
-    if (!r.signatureDish) {
-      if (!config.dryRun)
-        await db.update(restaurants).set({ enrichmentStatus: "needs_manual_email" }).where(eq(restaurants.id, r.id));
-      console.log(`[draft] skip ${r.name} — no signature dish`);
-      continue;
-    }
-
+    // A signature dish personalizes Touch 1 when present, but is no longer
+    // required to draft — composeTouch1 falls back to a generic {{dish}} for
+    // dish-less leads (see outreachEmail). Every draft is human-reviewed before
+    // approval, so the generic wording gets tailored then.
     const language = normalizeLanguage(r.language);
     let composed: { subject: string; body: string };
     try {
       composed = composeTouch1({
         restaurantName: r.name,
         firstName: r.contactFirstName,
-        dish: r.signatureDish,
+        dish: r.signatureDish ?? "",
         city: r.city,
         language,
         subjectVariant: r.id,

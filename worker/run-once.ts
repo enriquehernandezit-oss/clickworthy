@@ -11,7 +11,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants } from "@/db/schema";
 import { config } from "./config";
-import { searchRestaurants, priceLevelToInt } from "./lib/places";
+import { searchRestaurants, priceLevelToInt, ownerPhotos } from "./lib/places";
 import { passesHardFilters } from "./lib/filters";
 import { runEnrichment } from "./jobs/enrichRestaurant";
 
@@ -51,7 +51,7 @@ async function main() {
       website: place.websiteUri ?? null,
       temporarilyClosed: place.businessStatus === "CLOSED_TEMPORARILY",
       deliveryEnabled: Boolean(place.delivery),
-      photoCount: place.photos?.length ?? 0,
+      photoCount: ownerPhotos(place).length, // owner-uploaded only
       enrichmentStatus: "sourced" as const,
     };
 
@@ -64,7 +64,7 @@ async function main() {
       id = ins.id;
     }
 
-    await runEnrichment({ restaurantId: id, photoNames: (place.photos ?? []).map((p) => p.name) });
+    await runEnrichment({ restaurantId: id, photoNames: ownerPhotos(place).map((p) => p.name) });
     processed++;
   }
 

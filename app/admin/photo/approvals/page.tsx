@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { outreachJobs, restaurants } from "@/db/schema";
@@ -43,9 +44,11 @@ async function getQueue() {
       replyBody: outreachJobs.replyBody,
       replyFrom: outreachJobs.replyFrom,
       draftedAt: outreachJobs.draftedAt,
+      restaurantId: restaurants.id,
       restaurantName: restaurants.name,
       city: restaurants.city,
       language: restaurants.language,
+      signatureDish: restaurants.signatureDish,
     })
     .from(outreachJobs)
     .innerJoin(restaurants, eq(outreachJobs.restaurantId, restaurants.id))
@@ -109,12 +112,28 @@ export default async function ApprovalsPage({
               <Card key={d.id} className="border-orange-200">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-semibold">{d.restaurantName}</h3>
+                    <h3 className="font-semibold">
+                      <Link
+                        href={`/admin/photo/restaurants/${d.restaurantId}`}
+                        target="_blank"
+                        className="text-stone-900 hover:text-orange-700 hover:underline"
+                      >
+                        {d.restaurantName} ↗
+                      </Link>
+                    </h3>
                     <span className="rounded bg-stone-100 px-1.5 py-0.5 text-xs font-medium text-stone-600">
                       {kindLabel(d.kind)}
                     </span>
                     {d.language === "es" && (
                       <span className="rounded bg-stone-100 px-1.5 py-0.5 text-xs font-medium text-stone-600">ES</span>
+                    )}
+                    {d.kind === "touch1" && !d.signatureDish && (
+                      <span
+                        className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700"
+                        title="No signature dish on file — this draft uses generic wording. Open the profile to add one."
+                      >
+                        generic — no dish
+                      </span>
                     )}
                   </div>
                   <div className="text-xs tabular-nums text-stone-500">drafted {fmtDateTime(d.draftedAt)}</div>

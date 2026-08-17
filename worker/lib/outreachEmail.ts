@@ -27,6 +27,13 @@ export function normalizeLanguage(value: string | null | undefined): Language {
   return value === "es" ? "es" : "en";
 }
 
+// Fallback for {{dish}} when a lead has no signature dish on file. Leads with a
+// real dish still get the specific personalization; dish-less leads draft with a
+// generic-but-grammatical word ("your food photo", "the food at X") so the email
+// still reads cleanly and a human can tailor it before approving. Keeps dish-less
+// but emailable leads in the pipeline instead of holding them.
+const FALLBACK_DISH: Record<Language, string> = { en: "food", es: "comida" };
+
 export type ComposeIdentity = { senderName: string; postalAddress: string };
 
 function greeting(firstName: string | null, language: Language): string {
@@ -75,7 +82,7 @@ function baseVars(params: {
 }): TemplateVars {
   return {
     restaurant: params.restaurantName,
-    dish: params.dish,
+    dish: params.dish.trim() || FALLBACK_DISH[params.language],
     firstName: params.firstName ?? "",
     greeting: greeting(params.firstName, params.language),
     city: params.city ?? "",

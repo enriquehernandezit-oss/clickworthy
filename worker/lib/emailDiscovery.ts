@@ -40,6 +40,20 @@ const JUNK_PATTERNS = [
 // Preferred local-parts for a business contact mailbox, best first.
 const PREFERRED_LOCALPARTS = ["info", "contact", "contacto", "hello", "hola", "reservations", "reservas", "admin"];
 
+// Mailboxes that exist on a restaurant's site but are the WRONG audience for a
+// cold owner pitch — a donations/careers/press/no-reply inbox never reaches the
+// decision-maker, and emailing it burns a send (and can hurt reputation) for a
+// guaranteed non-answer. Matched on the exact LOCAL PART (not a substring of the
+// whole address) so a domain like "jobsteakhouse.com" isn't caught by "jobs".
+// Deliberately NOT here: reservations / catering — at an independent those often
+// forward straight to the owner, so they stay eligible.
+const JUNK_LOCALPARTS = new Set([
+  "donations", "donate", "careers", "career", "jobs", "job", "recruiting", "recruitment",
+  "hr", "press", "media", "newsletter", "marketing", "noreply", "no-reply", "donotreply",
+  "do-not-reply", "unsubscribe", "mailer-daemon", "postmaster", "webmaster", "abuse",
+  "privacy", "legal", "compliance", "billing", "accounts", "accounting", "invoices",
+]);
+
 export type DiscoveredEmail = {
   email: string;
   rank: number; // 1 (best) .. 4 (weak); lower is better
@@ -69,6 +83,7 @@ function extractEmails(html: string): string[] {
   for (const raw of html.match(EMAIL_RE) ?? []) {
     const email = raw.toLowerCase();
     if (JUNK_PATTERNS.some((j) => email.includes(j))) continue;
+    if (JUNK_LOCALPARTS.has(email.split("@")[0])) continue; // wrong-audience mailbox (donations@, careers@, …)
     found.add(email);
   }
   return [...found];
