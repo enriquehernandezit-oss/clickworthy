@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getAllSettings, type OpexItem } from "@/lib/settings";
-import { opexMonthlyCents, pickAssumptions, type CostKey, type CostLine } from "@/lib/costs";
+import { isOneTime, opexMonthlyCents, pickAssumptions, type CostKey, type CostLine } from "@/lib/costs";
 import {
   resolveRange,
   getPnl,
@@ -317,10 +317,12 @@ function PnlTable({ pnl, rangeDays }: { pnl: Pnl; rangeDays: number }) {
 // obvious at a glance. Total is derived from the items (opexMonthlyCents), so
 // it can't drift from what's listed.
 function FixedOpexBreakdown({ items, rangeDays }: { items: OpexItem[]; rangeDays: number }) {
-  const monthly = opexMonthlyCents(items);
+  const monthly = opexMonthlyCents(items); // recurring only
   const apportioned = Math.round((monthly / 30.4375) * rangeDays);
-  // Sort largest-first so the bar chart reads top-down by weight.
-  const sorted = [...items].sort((a, b) => b.cents - a.cents);
+  // Sort largest-first so the bar chart reads top-down by weight. One-time
+  // setup fees are listed separately — they aren't part of the monthly run rate.
+  const recurring = items.filter((i) => !isOneTime(i)).sort((a, b) => b.cents - a.cents);
+  const oneTime = items.filter(isOneTime).sort((a, b) => b.cents - a.cents);
 
   return (
     <ConsoleCard>
@@ -337,11 +339,11 @@ function FixedOpexBreakdown({ items, rangeDays }: { items: OpexItem[]; rangeDays
         event in the assumptions above, not here.
       </p>
 
-      {sorted.length === 0 ? (
+      {recurring.length === 0 ? (
         <p className="mt-4 text-sm text-stone-500">No fixed subscriptions configured.</p>
       ) : (
         <ul className="mt-4 flex flex-col gap-3">
-          {sorted.map((item) => {
+          {recurring.map((item) => {
             const pct = monthly > 0 ? (item.cents / monthly) * 100 : 0;
             return (
               <li key={item.label}>
@@ -361,6 +363,31 @@ function FixedOpexBreakdown({ items, rangeDays }: { items: OpexItem[]; rangeDays
             );
           })}
         </ul>
+      )}
+
+      {/* One-time setup fees: charged once, in the month they were incurred —
+          deliberately outside the monthly run rate above so they don't read as
+          recurring. They still hit the P&L, but only in that month's window. */}
+      {oneTime.length > 0 && (
+        <div className="mt-5 border-t border-stone-200 pt-4">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-stone-500">
+            One-time setup (not in the monthly rate)
+          </h4>
+          <ul className="mt-2 flex flex-col gap-2">
+            {oneTime.map((item) => (
+              <li key={item.label} className="flex items-baseline justify-between gap-3 text-sm">
+                <span className="text-stone-800">
+                  {item.label}
+                  {item.note && <span className="ml-1.5 text-xs text-stone-500">· {item.note}</span>}
+                </span>
+                <span className="tabular-nums text-stone-600">
+                  {money(item.cents)}
+                  <span className="ml-1.5 text-xs text-stone-400">{item.oneTimeOn}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </ConsoleCard>
   );

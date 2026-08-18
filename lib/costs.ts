@@ -82,10 +82,30 @@ export function pickAssumptions(v: CostAssumptions): CostAssumptions {
   };
 }
 
-// Fixed monthly opex is DERIVED from the itemized subscription list — there is
-// no separately-stored total to drift out of sync with the line items.
+// Fixed monthly opex is DERIVED from the itemized list — there is no separately
+// stored total to drift out of sync with the line items. RECURRING items only:
+// a one-time setup fee is not monthly opex and would otherwise be charged every
+// month forever (see oneTimeOpexCents).
 export function opexMonthlyCents(items: OpexItem[]): number {
-  return (items ?? []).reduce((sum, i) => sum + (Number.isFinite(i?.cents) ? i.cents : 0), 0);
+  return (items ?? [])
+    .filter((i) => !i?.oneTimeOn)
+    .reduce((sum, i) => sum + (Number.isFinite(i?.cents) ? i.cents : 0), 0);
+}
+
+export function isOneTime(i: OpexItem): boolean {
+  return Boolean(i?.oneTimeOn);
+}
+
+// One-time setup fees that land inside [from, to) — charged once, in the window
+// containing their date, rather than prorated across every reporting window.
+// An unparseable date is skipped rather than silently counted in every window.
+export function oneTimeOpexCents(items: OpexItem[], from: Date, to: Date): number {
+  return (items ?? []).reduce((sum, i) => {
+    if (!i?.oneTimeOn || !Number.isFinite(i?.cents)) return sum;
+    const t = Date.parse(i.oneTimeOn);
+    if (!Number.isFinite(t)) return sum;
+    return t >= from.getTime() && t < to.getTime() ? sum + i.cents : sum;
+  }, 0);
 }
 
 // Pure event counts, all straight from SQL (see lib/financeStats.ts). No cost

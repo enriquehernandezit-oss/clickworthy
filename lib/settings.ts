@@ -90,11 +90,15 @@ export type SettingsMap = {
   opex_items: OpexItem[];
 };
 
-// One fixed monthly subscription line.
+// One fixed cost line — recurring monthly by default.
 export type OpexItem = {
   label: string;
-  cents: number; // per month
+  cents: number; // per month, or the total charge when oneTimeOn is set
   note?: string; // optional context shown under the label
+  // Set to make this a ONE-TIME charge (a setup/onboarding fee) counted only in
+  // the reporting window containing this date, instead of every month forever.
+  // Without it a $30 setup fee would silently become $360/yr of phantom opex.
+  oneTimeOn?: string; // 'YYYY-MM-DD'
 };
 
 const DEFAULTS: SettingsMap = {
@@ -125,14 +129,20 @@ const DEFAULTS: SettingsMap = {
   cost_sample_per_reply_cents: 7.0,
   cost_claid_per_photo_cents: 6.0, // 2 billable ops/photo. PROVISIONAL — no photo has been enhanced yet, so this has never met an invoice. Drives $0 today (0 photos delivered) and starts costing the moment the first order ships.
   cost_storage_per_photo_cents: 0.2, // nothing is ever deleted — rough NPV of storing one photo forever
-  // Real subscriptions as of 2026-08-18. Anthropic and Google Places are NOT
-  // here — they're usage-based and already priced per-event above. Lemwarm's
-  // $30 was a one-time setup fee, not a recurring line.
+  // Real costs as of 2026-08-18. Anthropic and Google Places are NOT here —
+  // they're usage-based and already priced per-event above. Cloudflare R2 is
+  // absent on purpose: egress is free and storage sits inside the 10 GB free
+  // tier at this volume, so it bills $0 (cost_storage_per_photo_cents carries
+  // the long-run placeholder).
   opex_items: [
     { label: "Railway", cents: 1000, note: "worker + web services" },
     { label: "Google Workspace", cents: 2400, note: "sending mailbox" },
     { label: "NeverBounce", cents: 800, note: "1,000 verification credits/mo" },
     { label: "Domain", cents: 100, note: "clickworthytool.com" },
+    // One-time setup, first month only. VERIFY: Lemwarm normally bills monthly
+    // (~$30/mo) — if the card is charged again, drop oneTimeOn to make it
+    // recurring, which raises fixed opex from $43 to ~$73/mo.
+    { label: "Lemwarm", cents: 3000, note: "one-time setup fee", oneTimeOn: "2026-08-01" },
   ],
 
   outreach_sender_name: "Enrique",

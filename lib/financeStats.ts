@@ -17,6 +17,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   apportionFixedCents,
+  oneTimeOpexCents,
   buildCostLines,
   sumBucket,
   sumCostLines,
@@ -105,6 +106,21 @@ function bounds(from: Date, to: Date) {
 // `any((...))`.
 const ENRICHED_FILTER = sql`enrichment_status in ('queued', 'needs_manual_email', 'contacted', 'rejected')`;
 
+// Stripe TEST-MODE checkouts must never reach the P&L. A test checkout runs the
+// real webhook, so it writes a real `payments` row (and a real enhancement_orders
+// row with a really-enhanced photo) backed by no actual money — inflating both
+// revenue AND the Claid/storage cost lines. Test-mode Checkout Sessions are
+// prefixed `cs_test_`, the only self-describing signal on the row.
+//
+// Filtered rather than deleted, deliberately: the rows stay auditable, and any
+// FUTURE test checkout self-excludes instead of needing another cleanup.
+const LIVE_PAYMENT = sql`coalesce(stripe_session_id, '') not like 'cs_test_%'`;
+
+// The enhancement orders / magic links paid for by a test checkout — excluded
+// from the photo cost drivers so revenue and costs stay consistent.
+const TEST_ORDER_IDS = sql`select enhancement_order_id from payments where enhancement_order_id is not null and coalesce(stripe_session_id, '') like 'cs_test_%'`;
+const TEST_LINK_IDS = sql`select magic_link_id from payments where magic_link_id is not null and coalesce(stripe_session_id, '') like 'cs_test_%'`;
+
 export async function getCostDrivers(from: Date, to: Date): Promise<CostDrivers> {
   const { fromIso, toIso } = bounds(from, to);
 
@@ -138,6 +154,7 @@ export async function getCostDrivers(from: Date, to: Date): Promise<CostDrivers>
       cross join lateral jsonb_array_elements(ml.package_results) e
       where jsonb_typeof(ml.package_results) = 'array'
         and ml.delivered_at >= ${fromIso}::timestamptz and ml.delivered_at < ${toIso}::timestamptz
+        and ml.id not in (${TEST_LINK_IDS})
     ),
     ss as (
       select
@@ -147,6 +164,7 @@ export async function getCostDrivers(from: Date, to: Date): Promise<CostDrivers>
       cross join lateral jsonb_array_elements(o.results) e
       where jsonb_typeof(o.results) = 'array'
         and o.completed_at >= ${fromIso}::timestamptz and o.completed_at < ${toIso}::timestamptz
+        and o.id not in (${TEST_ORDER_IDS})
     )
     select
       (coalesce(pkg.ok,0) + coalesce(ss.ok,0)) as delivered,
@@ -196,6 +214,7 @@ async function getRevenueRow(from: Date, to: Date): Promise<RevenueRow> {
       coalesce(sum(gross_cents) filter (where fee_source = 'stripe'), 0)::int as stripe_gross
     from payments
     where paid_at >= ${fromIso}::timestamptz and paid_at < ${toIso}::timestamptz
+      and ${LIVE_PAYMENT}
   `)) as unknown as RevenueRow[];
   return row ?? { gross: 0, fee: 0, refunded: 0, net: 0, pkg_gross: 0, ss_gross: 0, n: 0, stripe_fee: 0, stripe_gross: 0 };
 }
@@ -227,7 +246,9 @@ async function pnlCore(from: Date, to: Date, days: number, a: CostAssumptions) {
   const variableCostCents = sumCostLines(costLines);
   const acquireCents = sumBucket(costLines, "acquire");
   const serveCents = sumBucket(costLines, "serve");
-  const fixedOpexCents = apportionFixedCents(a, days);
+  // Recurring subscriptions prorated over the window, plus any one-time setup
+  // fee whose date falls inside it.
+  const fixedOpexCents = apportionFixedCents(a, days) + oneTimeOpexCents(a.opex_items, from, to);
   const netRevenueCents = rev.net - rev.refunded;
   const contributionCents = netRevenueCents - variableCostCents;
   const estimatedProfitCents = contributionCents - fixedOpexCents;
@@ -308,6 +329,7 @@ export async function getMonthlySeries(range: Range, a: CostAssumptions): Promis
            coalesce(sum(net_cents - refunded_cents), 0)::int as net
     from payments
     where paid_at >= ${fromIso}::timestamptz and paid_at < ${toIso}::timestamptz
+      and ${LIVE_PAYMENT}
     group by 1
   `)) as unknown as { month: string; gross: number; net: number }[];
 
@@ -382,7 +404,13 @@ export async function getMonthlySeries(range: Range, a: CostAssumptions): Promis
       photosFailed: photoMap.get(m)?.failed ?? 0,
     };
     const variable = sumCostLines(buildCostLines(drivers, a));
-    const fixed = apportionFixedCents(a, daysInMonthKey(m));
+    // Same rule as the P&L: recurring prorated, one-time charged to the month
+    // it was actually incurred (m is 'YYYY-MM').
+    const monthStart = new Date(`${m}-01T00:00:00Z`);
+    const monthEnd = new Date(monthStart);
+    monthEnd.setUTCMonth(monthEnd.getUTCMonth() + 1);
+    const fixed =
+      apportionFixedCents(a, daysInMonthKey(m)) + oneTimeOpexCents(a.opex_items, monthStart, monthEnd);
     return { month: m, grossCents: r?.gross ?? 0, netRevenueCents: r?.net ?? 0, costCents: variable + fixed };
   });
 }
@@ -445,7 +473,7 @@ export async function getClientEconomics(a: CostAssumptions): Promise<ClientRow[
              min(paid_at) as first_paid,
              max(paid_at) as last_paid
       from payments
-      where restaurant_id is not null
+      where restaurant_id is not null and ${LIVE_PAYMENT}
       group by restaurant_id
     ),
     sends as (
@@ -611,7 +639,7 @@ export async function getCityEconomics(a: CostAssumptions): Promise<CityRow[]> {
   const rows = (await db.execute(sql`
     with pay as (
       select restaurant_id, sum(gross_cents)::int as gross, sum(net_cents - refunded_cents)::int as net
-      from payments where restaurant_id is not null group by restaurant_id
+      from payments where restaurant_id is not null and ${LIVE_PAYMENT} group by restaurant_id
     ),
     sends as (
       select restaurant_id, count(*)::int as n from outreach_jobs where sent_at is not null group by restaurant_id
@@ -698,6 +726,7 @@ export async function getUnattributed(range: Range): Promise<SelfServeRow[]> {
     from payments p
     where p.line = 'self_serve'
       and p.paid_at >= ${fromIso}::timestamptz and p.paid_at < ${toIso}::timestamptz
+      and coalesce(p.stripe_session_id, '') not like 'cs_test_%'
     group by p.customer_email
     order by gross desc
     limit 100
@@ -728,6 +757,7 @@ export async function getPayingClientCount(from: Date, to: Date): Promise<number
     select count(distinct coalesce(restaurant_id::text, 'email:' || lower(customer_email)))::int as n
     from payments
     where paid_at >= ${fromIso}::timestamptz and paid_at < ${toIso}::timestamptz
+      and ${LIVE_PAYMENT}
   `)) as unknown as { n: number }[];
   return row?.n ?? 0;
 }
