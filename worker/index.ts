@@ -11,7 +11,7 @@
 
 import { PgBoss } from "pg-boss";
 import { config, requireKey } from "./config";
-import { SOURCE_QUEUE, ENRICH_QUEUE, SEND_QUEUE, REPLY_QUEUE, PACKAGE_QUEUE, STATS_QUEUE } from "@/lib/queues";
+import { SOURCE_QUEUE, ENRICH_QUEUE, SEND_QUEUE, REPLY_QUEUE, PACKAGE_QUEUE, STATS_QUEUE, SOURCING_REPORT_QUEUE } from "@/lib/queues";
 import { runSourcing, type SourceJobData } from "./jobs/sourceLeads";
 import { runEnrichment, type EnrichJobData } from "./jobs/enrichRestaurant";
 import { runSendOutreach, RAMP } from "./jobs/sendOutreach";
@@ -20,6 +20,7 @@ import { runSendBumps } from "./jobs/sendBumps";
 import { runProcessPackages } from "./jobs/processPackage";
 import { runProcessEnhancementOrders, recoverStuckPendingOrders } from "./jobs/processEnhancementOrders";
 import { runWeeklyStats } from "./jobs/weeklyStats";
+import { runSourcingReport } from "./jobs/sourcingReport";
 import { setSetting } from "@/lib/settings";
 import { WORKER_ENV_KEYS, envPresence } from "@/lib/envKeys";
 
@@ -44,6 +45,7 @@ async function main() {
     [REPLY_QUEUE]: NO_RETRY,
     [PACKAGE_QUEUE]: NO_RETRY,
     [STATS_QUEUE]: NO_RETRY,
+    [SOURCING_REPORT_QUEUE]: NO_RETRY,
   };
   for (const [q, cfg] of Object.entries(queueConfig)) {
     // createQueue only applies options on first creation; updateQueue enforces
@@ -97,12 +99,18 @@ async function main() {
     for (let i = 0; i < jobs.length; i++) await runWeeklyStats();
   });
 
+  // Nightly sourcing health report (runs after sourcing + enrichment settle).
+  await boss.work(SOURCING_REPORT_QUEUE, async (jobs) => {
+    for (let i = 0; i < jobs.length; i++) await runSourcingReport();
+  });
+
   // Crons (idempotent across restarts — pg-boss dedupes the schedule by queue).
   await boss.schedule(SOURCE_QUEUE, config.sourcingCron, {});
   await boss.schedule(SEND_QUEUE, config.sendCron, {});
   await boss.schedule(REPLY_QUEUE, config.replyPollCron, {});
   await boss.schedule(PACKAGE_QUEUE, config.packageCron, {});
   await boss.schedule(STATS_QUEUE, config.statsCron, {});
+  await boss.schedule(SOURCING_REPORT_QUEUE, config.sourcingReportCron, {});
 
   console.log(
     `[worker] up.\n` +
@@ -125,6 +133,7 @@ async function main() {
       replyPoll: config.replyPollCron,
       package: config.packageCron,
       stats: config.statsCron,
+      sourcingReport: config.sourcingReportCron,
     },
     cities: config.targetCities,
     bootedAt: new Date().toISOString(),

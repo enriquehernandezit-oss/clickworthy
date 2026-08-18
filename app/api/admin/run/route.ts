@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBoss } from "@/lib/queue";
-import { SOURCE_QUEUE, SEND_QUEUE, REPLY_QUEUE, STATS_QUEUE, PACKAGE_QUEUE } from "@/lib/queues";
+import { SOURCE_QUEUE, SEND_QUEUE, REPLY_QUEUE, STATS_QUEUE, PACKAGE_QUEUE, SOURCING_REPORT_QUEUE } from "@/lib/queues";
 
 // "Run now" — enqueue a job the worker will execute on its next poll. This only
 // ENQUEUES; if the worker is down the job simply waits. Throttled to one enqueue
@@ -9,7 +9,7 @@ import { SOURCE_QUEUE, SEND_QUEUE, REPLY_QUEUE, STATS_QUEUE, PACKAGE_QUEUE } fro
 // because it needs a per-restaurant payload — that's a per-row trigger (G5),
 // not a blank batch. `process-package` handles BOTH paid-package first passes
 // and self-serve retries, so it's the button that re-processes paid work.
-const RUNNABLE = new Set<string>([SOURCE_QUEUE, SEND_QUEUE, REPLY_QUEUE, STATS_QUEUE, PACKAGE_QUEUE]);
+const RUNNABLE = new Set<string>([SOURCE_QUEUE, SEND_QUEUE, REPLY_QUEUE, STATS_QUEUE, PACKAGE_QUEUE, SOURCING_REPORT_QUEUE]);
 
 export async function POST(request: NextRequest) {
   const form = await request.formData();

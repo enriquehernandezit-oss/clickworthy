@@ -81,6 +81,16 @@ export const config = {
   // Weekly pipeline report email (Monday ~1pm local, off-minute).
   statsCron: process.env.WORKER_STATS_CRON ?? "7 13 * * 1",
 
+  // Nightly sourcing health report email — runs a couple hours AFTER sourcing so
+  // per-restaurant enrichment has finished and the summary reflects verified
+  // emails / photo scores, not just raw sourcing counts. ~4am local, off-minute.
+  sourcingReportCron: process.env.WORKER_SOURCING_REPORT_CRON ?? "9 4 * * *",
+
+  // How far back the sourcing report counts "tonight's" leads. Must comfortably
+  // cover the gap between the sourcing cron and this report (default 2:17am ->
+  // 4:09am, so 6h is ample) without bleeding into the previous night's run.
+  sourcingReportLookbackHours: intEnv("WORKER_SOURCING_REPORT_LOOKBACK_HOURS", 6),
+
   // Public origin of the web app, used to build magic-link URLs and (for the
   // Postgres-blob storage fallback) absolute photo URLs.
   appOrigin: process.env.APP_ORIGIN ?? "https://clickworthytool.com",

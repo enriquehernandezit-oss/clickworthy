@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { getAllSettings } from "@/lib/settings";
 import { getDeliverability } from "@/lib/photoStats";
-import { ALL_QUEUES, SOURCE_QUEUE, SEND_QUEUE, REPLY_QUEUE, STATS_QUEUE, PACKAGE_QUEUE } from "@/lib/queues";
+import { ALL_QUEUES, SOURCE_QUEUE, SEND_QUEUE, REPLY_QUEUE, STATS_QUEUE, PACKAGE_QUEUE, SOURCING_REPORT_QUEUE } from "@/lib/queues";
 import { Card, EmptyState, SectionHeading, fmtDateTime } from "../../ui";
 import { PauseControl, AutosendControl, NumberSetting } from "./ControlToggles";
 import RunNow from "./RunNow";
@@ -87,6 +87,7 @@ const QUEUE_LABELS: Record<string, string> = {
   [REPLY_QUEUE]: "Reply cycle (poll + bump + Touch 2)",
   "process-package": "Process orders",
   [STATS_QUEUE]: "Weekly stats",
+  [SOURCING_REPORT_QUEUE]: "Nightly sourcing report",
 };
 
 const RUN_QUEUES = [
@@ -95,6 +96,7 @@ const RUN_QUEUES = [
   { queue: REPLY_QUEUE, label: "Check replies", hint: "Poll Gmail, send the bump + approved Touch 2s." },
   { queue: PACKAGE_QUEUE, label: "Process paid orders", hint: "Run the Claid first pass on paid packages + retry failed self-serve orders." },
   { queue: STATS_QUEUE, label: "Weekly report", hint: "Email the pipeline summary now." },
+  { queue: SOURCING_REPORT_QUEUE, label: "Nightly sourcing report", hint: "Email the sourcing/enrichment health summary now." },
 ];
 
 function staleness(nowMs: number, iso: string | undefined): string {

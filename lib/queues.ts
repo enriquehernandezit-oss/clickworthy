@@ -8,6 +8,7 @@ export const SEND_QUEUE = "send-outreach";
 export const REPLY_QUEUE = "reply-cycle";
 export const PACKAGE_QUEUE = "process-package";
 export const STATS_QUEUE = "weekly-stats";
+export const SOURCING_REPORT_QUEUE = "sourcing-report";
 
 export const ALL_QUEUES = [
   SOURCE_QUEUE,
@@ -16,4 +17,5 @@ export const ALL_QUEUES = [
   REPLY_QUEUE,
   PACKAGE_QUEUE,
   STATS_QUEUE,
+  SOURCING_REPORT_QUEUE,
 ] as const;

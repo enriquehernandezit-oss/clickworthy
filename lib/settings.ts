@@ -16,7 +16,7 @@ export type WorkerBootInfo = {
   outreachEnabled: boolean;
   dryRun: boolean;
   ramp: { start: number; step: number; cap: number };
-  crons: { sourcing: string; send: string; replyPoll: string; package: string; stats: string };
+  crons: { sourcing: string; send: string; replyPoll: string; package: string; stats: string; sourcingReport: string };
   cities: string[];
   bootedAt: string; // ISO — jsonb can't hold a Date
   // Booleans only — the go-live checklist uses this to know which keys the
