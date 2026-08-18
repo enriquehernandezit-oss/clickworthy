@@ -142,16 +142,29 @@ async function pendingCount(): Promise<number> {
 // fired). Restaurants stay `queued` while drafted — the NOT EXISTS guard below
 // stops a second run from drafting them again.
 async function draftBatch(autosend: boolean): Promise<void> {
-  // Drafting fills the review pile up to DRAFT_REVIEW_CAP, independent of the
-  // daily send cap (which sendApproved enforces separately). This lets a full
-  // batch of drafts be reviewed at once even while sending is capped or paused.
   const pending = await pendingCount();
-  const room = Math.max(0, DRAFT_REVIEW_CAP - pending);
+
+  // Two regimes:
+  //  - Manual approval (default): stage a full batch for review up to
+  //    DRAFT_REVIEW_CAP, independent of the daily send cap — sendApproved()
+  //    throttles the actual sends, so a human can work a big pile at their pace.
+  //  - Autosend: a draft is written already-approved and WILL send, so pace
+  //    drafting to the daily send cap. Otherwise one run would auto-approve up
+  //    to DRAFT_REVIEW_CAP emails at once and bank a large backlog that sends
+  //    (composed against a possibly-since-changed template) days later.
+  let room: number;
+  if (autosend) {
+    const cap = await dailyCap();
+    const already = await sentToday();
+    room = Math.max(0, cap - already - pending);
+  } else {
+    room = Math.max(0, DRAFT_REVIEW_CAP - pending);
+  }
 
   console.log(
-    `[draft] review pile ${pending}/${DRAFT_REVIEW_CAP}, drafting up to ${room}` +
-      (config.dryRun ? " [DRY RUN — no writes]" : "") +
-      (autosend ? " [AUTOSEND — drafts self-approve]" : "")
+    `[draft] pending ${pending}, drafting up to ${room}` +
+      (autosend ? " [AUTOSEND — paced to daily cap]" : ` [review pile / ${DRAFT_REVIEW_CAP}]`) +
+      (config.dryRun ? " [DRY RUN — no writes]" : "")
   );
   if (room === 0) return;
 

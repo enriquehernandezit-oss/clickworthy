@@ -23,7 +23,13 @@ const FIELD_MASK = [
   "places.businessStatus",
   "places.websiteUri",
   "places.nationalPhoneNumber",
-  "places.photos",
+  // Photo subfields are requested explicitly (not the broad `places.photos`) so
+  // the dependency is visible here: `.name` feeds photo scoring, and
+  // `.authorAttributions` is REQUIRED by ownerPhotos() to tell owner uploads from
+  // customer photos. Dropping authorAttributions would silently make ownerPhotos
+  // return [] for every place (no score, no dish) — keep both.
+  "places.photos.name",
+  "places.photos.authorAttributions",
   "places.delivery",
   "places.takeout",
   "places.dineIn",
@@ -133,12 +139,37 @@ export function ownerPhotos(place: Place): PlacePhoto[] {
   const placeName = normalizePhotoAuthor(place.displayName?.text);
   if (!placeName) return [];
   return (place.photos ?? []).filter((p) =>
-    (p.authorAttributions ?? []).some((a) => normalizePhotoAuthor(a.displayName) === placeName)
+    (p.authorAttributions ?? []).some((a) => authorMatchesPlace(normalizePhotoAuthor(a.displayName), placeName))
   );
 }
 
+// Normalize to bare lowercase alphanumerics + single spaces so cosmetic
+// differences don't block a match: strip diacritics ("Café" -> "cafe"), drop
+// apostrophes so possessives collapse ("Joe's" -> "joes", not "joe s"), then
+// turn any remaining punctuation into a single space.
 function normalizePhotoAuthor(value: string | undefined): string {
-  return (value ?? "").trim().toLowerCase();
+  return (value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "") // combining diacritical marks ("café" -> "cafe")
+    .replace(/['’]/g, "") // straight + curly apostrophes: possessives collapse, not split
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+// An owner upload is attributed to the business's own name — but the attribution
+// and the listing's displayName don't always match character-for-character (a
+// legal/parent name, or a location suffix: "The Gage Chicago" vs "The Gage").
+// Exact equality alone drops those, silently zeroing a real restaurant's photo
+// score and signature dish. So we also accept the case where one normalized name
+// is a WHOLE-WORD prefix of the other, guarding trivially short names that would
+// over-match a coincidental customer name.
+function authorMatchesPlace(author: string, place: string): boolean {
+  if (!author || !place) return false;
+  if (author === place) return true;
+  const [shorter, longer] = author.length <= place.length ? [author, place] : [place, author];
+  if (shorter.length < 3) return false; // too short to match on confidently
+  return longer.startsWith(shorter + " ");
 }
 
 // PRICE_LEVEL_* enum -> the 1–4 integer the schema/filters use ($ = 1 ... $$$$ = 4).

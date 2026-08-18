@@ -8,11 +8,12 @@
 //   bun run scripts/reverify-emails.ts --commit --limit 5  # same, first 5 only (sane first-run check)
 //
 // For each `needs_manual_email` row that has a website but no email yet, it runs
-// the SAME discovery + NeverBounce verification the enricher uses, sets the email,
-// then re-applies the EXACT enrichment gate (unchanged policy): a row moves to
-// `queued` only with BOTH a contactable email AND a signature dish. A row that
-// gets a verified email but still has no dish stays `needs_manual_email` — now
-// with the email pre-filled, so a human only has to add the dish.
+// the SAME discovery + NeverBounce verification the enricher uses and, mirroring
+// the current enrichment gate, moves the row to `queued` as soon as it finds a
+// contactable email. A signature dish still personalizes Touch 1 when present,
+// but is NOT required — dish-less leads queue too and draft with a generic
+// {{dish}} fallback (see worker/lib/outreachEmail). Only a missing/unverifiable
+// email leaves a row at `needs_manual_email`.
 //
 // Safety: never overwrites an existing email; never touches signatureDish or any
 // other field; skips suppressed rows; per-row try/catch so one bad site can't

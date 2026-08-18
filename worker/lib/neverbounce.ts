@@ -10,9 +10,10 @@ import { requireKey } from "../config";
 
 export type VerifyResult = "valid" | "invalid" | "disposable" | "catchall" | "unknown";
 
-// The verdict + the diagnostic flags NeverBounce returns alongside it. Flags
-// like "smtp_connectable" / "has_dns_mx" let us treat a strong-signal "unknown"
-// as contactable (see isContactable) instead of dropping a real address.
+// The verdict plus the diagnostic flags NeverBounce returns alongside it
+// (e.g. "smtp_connectable", "has_dns_mx", "role_account") — kept for logging
+// and future tuning. The contactable decision itself (isContactable) rests on
+// `result` only; the flags are not a safe substitute for a definitive verdict.
 export type VerifyVerdict = { result: VerifyResult; flags: string[] };
 
 export async function verifyEmail(email: string): Promise<VerifyVerdict> {
@@ -35,20 +36,19 @@ export async function verifyEmail(email: string): Promise<VerifyVerdict> {
 // Which verdicts we're willing to email:
 //   valid    — confirmed deliverable.
 //   catchall — domain accepts anything; unverifiable but usually real for a
-//              business's info@ address.
-//   unknown  — ONLY when the mailserver is reachable (smtp_connectable) and the
-//              domain has mail records (has_dns_mx). NeverBounce returns
-//              "unknown" when an accept-all/greylisting server won't confirm the
-//              specific mailbox — but such a server ACCEPTS the message rather
-//              than hard-bouncing it, so sending doesn't hurt sender reputation.
-//              This recovers real addresses (a restaurant's info@/hello@) that
-//              would otherwise be dropped. A longer NeverBounce timeout does NOT
-//              resolve these — the server simply never gives a definitive answer.
-// invalid / disposable are always dropped.
+//              business's info@ address, and an accept-all server takes the
+//              message rather than hard-bouncing it.
+// Everything else — invalid, disposable, and unknown — is dropped.
+//
+// We deliberately do NOT send to "unknown". A genuine accept-all server is
+// reported as `catchall` (handled above); an "unknown" is the case NeverBounce
+// could NOT resolve — most often greylisting, where the server DEFERS and only
+// later accepts or REJECTS based on whether the mailbox exists. Sending to those
+// risks a hard bounce on a nonexistent mailbox, which is exactly the sender-
+// reputation damage verification exists to prevent. `smtp_connectable` +
+// `has_dns_mx` only prove the server is reachable and the domain has MX — not
+// that the mailbox exists — so they are not a safe green light. (A longer
+// NeverBounce timeout doesn't help; the server just never gives an answer.)
 export function isContactable(v: VerifyVerdict): boolean {
-  if (v.result === "valid" || v.result === "catchall") return true;
-  if (v.result === "unknown" && v.flags.includes("smtp_connectable") && v.flags.includes("has_dns_mx")) {
-    return true;
-  }
-  return false;
+  return v.result === "valid" || v.result === "catchall";
 }
