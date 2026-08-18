@@ -83,7 +83,18 @@ export type SettingsMap = {
   cost_sample_per_reply_cents: number; // revenue-impact copy + free-sample Claid pass
   cost_claid_per_photo_cents: number; // AI-Edit + upscale, incl. typical retry waste
   cost_storage_per_photo_cents: number; // R2 + egress, charged once at delivery
-  opex_monthly_cents: number; // Railway + Workspace + Resend + domain, apportioned by days
+  // Fixed monthly subscriptions, ITEMIZED rather than one opaque total, so the
+  // financials page can show what the money actually goes to (and so a price
+  // change is a one-line edit against a named vendor). The total is derived —
+  // see opexMonthlyCents() in lib/costs.ts — never stored separately.
+  opex_items: OpexItem[];
+};
+
+// One fixed monthly subscription line.
+export type OpexItem = {
+  label: string;
+  cents: number; // per month
+  note?: string; // optional context shown under the label
 };
 
 const DEFAULTS: SettingsMap = {
@@ -93,20 +104,36 @@ const DEFAULTS: SettingsMap = {
   bump_after_days: 3,
   worker_boot_info: null,
 
-  // Provisional defaults — order-of-magnitude, meant to be replaced with real
-  // invoice numbers. Rationale for each is on the SettingsMap field above.
-  cost_source_per_lead_cents: 0.2, // Text Search ~$0.035 ÷ 20 results, spread over the wide-net pass rate; the search itself is rounding error — enrichment (photo scoring, capped) is the real per-lead cost, in cost_photo_score_per_photo_cents
-  cost_enrich_per_lead_cents: 4.0, // Sonnet ~1.5k in/300 out ≈ $0.009 + up to 3 web searches + NeverBounce ~$0.008
-  cost_photo_score_per_photo_cents: 0.6, // Places Photo ~$0.007 + Sonnet vision on one image
+  // Calibrated 2026-08-18 against measured API usage and the real subscription
+  // list (was: provisional order-of-magnitude guesses). Every line says where
+  // its number came from; anything still unmeasured is marked PROVISIONAL.
+  cost_source_per_lead_cents: 0.2, // Text Search ~$0.035 ÷ 20 results, spread over the wide-net pass rate; the search itself is rounding error — photo scoring is the real per-lead cost
+  // 0 by design: the chain-check (the only paid Claude call in enrichment) is
+  // OFF (WORKER_ENABLE_CHAIN_CHECK), and NeverBounce is a flat subscription, so
+  // it's a fixed opex line below rather than a per-lead charge. If verification
+  // volume ever exceeds the plan's credits, raise the NeverBounce opex line —
+  // don't reintroduce a per-lead number, or it double-counts the subscription.
+  cost_enrich_per_lead_cents: 0.0,
+  // MEASURED 2026-08-18: one Claude Vision call = 846 input + 132 output tokens
+  // on claude-sonnet-5 ≈ $0.0030, plus a Places Photo fetch ~$0.007 ≈ $0.010.
+  // NOTE: Sonnet 5 intro pricing ($2/$10 per MTok) ends 2026-08-31 → standard
+  // ($3/$15) puts the Vision half at ~$0.0045, so raise this to ~1.15 then.
+  cost_photo_score_per_photo_cents: 1.0,
   cost_email_per_send_cents: 0.0, // Gmail API is free; knob exists so swapping to a paid ESP is one edit
-  cost_sample_per_reply_cents: 30.0, // revenue-impact copy + the optional Claid first pass
-  cost_claid_per_photo_cents: 6.0, // 2 billable ops/photo. PROVISIONAL — the 3-way Claid test (HANDOFF §C.2) sets the real number
+  // Revenue-impact copy (~300 output tokens ≈ $0.005) + one Claid first pass.
+  // Inherits the Claid number's uncertainty — recalibrate both together.
+  cost_sample_per_reply_cents: 7.0,
+  cost_claid_per_photo_cents: 6.0, // 2 billable ops/photo. PROVISIONAL — no photo has been enhanced yet, so this has never met an invoice. Drives $0 today (0 photos delivered) and starts costing the moment the first order ships.
   cost_storage_per_photo_cents: 0.2, // nothing is ever deleted — rough NPV of storing one photo forever
-  // ~$36.20/mo: Railway ~$10 + Workspace (3 seats) $25.20 + domain ~$1; Resend free.
-  // TODO: Lemwarm is active (confirmed 2026-08-12, not dropped as previously assumed
-  // here) and its real monthly cost isn't folded into this figure yet — update once
-  // known, on /admin/photo/financials or directly here.
-  opex_monthly_cents: 3620,
+  // Real subscriptions as of 2026-08-18. Anthropic and Google Places are NOT
+  // here — they're usage-based and already priced per-event above. Lemwarm's
+  // $30 was a one-time setup fee, not a recurring line.
+  opex_items: [
+    { label: "Railway", cents: 1000, note: "worker + web services" },
+    { label: "Google Workspace", cents: 2400, note: "sending mailbox" },
+    { label: "NeverBounce", cents: 800, note: "1,000 verification credits/mo" },
+    { label: "Domain", cents: 100, note: "clickworthytool.com" },
+  ],
 
   outreach_sender_name: "Enrique",
   outreach_postal_address: "", // unset — footer shows a placeholder and sending is blocked until this is filled in

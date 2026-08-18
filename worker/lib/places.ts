@@ -106,6 +106,23 @@ export async function searchRestaurants(query: string, max: number): Promise<Pla
   return collected.slice(0, max);
 }
 
+// Fetches one place's details by ID. Used to RE-PULL photos for a re-score:
+// the transient photo refs from sourcing are never stored, so recovering a
+// missed score means fetching the place fresh. Same photo subfields as the
+// search field mask (see FIELD_MASK) — ownerPhotos() needs authorAttributions.
+export async function getPlaceById(placeId: string): Promise<Place | null> {
+  const apiKey = requireKey("googleMapsApiKey", "GOOGLE_MAPS_API_KEY");
+  const fieldMask = "id,displayName,photos.name,photos.authorAttributions";
+  const res = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`, {
+    headers: { "X-Goog-Api-Key": apiKey, "X-Goog-FieldMask": fieldMask },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`Places details failed (${res.status}) for ${placeId}: ${await res.text()}`);
+  }
+  return (await res.json()) as Place;
+}
+
 // Fetches the raw bytes of a place photo (follows the media redirect). Used
 // only in-memory for Claude Vision scoring — bytes are never persisted
 // (Google ToS forbids storing Places photos).

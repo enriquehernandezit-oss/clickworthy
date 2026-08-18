@@ -23,7 +23,7 @@
 //  7. Founder labor is not costed. Every sample and order is hand-finished, so
 //     contribution here is CASH margin, not economic margin.
 
-import type { SettingsMap } from "@/lib/settings";
+import type { OpexItem, SettingsMap } from "@/lib/settings";
 
 // --- Stripe fee estimate ----------------------------------------------------
 // Deliberately NOT a setting: the US card rate is published and changes ~once a
@@ -49,11 +49,13 @@ export type CostAssumptions = Pick<
   | "cost_sample_per_reply_cents"
   | "cost_claid_per_photo_cents"
   | "cost_storage_per_photo_cents"
-  | "opex_monthly_cents"
+  | "opex_items"
 >;
 
-// The eight keys that make up CostAssumptions, in display order. The settings
-// route validates against this same list, and the assumptions editor renders it.
+// The seven SCALAR per-event assumptions, in display order. The settings route
+// validates against this same list, and the assumptions editor renders it as
+// number inputs. Fixed opex is deliberately NOT here — it's an itemized list
+// (opex_items), rendered as its own breakdown rather than one opaque total.
 export const COST_KEYS = [
   "cost_source_per_lead_cents",
   "cost_enrich_per_lead_cents",
@@ -62,7 +64,6 @@ export const COST_KEYS = [
   "cost_sample_per_reply_cents",
   "cost_claid_per_photo_cents",
   "cost_storage_per_photo_cents",
-  "opex_monthly_cents",
 ] as const;
 
 export type CostKey = (typeof COST_KEYS)[number];
@@ -77,8 +78,14 @@ export function pickAssumptions(v: CostAssumptions): CostAssumptions {
     cost_sample_per_reply_cents: v.cost_sample_per_reply_cents,
     cost_claid_per_photo_cents: v.cost_claid_per_photo_cents,
     cost_storage_per_photo_cents: v.cost_storage_per_photo_cents,
-    opex_monthly_cents: v.opex_monthly_cents,
+    opex_items: v.opex_items,
   };
+}
+
+// Fixed monthly opex is DERIVED from the itemized subscription list — there is
+// no separately-stored total to drift out of sync with the line items.
+export function opexMonthlyCents(items: OpexItem[]): number {
+  return (items ?? []).reduce((sum, i) => sum + (Number.isFinite(i?.cents) ? i.cents : 0), 0);
 }
 
 // Pure event counts, all straight from SQL (see lib/financeStats.ts). No cost
@@ -149,13 +156,13 @@ export function sumBucket(lines: CostLine[], bucket: CostBucket): number {
   return lines.reduce((sum, l) => (l.bucket === bucket ? sum + l.totalCents : sum), 0);
 }
 
-// Fixed monthly opex (Railway + Workspace + Resend + domain) apportioned to a
-// window. Average month = 365.25/12 = 30.4375 days, so "last 30d" ≈ one month
+// Fixed monthly opex (the itemized subscriptions in opex_items) apportioned to
+// a window. Average month = 365.25/12 = 30.4375 days, so "last 30d" ≈ one month
 // and a year ≈ 12. Exact calendar proration would be ~3% tighter at month
 // boundaries and isn't worth the complexity here.
 const AVG_MONTH_DAYS = 30.4375;
 
 export function apportionFixedCents(a: CostAssumptions, rangeDays: number): number {
   if (rangeDays <= 0) return 0;
-  return Math.round((a.opex_monthly_cents / AVG_MONTH_DAYS) * rangeDays);
+  return Math.round((opexMonthlyCents(a.opex_items) / AVG_MONTH_DAYS) * rangeDays);
 }

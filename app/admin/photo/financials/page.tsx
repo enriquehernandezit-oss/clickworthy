@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { getAllSettings } from "@/lib/settings";
-import { pickAssumptions, type CostKey, type CostLine } from "@/lib/costs";
+import { getAllSettings, type OpexItem } from "@/lib/settings";
+import { opexMonthlyCents, pickAssumptions, type CostKey, type CostLine } from "@/lib/costs";
 import {
   resolveRange,
   getPnl,
@@ -31,17 +31,17 @@ const CLIENTS_PER_PAGE = 25;
 
 type SortKey = "contribution" | "revenue" | "spend" | "margin";
 
-// Editor metadata for the assumptions panel (keyed by the settings map). Step is
-// generous for opex (whole cents) and fine for sub-cent unit costs.
+// Editor metadata for the assumptions panel (keyed by the settings map). These
+// are the per-event unit costs only — fixed subscriptions are itemized in
+// opex_items and rendered by <FixedOpexBreakdown> instead.
 const COST_EDITORS: { key: CostKey; label: string; help: string; suffix: string; step: string }[] = [
   { key: "cost_source_per_lead_cents", label: "Lead sourcing", help: "Google Places Text Search, amortized per surviving lead.", suffix: "¢ / lead", step: "0.1" },
-  { key: "cost_enrich_per_lead_cents", label: "Enrichment", help: "Claude chain-check + web search + NeverBounce, per lead.", suffix: "¢ / lead", step: "0.1" },
+  { key: "cost_enrich_per_lead_cents", label: "Enrichment", help: "0 while the chain-check is off and NeverBounce is a fixed subscription (see Fixed opex).", suffix: "¢ / lead", step: "0.1" },
   { key: "cost_photo_score_per_photo_cents", label: "Photo scoring", help: "Places Photo fetch + Claude Vision, per scored photo.", suffix: "¢ / photo", step: "0.1" },
   { key: "cost_email_per_send_cents", label: "Cold email", help: "Gmail is free; set if you move to a paid ESP.", suffix: "¢ / send", step: "0.1" },
   { key: "cost_sample_per_reply_cents", label: "Free sample", help: "Revenue-impact copy + the optional Claid first pass, per reply.", suffix: "¢ / reply", step: "1" },
   { key: "cost_claid_per_photo_cents", label: "Claid production", help: "AI-Edit + upscale per photo. Include typical retry waste.", suffix: "¢ / photo", step: "0.5" },
   { key: "cost_storage_per_photo_cents", label: "Storage", help: "R2 + egress, charged once per delivered photo.", suffix: "¢ / photo", step: "0.1" },
-  { key: "opex_monthly_cents", label: "Fixed monthly opex", help: "Railway + Workspace + Resend + domain. Apportioned by days in range.", suffix: "¢ / month", step: "100" },
 ];
 
 async function loadFinancials(sp: Record<string, string | string[] | undefined>) {
@@ -135,8 +135,11 @@ export default async function PhotoFinancialsPage({
         </p>
       </section>
 
-      {/* 3 — Profit & loss */}
+      {/* 3 — Profit & loss, then what the single "Fixed opex" line is made of */}
       <PnlTable pnl={pnl} rangeDays={range.days} />
+      <div className="mt-4">
+        <FixedOpexBreakdown items={d.settings.values.opex_items} rangeDays={d.range.days} />
+      </div>
 
       {/* 4 — Revenue vs cost by month */}
       <MonthlyBars rows={d.monthly} />
@@ -303,7 +306,63 @@ function PnlTable({ pnl, rangeDays }: { pnl: Pnl; rangeDays: number }) {
           </table>
         </div>
       </ConsoleCard>
+
     </section>
+  );
+}
+
+// Fixed monthly subscriptions, itemized. The P&L only ever shows the
+// apportioned total, which says nothing about WHERE the money goes — this
+// breaks it out per vendor with a proportional bar so an outsized line is
+// obvious at a glance. Total is derived from the items (opexMonthlyCents), so
+// it can't drift from what's listed.
+function FixedOpexBreakdown({ items, rangeDays }: { items: OpexItem[]; rangeDays: number }) {
+  const monthly = opexMonthlyCents(items);
+  const apportioned = Math.round((monthly / 30.4375) * rangeDays);
+  // Sort largest-first so the bar chart reads top-down by weight.
+  const sorted = [...items].sort((a, b) => b.cents - a.cents);
+
+  return (
+    <ConsoleCard>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="font-semibold text-stone-900">Fixed monthly opex</h3>
+        <div className="text-sm tabular-nums text-stone-500">
+          <span className="font-semibold text-stone-900">{money(monthly)}</span> / month
+          <span className="mx-1.5 text-stone-300">·</span>
+          {money(apportioned)} over {rangeDays}d
+        </div>
+      </div>
+      <p className="mt-1 text-xs text-stone-500">
+        Recurring subscriptions only. Usage-based spend (Anthropic, Google Places) is priced per
+        event in the assumptions above, not here.
+      </p>
+
+      {sorted.length === 0 ? (
+        <p className="mt-4 text-sm text-stone-500">No fixed subscriptions configured.</p>
+      ) : (
+        <ul className="mt-4 flex flex-col gap-3">
+          {sorted.map((item) => {
+            const pct = monthly > 0 ? (item.cents / monthly) * 100 : 0;
+            return (
+              <li key={item.label}>
+                <div className="flex items-baseline justify-between gap-3 text-sm">
+                  <span className="font-medium text-stone-800">{item.label}</span>
+                  <span className="tabular-nums text-stone-600">
+                    {money(item.cents)}
+                    <span className="ml-1.5 text-xs text-stone-400">{pct.toFixed(0)}%</span>
+                  </span>
+                </div>
+                {/* Proportional bar — width is the share of total monthly opex. */}
+                <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-stone-100">
+                  <div className="h-full rounded-full bg-orange-400" style={{ width: `${pct}%` }} />
+                </div>
+                {item.note && <p className="mt-1 text-xs text-stone-500">{item.note}</p>}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </ConsoleCard>
   );
 }
 

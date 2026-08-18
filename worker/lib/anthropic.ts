@@ -5,11 +5,56 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { config, requireKey } from "../config";
+import { sendAlert } from "@/lib/alerts";
 
 let client: Anthropic | null = null;
 function getClient(): Anthropic {
   if (!client) client = new Anthropic({ apiKey: requireKey("anthropicApiKey", "ANTHROPIC_API_KEY") });
   return client;
+}
+
+// A billing/auth failure hits EVERY Claude call (photo scoring, dish detection,
+// Revenue Impact copy), and each is caught per-photo upstream — so without this
+// a depleted balance silently zeroes scores across a whole run with nothing in
+// the inbox. Alert at most once an hour (systemic errors persist; per-photo
+// alerts would be hundreds). In-memory cooldown is fine: the worker is long-
+// lived, and a reboot re-arming the alert is acceptable.
+let lastApiAlertAt = 0;
+const API_ALERT_COOLDOWN_MS = 60 * 60 * 1000;
+
+async function maybeAlertApiError(err: unknown): Promise<void> {
+  const msg = err instanceof Error ? err.message : String(err);
+  const status = (err as { status?: number })?.status;
+  const isBilling = /credit balance is too low|billing|payment|quota/i.test(msg);
+  const isAuth = status === 401 || /invalid x-api-key|authentication_error|authentication/i.test(msg);
+  if (!isBilling && !isAuth) return; // transient blips (429/500/overloaded) aren't a human-fix alert
+  if (Date.now() - lastApiAlertAt < API_ALERT_COOLDOWN_MS) return;
+  lastApiAlertAt = Date.now();
+  const kind = isBilling ? "credits/billing" : "authentication (API key)";
+  await sendAlert(
+    `Anthropic API ${kind} error — photo scoring is DOWN`,
+    `A Claude API call failed with a ${kind} error. This affects EVERY worker Claude call — ` +
+      `photo scoring, signature-dish detection, and Revenue Impact copy — so new leads get NO ` +
+      `photo score or dish until it's fixed (enrichment still completes, just empty).\n\n` +
+      `Error: ${msg}\n\n` +
+      (isBilling
+        ? "Add credits at console.anthropic.com -> Settings -> Billing."
+        : "Check ANTHROPIC_API_KEY on the worker service."),
+  ).catch(() => {}); // never let an alert failure mask the original error
+}
+
+// All worker Claude calls go through here so a systemic API failure (out of
+// credits, bad key) gets surfaced once instead of silently swallowed upstream.
+// The original error is still thrown for the caller's own per-call handling.
+async function createMessage(
+  params: Anthropic.MessageCreateParamsNonStreaming,
+): Promise<Anthropic.Message> {
+  try {
+    return await getClient().messages.create(params);
+  } catch (err) {
+    await maybeAlertApiError(err);
+    throw err;
+  }
 }
 
 // Pulls the first text block out of a Messages response.
@@ -36,7 +81,7 @@ export type PhotoScore = {
 // stored — Google ToS). contentType must be a Claude-supported image mime.
 export async function scorePhoto(bytes: Buffer, contentType: string): Promise<PhotoScore> {
   const mediaType = normalizeImageMime(contentType);
-  const message = await getClient().messages.create({
+  const message = await createMessage({
     model: config.claudeModel,
     max_tokens: 200,
     system:
@@ -85,7 +130,7 @@ export async function checkHospitalityGroup(
   name: string,
   city: string
 ): Promise<HospitalityGroupResult> {
-  const message = await getClient().messages.create({
+  const message = await createMessage({
     model: config.claudeModel,
     max_tokens: 500,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }],
@@ -139,7 +184,7 @@ export type RevenueImpactInputs = {
 // channels, where they keep 100% instead of paying commission. Lead with that
 // bleed, not with "your photos look bad."
 export async function generateRevenueImpactCopy(i: RevenueImpactInputs): Promise<string> {
-  const message = await getClient().messages.create({
+  const message = await createMessage({
     model: config.claudeModel,
     max_tokens: 300,
     system:
