@@ -66,7 +66,8 @@ export type SettingsMap = {
   // read by both services removes that failure mode entirely.
   outreach_sender_name: string; // signs every email + the Gmail From name — must match, or mail is signed by one name and sent as another
   outreach_postal_address: string; // CAN-SPAM requires a real physical address in every commercial email; empty renders a loud placeholder AND blocks sending (see sendApproved's pre-send assertion)
-  outreach_touch1_template: Touch1Template; // the cold-open email
+  outreach_touch1_template: Touch1Template; // the cold-open email (leads WITH a signature dish)
+  outreach_touch1_nodish_template: Touch1Template; // cold-open for leads with NO signature dish — the dish-personalized copy would read wrong for them
   outreach_bump_template: BumpTemplate; // the one-time Touch 1.5 follow-up
   outreach_touch2_template: Touch2Template; // the enhanced-sample delivery + funnel link
 
@@ -174,6 +175,38 @@ const DEFAULTS: SettingsMap = {
       body:
         "{{greeting}}\n\n" +
         "Estaba viendo {{restaurant}} en línea y el {{dish}} me llamó la atención — pero honestamente, la foto no le hace justicia. Y hoy en día las fotos venden más que el menú.\n\n" +
+        "Tengo un estudio pequeño que mejora fotos reales de comida para restaurantes independientes (nada de fotos de banco ni comida falsa de IA — sus platos reales, con el aspecto que tienen en persona).\n\n" +
+        "¿Quiere verlo con su propia comida? Responda con una foto de cualquier plato — aunque sea del celular — y se la devuelvo mejorada en un día. Gratis, sin compromiso. Si no le encanta, la borra y ya.\n\n" +
+        "{{senderName}}\nClickworthy",
+    },
+  },
+  // Cold-open for leads with NO signature dish on file. Same offer and shape as
+  // outreach_touch1_template, but every {{dish}} reference is gone — it leans on
+  // the restaurant name instead, so it reads naturally when there's no dish to
+  // name. sendOutreach picks this automatically when a lead has no dish.
+  outreach_touch1_nodish_template: {
+    en: {
+      subjects: [
+        "your photos at {{restaurant}}",
+        "quick question about {{restaurant}}'s photos",
+        "the food photos at {{restaurant}}",
+      ],
+      body:
+        "{{greeting}}\n\n" +
+        "I was looking at {{restaurant}} online and your food looks great — but honestly, the photos don't do it justice. And photos are doing more selling than menus these days.\n\n" +
+        "I run a small studio that enhances real food photos for independent restaurants (no stock images, no fake AI food — your actual dishes, made to look the way they do in person).\n\n" +
+        "Want to see it on your own food? Reply with one photo of any dish — even a phone shot — and I'll send it back enhanced within a day. Free, no strings. If you don't love it, delete it and that's that.\n\n" +
+        "{{senderName}}\nClickworthy",
+    },
+    es: {
+      subjects: [
+        "sus fotos en {{restaurant}}",
+        "una pregunta sobre las fotos de {{restaurant}}",
+        "las fotos de comida de {{restaurant}}",
+      ],
+      body:
+        "{{greeting}}\n\n" +
+        "Estaba viendo {{restaurant}} en línea y su comida se ve muy bien — pero honestamente, las fotos no le hacen justicia. Y hoy en día las fotos venden más que el menú.\n\n" +
         "Tengo un estudio pequeño que mejora fotos reales de comida para restaurantes independientes (nada de fotos de banco ni comida falsa de IA — sus platos reales, con el aspecto que tienen en persona).\n\n" +
         "¿Quiere verlo con su propia comida? Responda con una foto de cualquier plato — aunque sea del celular — y se la devuelvo mejorada en un día. Gratis, sin compromiso. Si no le encanta, la borra y ya.\n\n" +
         "{{senderName}}\nClickworthy",

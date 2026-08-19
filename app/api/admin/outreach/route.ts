@@ -27,30 +27,41 @@ type Restaurant = typeof restaurants.$inferSelect;
 // cross Railway's per-service boundary, which used to mean a redrafted email
 // could ship with a missing postal address even when the worker's own env was
 // fully configured.
-async function loadTemplateAndIdentity(): Promise<{ template: Touch1Template; identity: ComposeIdentity }> {
-  const [template, senderNameSetting, postalAddressSetting] = await Promise.all([
+async function loadTemplateAndIdentity(): Promise<{
+  template: Touch1Template;
+  nodishTemplate: Touch1Template;
+  identity: ComposeIdentity;
+}> {
+  const [template, nodishTemplate, senderNameSetting, postalAddressSetting] = await Promise.all([
     getSetting("outreach_touch1_template"),
+    getSetting("outreach_touch1_nodish_template"),
     getSetting("outreach_sender_name"),
     getSetting("outreach_postal_address"),
   ]);
-  return { template, identity: { senderName: senderNameSetting, postalAddress: postalAddressSetting } };
+  return { template, nodishTemplate, identity: { senderName: senderNameSetting, postalAddress: postalAddressSetting } };
 }
 
 type RedraftResult =
   | { ok: true; subject: string; body: string }
   | { ok: false; reason: string };
 
-function redraftOne(r: Restaurant, template: Touch1Template, identity: ComposeIdentity): RedraftResult {
-  if (!r.signatureDish) return { ok: false, reason: "no signature dish on file" };
+function redraftOne(
+  r: Restaurant,
+  template: Touch1Template,
+  nodishTemplate: Touch1Template,
+  identity: ComposeIdentity,
+): RedraftResult {
+  // Dish leads get the dish template; dish-less leads get the no-dish template,
+  // so a missing dish is no longer a reason to refuse a redraft.
   try {
     const composed = composeTouch1({
       restaurantName: r.name,
       firstName: r.contactFirstName,
-      dish: r.signatureDish,
+      dish: r.signatureDish ?? "",
       city: r.city,
       language: normalizeLanguage(r.language),
       subjectVariant: r.id,
-      template,
+      template: r.signatureDish ? template : nodishTemplate,
       identity,
     });
     return { ok: true, ...composed };
@@ -73,7 +84,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (action === "redraft_all") {
-    const { template, identity } = await loadTemplateAndIdentity();
+    const { template, nodishTemplate, identity } = await loadTemplateAndIdentity();
     // Only rows still awaiting approval — an already-approved-but-unsent draft
     // is left alone (redrafting it would silently change what a human already
     // signed off on).
@@ -93,7 +104,7 @@ export async function POST(request: NextRequest) {
     let updated = 0;
     const skipped: string[] = [];
     for (const { job, r } of pending) {
-      const result = redraftOne(r, template, identity);
+      const result = redraftOne(r, template, nodishTemplate, identity);
       if (!result.ok) {
         skipped.push(`${r.name} (${result.reason})`);
         continue;
@@ -167,8 +178,8 @@ export async function POST(request: NextRequest) {
     const [r] = await db.select().from(restaurants).where(eq(restaurants.id, job.restaurantId)).limit(1);
     if (!r) return NextResponse.json({ error: "Restaurant not found" }, { status: 404 });
 
-    const { template, identity } = await loadTemplateAndIdentity();
-    const result = redraftOne(r, template, identity);
+    const { template, nodishTemplate, identity } = await loadTemplateAndIdentity();
+    const result = redraftOne(r, template, nodishTemplate, identity);
     if (!result.ok) {
       return NextResponse.json(
         { error: result.reason === "no signature dish on file" ? "No signature dish on file — set one on the restaurant, then redraft." : `Couldn't redraft: ${result.reason}.` },

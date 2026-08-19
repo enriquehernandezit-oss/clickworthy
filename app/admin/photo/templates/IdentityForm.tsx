@@ -77,7 +77,73 @@ function TextField({
   );
 }
 
-export default function IdentityForm({ senderName, postalAddress }: { senderName: string; postalAddress: string }) {
+// Saving a new sender name or postal address only changes what FUTURE drafts
+// say — drafts already waiting in Approvals keep the old signature and footer
+// baked into their stored body. This button recomposes every pending draft with
+// the current identity (and current templates), so an identity change actually
+// reaches the review pile. Approved drafts are left alone.
+function ApplyIdentityToPending({ pendingDrafts }: { pendingDrafts: number }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  const apply = async () => {
+    if (!window.confirm(`Rewrite all ${pendingDrafts} pending draft${pendingDrafts === 1 ? "" : "s"} with the current sender name and postal address? Approved drafts are left alone.`)) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const fd = new FormData();
+      fd.set("action", "redraft_all");
+      const res = await fetch("/api/admin/outreach", { method: "POST", body: fd });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) setMsg({ text: body?.error ?? "Failed.", ok: false });
+      else {
+        setMsg({ text: `Rewrote ${body.updated} draft${body.updated === 1 ? "" : "s"}.`, ok: true });
+        router.refresh();
+      }
+    } catch {
+      setMsg({ text: "Network error.", ok: false });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-stone-200 bg-white p-5">
+      <div className="text-base font-semibold text-stone-900">Apply identity to pending drafts</div>
+      <p className="mt-1 max-w-xl text-sm text-stone-600">
+        Saving above only affects new drafts. Use this to push the current sender name and postal
+        address into the {pendingDrafts} draft{pendingDrafts === 1 ? "" : "s"} already waiting for approval.
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={busy || pendingDrafts === 0}
+          onClick={apply}
+          title={pendingDrafts === 0 ? "No pending drafts to rewrite" : undefined}
+          className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm font-semibold text-stone-800 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {busy ? "Applying…" : `Apply to ${pendingDrafts} pending draft${pendingDrafts === 1 ? "" : "s"}`}
+        </button>
+        {msg && (
+          <span className={`text-xs ${msg.ok ? "text-teal-700" : "text-red-600"}`} role="alert">
+            {msg.text}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function IdentityForm({
+  senderName,
+  postalAddress,
+  pendingDrafts,
+}: {
+  senderName: string;
+  postalAddress: string;
+  pendingDrafts: number;
+}) {
   return (
     <div className="flex flex-col gap-4">
       {!postalAddress.trim() && (
@@ -100,6 +166,7 @@ export default function IdentityForm({ senderName, postalAddress }: { senderName
         value={postalAddress}
         placeholder="123 Main St, Miami, FL 33101"
       />
+      <ApplyIdentityToPending pendingDrafts={pendingDrafts} />
     </div>
   );
 }

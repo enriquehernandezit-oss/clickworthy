@@ -67,7 +67,7 @@ export default async function TemplatesPage() {
       <section>
         <SectionHeading>Identity</SectionHeading>
         <div className="mt-3">
-          <IdentityForm senderName={values.outreach_sender_name} postalAddress={values.outreach_postal_address} />
+          <IdentityForm senderName={values.outreach_sender_name} postalAddress={values.outreach_postal_address} pendingDrafts={pendingDrafts} />
         </div>
       </section>
 
@@ -84,6 +84,16 @@ export default async function TemplatesPage() {
             identity={identity}
             previewRestaurant={previewRestaurant}
             pendingDrafts={pendingDrafts}
+            title="Touch 1 — with a signature dish"
+          />
+          <Touch1Editor
+            initialTemplate={values.outreach_touch1_nodish_template}
+            identity={identity}
+            previewRestaurant={previewRestaurant}
+            pendingDrafts={pendingDrafts}
+            settingsKey="outreach_touch1_nodish_template"
+            title="Touch 1 — no signature dish"
+            variant="nodish"
           />
           <BumpEditor
             initialTemplate={values.outreach_bump_template}

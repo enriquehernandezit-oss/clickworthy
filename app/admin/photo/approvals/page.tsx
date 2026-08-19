@@ -47,6 +47,7 @@ async function getQueue() {
       restaurantId: restaurants.id,
       restaurantName: restaurants.name,
       city: restaurants.city,
+      website: restaurants.website,
       language: restaurants.language,
       signatureDish: restaurants.signatureDish,
     })
@@ -139,6 +140,29 @@ export default async function ApprovalsPage({
                   <div className="text-xs tabular-nums text-stone-500">drafted {fmtDateTime(d.draftedAt)}</div>
                 </div>
                 {d.city && <div className="mt-1 text-xs text-stone-500">{d.city}</div>}
+                {/* Quick jumps for reviewing a draft: the restaurant's own site
+                    (to sanity-check the offer) and its full profile in the tool. */}
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Link
+                    href={`/admin/photo/restaurants/${d.restaurantId}`}
+                    target="_blank"
+                    className="rounded-md border border-stone-300 bg-white px-2 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50"
+                  >
+                    Restaurant profile ↗
+                  </Link>
+                  {d.website ? (
+                    <a
+                      href={d.website}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded-md border border-stone-300 bg-white px-2 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50"
+                    >
+                      Website ↗
+                    </a>
+                  ) : (
+                    <span className="rounded-md border border-stone-200 bg-stone-50 px-2 py-1 text-xs text-stone-400">No website</span>
+                  )}
+                </div>
 
                 {d.kind === "touch1" && (
                   <>

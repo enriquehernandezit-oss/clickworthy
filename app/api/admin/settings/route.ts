@@ -18,7 +18,7 @@ const NON_NEG_NUMBER_KEYS = new Set<string>(COST_KEYS);
 const TEXT_KEYS = new Set(["outreach_sender_name", "outreach_postal_address"]);
 const MAX_TEXT_LEN = 300;
 // Whole template objects, sent as a JSON-encoded string in the `value` field.
-const TEMPLATE_KEYS = new Set(["outreach_touch1_template", "outreach_bump_template", "outreach_touch2_template"]);
+const TEMPLATE_KEYS = new Set(["outreach_touch1_template", "outreach_touch1_nodish_template", "outreach_bump_template", "outreach_touch2_template"]);
 
 function templateErrorMessage(err: unknown): string {
   return err instanceof TemplateRenderError || err instanceof Error ? err.message : "Invalid template.";
@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
     // live compose — the worker's own try/catch around compose is a backstop,
     // not the primary defense.
     try {
-      if (key === "outreach_touch1_template") {
+      if (key === "outreach_touch1_template" || key === "outreach_touch1_nodish_template") {
         const t = parsed as Partial<Touch1Template> | null;
         for (const lang of ["en", "es"] as const) {
           const branch = t?.[lang];
@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
     }
 
     await setSetting(
-      key as "outreach_touch1_template" | "outreach_bump_template" | "outreach_touch2_template",
+      key as "outreach_touch1_template" | "outreach_touch1_nodish_template" | "outreach_bump_template" | "outreach_touch2_template",
       parsed as never
     );
     return NextResponse.json({ ok: true, key });

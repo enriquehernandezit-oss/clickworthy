@@ -28,11 +28,17 @@ export default function Touch1Editor({
   identity,
   previewRestaurant,
   pendingDrafts,
+  settingsKey = "outreach_touch1_template",
+  title = "Touch 1 — the cold open",
+  variant = "dish",
 }: {
   initialTemplate: Touch1Template;
   identity: Identity;
   previewRestaurant: PreviewRestaurant;
   pendingDrafts: number;
+  settingsKey?: "outreach_touch1_template" | "outreach_touch1_nodish_template";
+  title?: string;
+  variant?: "dish" | "nodish";
 }) {
   const router = useRouter();
   const [template, setTemplate] = useState<Touch1Template>(initialTemplate);
@@ -49,7 +55,7 @@ export default function Touch1Editor({
       const composed = composeTouch1({
         restaurantName: previewRestaurant.name,
         firstName: previewRestaurant.contactFirstName,
-        dish: previewRestaurant.signatureDish,
+        dish: variant === "nodish" ? "" : previewRestaurant.signatureDish,
         city: previewRestaurant.city,
         language: lang,
         subjectVariant: subjectIdx,
@@ -78,7 +84,7 @@ export default function Touch1Editor({
     setMsg(null);
     try {
       const fd = new FormData();
-      fd.set("key", "outreach_touch1_template");
+      fd.set("key", settingsKey);
       fd.set("value", JSON.stringify(template));
       const res = await fetch("/api/admin/settings", { method: "POST", body: fd });
       const body = await res.json().catch(() => ({}));
@@ -162,7 +168,7 @@ export default function Touch1Editor({
     <div className="rounded-xl border border-stone-200 bg-white p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <div>
-          <div className="text-base font-semibold text-stone-900">Touch 1 — the cold open</div>
+          <div className="text-base font-semibold text-stone-900">{title}</div>
           <p className="mt-1 max-w-xl text-sm text-stone-600">
             Sent to a queued restaurant once a human approves the draft. Link-free and price-free —
             the only ask is a reply.
@@ -212,7 +218,7 @@ export default function Touch1Editor({
           <details className="text-xs text-stone-500">
             <summary className="cursor-pointer font-medium text-stone-600">Available variables</summary>
             <ul className="mt-2 flex flex-col gap-1">
-              {VARS_HELP.map((v) => (
+              {VARS_HELP.filter((v) => variant === "dish" || v.key !== "dish").map((v) => (
                 <li key={v.key}>
                   <code className="rounded bg-stone-100 px-1 py-0.5">{`{{${v.key}}}`}</code> — {v.desc}
                 </li>

@@ -170,8 +170,9 @@ async function draftBatch(autosend: boolean): Promise<void> {
 
   // Fetched once per batch, not per restaurant — one round-trip, and every
   // restaurant in this run composes against the identical template/identity.
-  const [template, senderNameSetting, postalAddressSetting] = await Promise.all([
+  const [template, nodishTemplate, senderNameSetting, postalAddressSetting] = await Promise.all([
     getSetting("outreach_touch1_template"),
+    getSetting("outreach_touch1_nodish_template"),
     getSetting("outreach_sender_name"),
     getSetting("outreach_postal_address"),
   ]);
@@ -204,10 +205,9 @@ async function draftBatch(autosend: boolean): Promise<void> {
       continue;
     }
 
-    // A signature dish personalizes Touch 1 when present, but is no longer
-    // required to draft — composeTouch1 falls back to a generic {{dish}} for
-    // dish-less leads (see outreachEmail). Every draft is human-reviewed before
-    // approval, so the generic wording gets tailored then.
+    // Leads WITH a dish get the dish-personalized template; leads without one
+    // get the no-dish template (the dish copy would read wrong for them). Both
+    // are editable on /admin/photo/templates.
     const language = normalizeLanguage(r.language);
     let composed: { subject: string; body: string };
     try {
@@ -218,7 +218,7 @@ async function draftBatch(autosend: boolean): Promise<void> {
         city: r.city,
         language,
         subjectVariant: r.id,
-        template,
+        template: r.signatureDish ? template : nodishTemplate,
         identity,
       });
     } catch (err) {
