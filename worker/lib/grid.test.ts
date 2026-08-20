@@ -6,7 +6,7 @@ import { expect, test, describe } from "bun:test";
 import { CITY_GRIDS, interleaveByCity } from "./grid";
 
 // The four cities the pipeline ships targeting (config.targetCities default).
-const SHIPPED_CITIES = ["Miami, FL", "New York, NY", "Chicago, IL", "Los Angeles, CA"];
+const SHIPPED_CITIES = ["Miami, FL", "New York, NY", "Chicago, IL", "Los Angeles, CA", "Nashville, TN", "Denver, CO", "San Diego, CA"];
 
 describe("CITY_GRIDS", () => {
   test("every shipped target city has grid cells", () => {

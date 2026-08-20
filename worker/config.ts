@@ -65,10 +65,13 @@ export const config = {
   nightlyEnrichCap: intEnv("WORKER_NIGHTLY_ENRICH_CAP", 50),
 
   // Cities to source, SEMICOLON-separated (so each entry can be "City, State").
-  // Clickworthy is 100% US-based: Miami, New York, Chicago, Los Angeles.
+  // Each MUST have a grid in worker/lib/grid.ts. Added Nashville/Denver/San Diego
+  // for email supply (measured higher email-hit-rate than Miami/LA). NOTE: if
+  // WORKER_TARGET_CITIES is set on Railway it OVERRIDES this default — update it
+  // there too, or unset it to use this list.
   targetCities: (
     process.env.WORKER_TARGET_CITIES ??
-    "Miami, FL; New York, NY; Chicago, IL; Los Angeles, CA"
+    "Miami, FL; New York, NY; Chicago, IL; Los Angeles, CA; Nashville, TN; Denver, CO; San Diego, CA"
   )
     .split(";")
     .map((c) => c.trim())
