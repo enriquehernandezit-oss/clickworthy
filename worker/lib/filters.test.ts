@@ -57,6 +57,12 @@ describe("passesHardFilters — defaults", () => {
   test("non-operational fails", () => {
     expect(passesHardFilters(place({ businessStatus: "CLOSED_TEMPORARILY" })).pass).toBe(false);
   });
+
+  test("a known franchise fails even when every metric qualifies", () => {
+    const r = passesHardFilters(place({ displayName: { text: "Pizza Hut" }, userRatingCount: 727, priceLevel: "PRICE_LEVEL_INEXPENSIVE" }));
+    expect(r.pass).toBe(false);
+    if (!r.pass) expect(r.reason).toContain("chain");
+  });
 });
 
 describe("passesHardFilters — injectable thresholds", () => {

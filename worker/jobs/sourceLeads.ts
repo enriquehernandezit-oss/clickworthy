@@ -32,6 +32,7 @@ import {
   type Place,
 } from "../lib/places";
 import { passesHardFilters } from "../lib/filters";
+import { isKnownChain } from "../lib/chains";
 import { CITY_GRIDS } from "../lib/grid";
 import { ENRICH_QUEUE, type EnrichJobData } from "./enrichRestaurant";
 
@@ -94,7 +95,13 @@ export async function runSourcing(boss: PgBoss, data: SourceJobData): Promise<vo
         .where(inArray(restaurants.googlePlaceId, allIds))
     : [];
   const existingIds = new Set(existingRows.map((r) => r.pid));
-  const newCandidates = [...discovered.values()].filter((c) => !existingIds.has(c.place.id));
+  const newAll = [...discovered.values()].filter((c) => !existingIds.has(c.place.id));
+
+  // Drop known national franchises BEFORE spending a Place Details call on them —
+  // the Nearby result already carries displayName, so this is free. They're not
+  // recorded (no row), so they just get re-skipped for free on future sweeps.
+  const newCandidates = newAll.filter((c) => !isKnownChain(c.place.displayName?.text));
+  const chainsSkipped = newAll.length - newCandidates.length;
 
   // --- 3. Cap the number of new candidates we spend on this run. Uncapped ones
   //        simply reappear in tomorrow's sweep (they're not recorded), so the
@@ -173,7 +180,7 @@ export async function runSourcing(boss: PgBoss, data: SourceJobData): Promise<vo
 
   console.log(
     `[source] done: swept ${cellsSwept} cells (${cellFailures} failed), ` +
-      `discovered ${discovered.size} unique, ${newCandidates.length} new ` +
+      `discovered ${discovered.size} unique, ${chainsSkipped} chains skipped, ${newCandidates.length} new ` +
       `(${toProcess.length} processed this run), ${enqueued} enqueued, ${rejected} filtered out, ` +
       `${detailsFailed} details-failed` +
       (config.dryRun ? " (DRY RUN)" : "")

@@ -8,6 +8,7 @@
 
 import type { Place } from "./places";
 import { priceLevelToInt } from "./places";
+import { isKnownChain } from "./chains";
 
 export type FilterResult = { pass: true } | { pass: false; reason: string };
 
@@ -45,6 +46,12 @@ export function passesHardFilters(
   const rating = place.rating ?? null;
   const reviews = place.userRatingCount ?? null;
   const price = priceLevelToInt(place.priceLevel);
+
+  // Known national franchise — a guaranteed non-lead (corporate owns the brand
+  // photography). Deterministic and free; the neighborhood grid surfaces plenty.
+  if (isKnownChain(place.displayName?.text)) {
+    return { pass: false, reason: `known chain (${place.displayName?.text ?? "?"})` };
+  }
 
   // Rating ceiling is optional under the wide net. When set, compare with `>`
   // so an exact-boundary value passes (4.2 > 4.2 is false in IEEE754). A place
