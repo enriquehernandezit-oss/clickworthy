@@ -13,16 +13,26 @@ export type FilterResult = { pass: true } | { pass: false; reason: string };
 
 export type FilterThresholds = {
   minReviews: number;
+  maxReviews: number | null; // null = no ceiling
   maxPriceLevel: number; // 1 = $, 2 = $$, ...
   requireWebsite: boolean;
   maxRating: number | null; // null = no rating ceiling (wide net)
 };
 
-// Wide-net defaults: any operational, affordable, real-but-not-fine-dining
+// Grid-era defaults: any operational, affordable, real-but-not-famous
 // restaurant with a website we can scrape an email from. No rating ceiling —
 // we email regardless of how good their current photos already look.
+//
+// The review CEILING is back (the original 30–500 band was removed under the
+// wide net) — but the history matters: it never "limited too much." It starved
+// because citywide Text Search fed it a prominence-ranked pool whose median was
+// 2,353 reviews (one restaurant under 150 in the whole DB). With the
+// neighborhood grid feeding a real cross-section, the ceiling does its actual
+// job: a place with thousands of reviews is an established destination that
+// buys its own photography, and (measured) the segment we hand-reject.
 export const DEFAULT_FILTER_THRESHOLDS: FilterThresholds = {
   minReviews: 20,
+  maxReviews: 800,
   maxPriceLevel: 2,
   requireWebsite: true,
   maxRating: null,
@@ -45,9 +55,12 @@ export function passesHardFilters(
   }
 
   // Enough reviews to be a real, operating business — not a fake/placeholder
-  // listing. No upper bound: a well-reviewed independent is still a fine lead.
+  // listing — but below the ceiling that marks an established destination.
   if (reviews === null) return { pass: false, reason: "no review count" };
   if (reviews < t.minReviews) return { pass: false, reason: `only ${reviews} reviews (<${t.minReviews})` };
+  if (t.maxReviews !== null && reviews > t.maxReviews) {
+    return { pass: false, reason: `${reviews} reviews (>${t.maxReviews}) — established destination` };
+  }
 
   // Reject only KNOWN-expensive places ($$$+); fine dining already pays for
   // professional photography. A missing price level is NOT a rejection under the

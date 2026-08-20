@@ -1,16 +1,38 @@
-// Sourcing job: query Google Places for restaurants in each target city, apply
-// the hard filters, upsert the survivors into `restaurants`, and enqueue a
-// per-restaurant enrichment job for the NEW ones. Runs nightly on a cron (see
-// worker/index.ts).
+// Sourcing job: sweep the neighborhood GRID (worker/lib/grid.ts) with Google
+// Places Nearby Search, keep the never-before-seen restaurants, and enqueue a
+// per-restaurant enrichment job for the ones that clear the hard filters. Runs
+// nightly on a cron (see worker/index.ts).
+//
+// WHY A GRID, NOT "restaurants in {city}" — citywide Text Search is
+// prominence-ranked, so it structurally returns famous, well-photographed
+// destinations (measured Aug 2026: median 9,554 reviews, zero places under 500)
+// — the exact restaurants that already pay for photography and that we
+// hand-reject. Nearby Search with rankPreference=DISTANCE over small circles
+// returns EVERY restaurant in each circle nearest-first, so the modest
+// neighborhood spots this product serves finally enter the pipeline. See grid.ts.
+//
+// COST SHAPE — the sweep (many Nearby calls) runs on the cheap Pro SKU. The
+// Enterprise fields the filters need (rating/reviews/price/website/phone) are
+// fetched via Place Details ONLY for new candidates, and only up to the nightly
+// cap (config.nightlyEnrichCap). A place is Details-fetched at most once ever:
+// candidates that fail the filters are recorded as `rejected` so they're skipped
+// on future sweeps instead of re-billing a Details call every night.
 
 import type { PgBoss } from "pg-boss";
-import { eq } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants } from "@/db/schema";
 import { config } from "../config";
 import { sendAlert } from "@/lib/alerts";
-import { searchRestaurants, priceLevelToInt, ownerPhotos, type Place } from "../lib/places";
+import {
+  searchNearbyRestaurants,
+  getPlaceDetailsForSourcing,
+  priceLevelToInt,
+  ownerPhotos,
+  type Place,
+} from "../lib/places";
 import { passesHardFilters } from "../lib/filters";
+import { CITY_GRIDS } from "../lib/grid";
 import { ENRICH_QUEUE, type EnrichJobData } from "./enrichRestaurant";
 
 export { SOURCE_QUEUE } from "@/lib/queues";
@@ -18,166 +40,160 @@ export { SOURCE_QUEUE } from "@/lib/queues";
 export type SourceJobData = {
   // Optional overrides for manual/one-off runs; fall back to config.
   cities?: string[];
-  limit?: number;
+  limit?: number; // caps NEW candidates processed this run (the spend ceiling)
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// The outcome of upserting one place. Only `inserted` should trigger (paid)
-// enrichment — the whole point is to NOT re-enrich a restaurant we already
-// know about every single night.
-type UpsertResult =
-  | { action: "inserted"; id: number }
-  | { action: "refreshed"; id: number } // already existed; volatile fields refreshed, no re-enrich
-  | { action: "skipped" }; // already contacted — left completely untouched
+export async function runSourcing(boss: PgBoss, data: SourceJobData): Promise<void> {
+  const cities = data.cities ?? config.targetCities;
+  const candidateCap = data.limit ?? config.nightlyEnrichCap; // 0 = no cap
 
-// Upserts one place into `restaurants`.
-//
-// Critical: on an EXISTING row we refresh only volatile Places-derived fields
-// and NEVER touch enrichmentStatus / photoCount / city / signatureDish. The old
-// version wrote enrichmentStatus:"sourced" on every update, which reset
-// rejected/queued/needs_manual_email rows back to the start and re-enqueued
-// enrichment nightly — re-paying the full photo+Vision cost for the entire back
-// catalogue every run.
-async function upsertRestaurant(place: Place, city: string): Promise<UpsertResult> {
-  const name = place.displayName?.text ?? "(unknown)";
-  const priceLevelInt = priceLevelToInt(place.priceLevel);
+  // --- 1. DISCOVER: sweep every grid cell for every city, dedup by place id. ---
+  const discovered = new Map<string, { place: Place; city: string }>();
+  let cellsSwept = 0;
+  let cellFailures = 0;
 
-  const [existing] = await db
-    .select({ id: restaurants.id, enrichmentStatus: restaurants.enrichmentStatus })
-    .from(restaurants)
-    .where(eq(restaurants.googlePlaceId, place.id))
-    .limit(1);
+  for (const city of cities) {
+    const cells = CITY_GRIDS[city];
+    if (!cells || cells.length === 0) {
+      // A configured city with no grid cells sources nothing — that's a config
+      // mismatch worth surfacing, not a silent zero.
+      console.warn(`[source] no grid cells for "${city}" — add them in worker/lib/grid.ts`);
+      await sendAlert(
+        "Sourcing: a target city has no grid cells",
+        `"${city}" is in WORKER_TARGET_CITIES but has no cells in worker/lib/grid.ts, so it sourced nothing. ` +
+          `Either add neighborhood cells for it or remove it from WORKER_TARGET_CITIES.`
+      );
+      continue;
+    }
 
-  if (existing) {
-    // Never re-process a restaurant we've already contacted.
-    if (existing.enrichmentStatus === "contacted") return { action: "skipped" };
-    // Refresh only fields that legitimately change on Google over time. Notably
-    // absent: enrichmentStatus, photoCount, city, and every enrichment-derived
-    // field — those are owned by enrichment / sourcing-insert, not by a refresh.
-    await db
-      .update(restaurants)
-      .set({
-        name,
-        rating: place.rating ?? null,
-        reviewCount: place.userRatingCount ?? null,
-        priceLevel: priceLevelInt,
-        phone: place.nationalPhoneNumber ?? null,
-        website: place.websiteUri ?? null,
-        temporarilyClosed: place.businessStatus === "CLOSED_TEMPORARILY",
-        deliveryEnabled: Boolean(place.delivery),
-      })
-      .where(eq(restaurants.id, existing.id));
-    return { action: "refreshed", id: existing.id };
+    for (const cell of cells) {
+      try {
+        const places = await searchNearbyRestaurants(cell.lat, cell.lng, cell.radiusM);
+        cellsSwept++;
+        for (const place of places) {
+          if (!discovered.has(place.id)) discovered.set(place.id, { place, city });
+        }
+      } catch (err) {
+        // One cell's failure must not strand the rest of the run (a single
+        // NO_RETRY pg-boss job). Count it; alert only if the whole sweep failed.
+        cellFailures++;
+        console.error(`[source] nearby FAILED for ${city}/${cell.name}:`, err instanceof Error ? err.message : err);
+      }
+      await sleep(config.placesThrottleMs);
+    }
   }
 
-  const [inserted] = await db
-    .insert(restaurants)
-    .values({
+  // --- 2. Keep only genuinely NEW places (skip everything already in the DB). ---
+  const allIds = [...discovered.keys()];
+  const existingRows = allIds.length
+    ? await db
+        .select({ pid: restaurants.googlePlaceId })
+        .from(restaurants)
+        .where(inArray(restaurants.googlePlaceId, allIds))
+    : [];
+  const existingIds = new Set(existingRows.map((r) => r.pid));
+  const newCandidates = [...discovered.values()].filter((c) => !existingIds.has(c.place.id));
+
+  // --- 3. Cap the number of new candidates we spend on this run. Uncapped ones
+  //        simply reappear in tomorrow's sweep (they're not recorded), so the
+  //        grid backfills over several nights instead of one huge bill. ---
+  const toProcess = candidateCap > 0 ? newCandidates.slice(0, candidateCap) : newCandidates;
+
+  // --- 4. For each: Place Details -> hard filters -> insert + enqueue (or record
+  //        the rejection so we never Details-fetch it again). ---
+  let enqueued = 0;
+  let rejected = 0;
+  let detailsFailed = 0;
+
+  for (const { place: nearbyPlace, city } of toProcess) {
+    let place: Place | null;
+    try {
+      place = await getPlaceDetailsForSourcing(nearbyPlace.id);
+    } catch (err) {
+      detailsFailed++;
+      console.error(`[source] details FAILED for ${nearbyPlace.id}:`, err instanceof Error ? err.message : err);
+      continue; // no row written -> retried on a future sweep
+    }
+    await sleep(config.placesThrottleMs);
+    if (!place) continue; // 404 / permanently gone; skip (may reappear, that's fine)
+
+    const name = place.displayName?.text ?? "(unknown)";
+    const verdict = passesHardFilters(place);
+
+    // Common column values whether we keep or reject — recording rejects means a
+    // future sweep sees the row as "existing" and skips the Details re-fetch.
+    const base = {
       name,
       googlePlaceId: place.id,
       rating: place.rating ?? null,
       reviewCount: place.userRatingCount ?? null,
-      priceLevel: priceLevelInt,
+      priceLevel: priceLevelToInt(place.priceLevel),
       city,
       phone: place.nationalPhoneNumber ?? null,
       website: place.websiteUri ?? null,
       temporarilyClosed: place.businessStatus === "CLOSED_TEMPORARILY",
       deliveryEnabled: Boolean(place.delivery),
-      photoCount: ownerPhotos(place).length, // owner-uploaded only — the count the priority signal claims to be
-      enrichmentStatus: "sourced" as const,
-    })
-    .returning({ id: restaurants.id });
-  return { action: "inserted", id: inserted.id };
-}
+      photoCount: ownerPhotos(place).length, // owner-uploaded only
+    };
 
-export async function runSourcing(boss: PgBoss, data: SourceJobData): Promise<void> {
-  const cities = data.cities ?? config.targetCities;
-  const perCityLimit = data.limit ?? config.perCityLimit;
-  const enrichCap = config.nightlyEnrichCap; // 0 = no cap
-
-  const seenPlaceIds = new Set<string>(); // dedupe across cities/overlapping results in ONE run
-  let enqueued = 0;
-  let rejected = 0;
-  let refreshed = 0;
-
-  outer: for (const city of cities) {
-    const query = `restaurants in ${city}`;
-    console.log(`[source] searching: "${query}" (limit ${perCityLimit})`);
-
-    let places: Place[];
-    try {
-      places = await searchRestaurants(query, perCityLimit);
-    } catch (err) {
-      // One city's Places failure must not skip the remaining cities — the whole
-      // run is a single NO_RETRY pg-boss job, so a throw here would strand the
-      // rest until tomorrow. Log, alert, and move on.
-      console.error(`[source] search FAILED for "${query}":`, err instanceof Error ? err.message : err);
-      await sendAlert(
-        "Sourcing search failed for a city",
-        `The nightly sourcing run couldn't search "${query}": ${err instanceof Error ? err.message : String(err)}. ` +
-          `Remaining cities still ran. If this repeats, check the Google Places API key/quota.`
-      );
+    if (!verdict.pass) {
+      rejected++;
+      if (!config.dryRun) {
+        await db
+          .insert(restaurants)
+          .values({ ...base, enrichmentStatus: "rejected" as const, rejectionReason: `Hard filter: ${verdict.reason}` });
+      } else {
+        console.log(`[source] (dry) would reject ${name} — ${verdict.reason}`);
+      }
       continue;
     }
 
-    await sleep(config.placesThrottleMs);
-
-    for (const place of places) {
-      if (seenPlaceIds.has(place.id)) continue; // already handled this place this run
-      seenPlaceIds.add(place.id);
-
-      if (!passesHardFilters(place).pass) {
-        rejected++;
-        continue;
-      }
-
-      const result = await upsertRestaurant(place, city);
-      if (result.action === "skipped") continue;
-      if (result.action === "refreshed") {
-        refreshed++;
-        continue; // already enriched (or in-flight) — do NOT re-enqueue / re-pay
-      }
-
-      // action === "inserted" — a genuinely new lead. Enqueue enrichment,
-      // capping the photo payload so a place with 10 Google photos can't blow
-      // past the scoring budget.
-      const enrichData: EnrichJobData = {
-        restaurantId: result.id,
-        // Score only the restaurant's OWN photos — customer snapshots aren't
-        // theirs to replace and shouldn't drive the score or the signature dish.
-        photoNames: ownerPhotos(place).map((p) => p.name).slice(0, config.photoScoreLimit),
-      };
-      if (config.dryRun) {
-        // Dry run: exercise the real search/filter/upsert path (and the row it
-        // wrote) at Places-cost only — but don't spend Anthropic/NeverBounce.
-        console.log(`[source] (dry) would enrich ${result.id} (${place.displayName?.text ?? "?"}), ${enrichData.photoNames.length} photos`);
-      } else {
-        await boss.send(ENRICH_QUEUE, enrichData);
-      }
+    if (config.dryRun) {
+      console.log(`[source] (dry) would enqueue ${name} (${place.userRatingCount ?? "?"} reviews)`);
       enqueued++;
-
-      if (enrichCap > 0 && enqueued >= enrichCap) {
-        console.log(`[source] nightly enrich cap (${enrichCap}) reached — stopping.`);
-        break outer;
-      }
+      continue;
     }
+
+    const [inserted] = await db
+      .insert(restaurants)
+      .values({ ...base, enrichmentStatus: "sourced" as const })
+      .returning({ id: restaurants.id });
+
+    const enrichData: EnrichJobData = {
+      restaurantId: inserted.id,
+      // Score only the restaurant's OWN photos — customer snapshots aren't theirs
+      // to replace and shouldn't drive the score or the signature dish.
+      photoNames: ownerPhotos(place).map((p) => p.name).slice(0, config.photoScoreLimit),
+    };
+    await boss.send(ENRICH_QUEUE, enrichData);
+    enqueued++;
   }
 
   console.log(
-    `[source] done: ${enqueued} new enqueued, ${refreshed} refreshed, ${rejected} rejected by filters` +
+    `[source] done: swept ${cellsSwept} cells (${cellFailures} failed), ` +
+      `discovered ${discovered.size} unique, ${newCandidates.length} new ` +
+      `(${toProcess.length} processed this run), ${enqueued} enqueued, ${rejected} filtered out, ` +
+      `${detailsFailed} details-failed` +
       (config.dryRun ? " (DRY RUN)" : "")
   );
 
-  // A run that banks zero new leads is either a legitimately-tapped-out set or a
-  // broken API key — and today those look identical in the logs (this is how a
-  // 5-night sourcing outage went unnoticed). Surface it.
-  if (enqueued === 0 && !config.dryRun) {
+  // The whole sweep failing looks identical to a tapped-out grid in the logs —
+  // surface each distinctly.
+  if (cellsSwept === 0 && !config.dryRun) {
     await sendAlert(
-      "Sourcing found no new restaurants",
-      `Tonight's run enqueued 0 new leads (${refreshed} already-known refreshed, ${rejected} filtered out). ` +
-        `If this persists for multiple nights, the target areas may be tapped out (widen WORKER_TARGET_CITIES) ` +
-        `or the Google Places API may be failing — check /admin/photo/controls.`
+      "Sourcing swept zero cells",
+      `Tonight's run couldn't complete a single Nearby Search (${cellFailures} cell attempts failed). ` +
+        `The Google Places API key/quota is the likely cause — check /admin/photo/controls.`
+    );
+  } else if (enqueued === 0 && !config.dryRun) {
+    await sendAlert(
+      "Sourcing enqueued no new restaurants",
+      `Tonight's grid sweep found ${discovered.size} places but enqueued 0 new leads ` +
+        `(${newCandidates.length} were new; ${rejected} failed the hard filters). ` +
+        `If this persists, the grid neighborhoods may be tapped out (add cells in worker/lib/grid.ts) ` +
+        `or the filters may be too tight (worker/lib/filters.ts).`
     );
   }
 }

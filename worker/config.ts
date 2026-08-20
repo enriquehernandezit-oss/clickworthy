@@ -28,9 +28,10 @@ export const config = {
   // outbound — for reviewing sourced/enriched data before going live.
   dryRun: process.env.WORKER_DRY_RUN === "true",
 
-  // How many Places candidates to pull PER CITY per sourcing run. Text Search
-  // tops out at 60 (3 pages of 20), so 60 = "everything Google will give us."
-  // Kept a multiple of 20 so pagination never sends a shrinking pageSize.
+  // LEGACY — only the old citywide Text Search path (searchRestaurants, used by
+  // worker/run-once.ts for ad-hoc queries) reads this. The nightly cron now
+  // sources via the neighborhood grid (worker/lib/grid.ts + searchNearby), which
+  // is bounded by the grid cells, not this number.
   perCityLimit: intEnv("WORKER_PER_CITY_LIMIT", 60),
 
   // Retained only for worker/run-once.ts (the manual one-off sourcing script).
@@ -50,10 +51,18 @@ export const config = {
   // Politeness delay between Places search calls in the sourcing loop (ms).
   placesThrottleMs: intEnv("WORKER_PLACES_THROTTLE_MS", 200),
 
-  // Optional hard cap on NEW restaurants enqueued for enrichment per run. 0/unset
-  // = no cap (source as much as the per-city depth yields). Raise the send cap
-  // alongside this if you set it — otherwise you bank a backlog you can't email.
-  nightlyEnrichCap: intEnv("WORKER_NIGHTLY_ENRICH_CAP", 0),
+  // Cap on how many NEW (never-seen) grid candidates to fully process per run —
+  // this is the nightly SPEND CEILING. Each processed candidate costs one Place
+  // Details call (to get rating/website/etc. the cheap Nearby search omits) and,
+  // if it passes the hard filters, one enrichment job (NeverBounce + Vision).
+  // The grid can discover hundreds of new places on the first sweeps, so unlike
+  // the old text-search path this MUST be capped. 0 = no cap. Aiming at ~20
+  // queued/night: roughly half of processed candidates historically yield a
+  // verified email (the rest land as needs_manual_email), so ~50 processed ≈ ~20
+  // queued. Tune against real nights; the precise queued target lands with the
+  // photo-fit gates. Candidates beyond the cap aren't recorded, so they simply
+  // reappear in tomorrow's sweep — the grid backfills over several nights.
+  nightlyEnrichCap: intEnv("WORKER_NIGHTLY_ENRICH_CAP", 50),
 
   // Cities to source, SEMICOLON-separated (so each entry can be "City, State").
   // Clickworthy is 100% US-based: Miami, New York, Chicago, Los Angeles.

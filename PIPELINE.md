@@ -20,7 +20,7 @@ Two core principles:
 
 ```mermaid
 flowchart TD
-    S1["1. Nightly sourcing (worker, ~2:17am)<br/>Google Places → hard filters → restaurants"]
+    S1["1. Nightly sourcing (worker, ~2:17am)<br/>Neighborhood-grid Nearby Search → Place Details → hard filters → restaurants"]
     S2["2. Enrichment (worker, per restaurant)<br/>chain check · email discovery + NeverBounce<br/>Claude Vision scoring + signature dish · priority"]
     S3d["3. Draft Touch 1 (worker, ~2:23pm)<br/>compose approved template · status=draft · nothing sent"]
     S3a["3b. YOU approve (/admin/photo/outreach)<br/>or autosend toggle self-approves"]
@@ -62,7 +62,7 @@ flowchart TD
 
 ### Step detail
 
-1. **Nightly sourcing** — `worker/jobs/sourceLeads.ts`. Google Places Text Search for restaurants in Miami / New York / Chicago / Los Angeles → hard filters (rating ≤ 4.0, 30–500 reviews, `$`/`$$`, operational) → upsert to `restaurants` (`sourced`) → queue an enrichment job each. Google photos are **never stored** (ToS).
+1. **Nightly sourcing** — `worker/jobs/sourceLeads.ts`. Sweeps a **neighborhood grid** (`worker/lib/grid.ts`) with Google Places **Nearby Search** (`rankPreference=DISTANCE`, `fine_dining_restaurant` excluded server-side) across Miami / New York / Chicago / Los Angeles. Citywide Text Search is prominence-ranked and only ever returned famous, well-photographed destinations (measured: median 9,554 reviews, zero under 500) — the grid returns every restaurant in each small circle nearest-first, so the modest neighborhood spots we actually serve enter the pool. The cheap Nearby sweep runs on the Pro SKU; **Place Details** (rating/reviews/price/website/phone) is fetched only for *new* places and only up to the nightly cap (`WORKER_NIGHTLY_ENRICH_CAP`, default 50 — the spend ceiling). Hard filters (`worker/lib/filters.ts`: 20–800 reviews, `$`/`$$`, has-website, operational) → upsert survivors to `restaurants` (`sourced`) and queue enrichment; filter-failures are recorded as `rejected` so they're never Details-fetched twice. Google photos are **never stored** (ToS).
 2. **Enrichment** — `worker/jobs/enrichRestaurant.ts`. Hospitality-group check (Claude + web search, also grabs the owner's first name when findable) → email discovery (scrape the site — Places has no emails) → **NeverBounce** verify → Claude Vision photo scoring, which also names the **signature dish** → priority score. Ends `queued`, `needs_manual_email`, or `rejected`. A restaurant with no signature dish is held back — a generic Touch 1 is a deleted Touch 1.
 3. **Touch 1 — draft, then send (two phases in one job)** — `worker/jobs/sendOutreach.ts`.
    - **Draft phase.** Highest-priority `queued` restaurants (with a signature dish, an email, not held/suppressed) → compose the **approved static template** (EN/ES, merges dish + first name, subject rotates across 3 approved lines) → write an outreach row with `status: 'draft'`. **Nothing is sent.** The batch waits for your approval in `/admin/photo/outreach`.

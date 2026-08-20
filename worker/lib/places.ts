@@ -10,6 +10,7 @@
 import { requireKey } from "../config";
 
 const SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
+const NEARBY_URL = "https://places.googleapis.com/v1/places:searchNearby";
 
 // Fields we need. Requesting photos/phone/website bills at the Enterprise SKU,
 // which is fine at our volume (1,000 free calls/mo covers the 200-restaurant
@@ -67,6 +68,99 @@ type SearchResponse = {
   places?: Place[];
   nextPageToken?: string;
 };
+
+// --- Grid sourcing (Nearby Search), billed in two tiers on purpose ---
+//
+// The nightly grid makes MANY search calls (one per neighborhood cell), so the
+// search request stays on the Pro SKU ($32/1k, 5,000 free calls/mo): id, name,
+// businessStatus, photos. The Enterprise-priced fields the pipeline also needs
+// (rating, review count, price level, website, phone — $35/1k with only 1,000
+// free when put on a SEARCH) are fetched afterwards via Place Details ($20/1k)
+// and ONLY for places we haven't seen before. The old single-mask design billed
+// every search page at the top SKU; this split keeps the whole grid inside the
+// free tiers at current volume.
+
+const NEARBY_FIELD_MASK = [
+  "places.id",
+  "places.displayName",
+  "places.businessStatus",
+  "places.primaryType",
+  "places.photos.name",
+  "places.photos.authorAttributions",
+].join(",");
+
+// Place Details mask (no "places." prefix — Details returns a single object).
+// Superset of what sourcing writes to the DB, including the photo subfields
+// ownerPhotos() needs. delivery/takeout/dineIn stay: deliveryEnabled feeds the
+// priority score and the Revenue Impact Card.
+const DETAILS_FIELD_MASK = [
+  "id",
+  "displayName",
+  "rating",
+  "userRatingCount",
+  "priceLevel",
+  "businessStatus",
+  "websiteUri",
+  "nationalPhoneNumber",
+  "photos.name",
+  "photos.authorAttributions",
+  "delivery",
+  "takeout",
+  "dineIn",
+].join(",");
+
+// One Nearby Search over a circle, ranked by DISTANCE — the whole point: within
+// a small circle, every restaurant Google has indexed comes back nearest-first,
+// so prominence (which citywide Text Search ranks by, and which buried our
+// actual market) never filters the pool. fine_dining_restaurant is excluded
+// server-side — that segment already pays for photography.
+//
+// Hard API limits: max 20 results per request, NO pagination — a denser area
+// needs more/smaller circles, not a bigger request.
+export async function searchNearbyRestaurants(
+  lat: number,
+  lng: number,
+  radiusM: number
+): Promise<Place[]> {
+  const apiKey = requireKey("googleMapsApiKey", "GOOGLE_MAPS_API_KEY");
+  const res = await fetch(NEARBY_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask": NEARBY_FIELD_MASK,
+    },
+    body: JSON.stringify({
+      includedTypes: ["restaurant"],
+      excludedTypes: ["fine_dining_restaurant"],
+      maxResultCount: 20,
+      rankPreference: "DISTANCE",
+      locationRestriction: {
+        circle: { center: { latitude: lat, longitude: lng }, radius: radiusM },
+      },
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`Places searchNearby failed (${res.status}): ${await res.text()}`);
+  }
+  const body = (await res.json()) as SearchResponse;
+  return body.places ?? [];
+}
+
+// Full Place Details for a NEW candidate (Enterprise fields the nearby mask
+// deliberately omits). Called once per never-before-seen place, before the hard
+// filters — never for places already in the DB.
+export async function getPlaceDetailsForSourcing(placeId: string): Promise<Place | null> {
+  const apiKey = requireKey("googleMapsApiKey", "GOOGLE_MAPS_API_KEY");
+  const res = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`, {
+    headers: { "X-Goog-Api-Key": apiKey, "X-Goog-FieldMask": DETAILS_FIELD_MASK },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`Places details (sourcing) failed (${res.status}) for ${placeId}: ${await res.text()}`);
+  }
+  return (await res.json()) as Place;
+}
 
 // Runs a paginated Text Search for one query, returning up to `max` places.
 export async function searchRestaurants(query: string, max: number): Promise<Place[]> {
