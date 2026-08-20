@@ -31,6 +31,13 @@ export const restaurants = pgTable('restaurants', {
   photoCount: integer('photo_count'), // owner-uploaded photo count from Google (priority signal, never a filter)
   photosScored: integer('photos_scored'), // how many photos enrichment actually ran Claude Vision on (cost/coverage; distinct from photoCount so the priority signal stays the raw Google count)
   avgPhotoScore: real('avg_photo_score'), // mean Claude Vision score across scored photos
+  // --- Phase 2 website photo-fit gate (worker/lib/photoFit.ts). Stored on every
+  //     enriched lead (kept OR rejected) so the feedback loop can compare these
+  //     signals against the human's later approve/skip decisions and recalibrate
+  //     the reject threshold (see scripts/calibrate-threshold.ts). ---
+  websitePhotoBand: text('website_photo_band'), // 'rich' | 'unclear' | 'sparse' (Gate 1)
+  websitePhotoRichness: integer('website_photo_richness'), // 0–100 structural richness (Gate 1)
+  websiteProScore: integer('website_pro_score'), // best real-photo Vision score 2–6 (Gate 2); null if sparse / unjudged
   emailSource: text('email_source'), // 'website' | 'manual' | null — where `email` came from
   // Personalization for the cold email (derived in enrichment):
   signatureDish: text('signature_dish'), // a real standout dish, from Claude Vision — the #1 reply-rate lever

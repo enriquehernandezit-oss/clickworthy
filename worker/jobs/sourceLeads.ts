@@ -33,7 +33,7 @@ import {
 } from "../lib/places";
 import { passesHardFilters } from "../lib/filters";
 import { isKnownChain } from "../lib/chains";
-import { CITY_GRIDS } from "../lib/grid";
+import { CITY_GRIDS, interleaveByCity } from "../lib/grid";
 import { ENRICH_QUEUE, type EnrichJobData } from "./enrichRestaurant";
 
 export { SOURCE_QUEUE } from "@/lib/queues";
@@ -103,10 +103,13 @@ export async function runSourcing(boss: PgBoss, data: SourceJobData): Promise<vo
   const newCandidates = newAll.filter((c) => !isKnownChain(c.place.displayName?.text));
   const chainsSkipped = newAll.length - newCandidates.length;
 
-  // --- 3. Cap the number of new candidates we spend on this run. Uncapped ones
-  //        simply reappear in tomorrow's sweep (they're not recorded), so the
-  //        grid backfills over several nights instead of one huge bill. ---
-  const toProcess = candidateCap > 0 ? newCandidates.slice(0, candidateCap) : newCandidates;
+  // --- 3. Cap the number of new candidates we spend on this run. Interleave
+  //        across cities FIRST so the cap is split roughly evenly (the grid
+  //        sweeps Miami before NYC, so a naive slice would starve later cities).
+  //        Uncapped leftovers aren't recorded, so they reappear in tomorrow's
+  //        sweep — the grid backfills over several nights instead of one bill. ---
+  const ordered = interleaveByCity(newCandidates);
+  const toProcess = candidateCap > 0 ? ordered.slice(0, candidateCap) : ordered;
 
   // --- 4. For each: Place Details -> hard filters -> insert + enqueue (or record
   //        the rejection so we never Details-fetch it again). ---

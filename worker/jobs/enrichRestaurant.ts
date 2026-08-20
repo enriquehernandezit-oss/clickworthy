@@ -108,10 +108,18 @@ export async function runEnrichment(data: EnrichJobData): Promise<void> {
   //    review — but only when the free structural read AND a Vision look at their
   //    own best photo agree (worker/lib/photoFit.ts). Sparse sites skip Vision.
   const fit = await assessPhotoFit(homepageHtml, restaurant.website);
+  // Fit signals stored on every enriched lead (kept or rejected) — the feedback
+  // loop reads them back against approve/skip decisions (scripts/calibrate-threshold.ts).
+  const fitSignals = {
+    websitePhotoBand: fit.band,
+    websitePhotoRichness: fit.richness,
+    websiteProScore: fit.proScore,
+  };
   if (fit.decision === "reject") {
     await db
       .update(restaurants)
       .set({
+        ...fitSignals,
         contactFirstName: ownerFirstName,
         isHospitalityGroup: false,
         enrichmentStatus: "rejected",
@@ -176,6 +184,7 @@ export async function runEnrichment(data: EnrichJobData): Promise<void> {
   await db
     .update(restaurants)
     .set({
+      ...fitSignals,
       email,
       emailRank,
       emailSource,

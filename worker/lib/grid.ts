@@ -29,6 +29,34 @@ export type GridCell = {
   radiusM: number; // Nearby Search circle radius (API max 50,000)
 };
 
+// Reorders city-tagged items so a per-run cap is split roughly evenly across
+// cities instead of being eaten by whichever city was swept first. The grid
+// sweeps all of Miami's cells before New York's, so without this the nightly
+// candidate cap would spend entirely on Miami and starve the other cities.
+// Round-robin: one from each city in turn, preserving each city's own order.
+export function interleaveByCity<T extends { city: string }>(items: T[]): T[] {
+  const byCity = new Map<string, T[]>();
+  for (const item of items) {
+    const q = byCity.get(item.city);
+    if (q) q.push(item);
+    else byCity.set(item.city, [item]);
+  }
+  const queues = [...byCity.values()];
+  const out: T[] = [];
+  let progressed = true;
+  while (progressed) {
+    progressed = false;
+    for (const q of queues) {
+      const next = q.shift();
+      if (next !== undefined) {
+        out.push(next);
+        progressed = true;
+      }
+    }
+  }
+  return out;
+}
+
 export const CITY_GRIDS: Record<string, GridCell[]> = {
   "Miami, FL": [
     { name: "Hialeah", lat: 25.8576, lng: -80.2781, radiusM: 1500 },

@@ -3,7 +3,7 @@
 // or error the whole nightly run. Run with `bun test`.
 
 import { expect, test, describe } from "bun:test";
-import { CITY_GRIDS } from "./grid";
+import { CITY_GRIDS, interleaveByCity } from "./grid";
 
 // The four cities the pipeline ships targeting (config.targetCities default).
 const SHIPPED_CITIES = ["Miami, FL", "New York, NY", "Chicago, IL", "Los Angeles, CA"];
@@ -33,5 +33,36 @@ describe("CITY_GRIDS", () => {
       }
       expect(names.size, `${city} has duplicate cell names`).toBe(cells.length);
     }
+  });
+});
+
+describe("interleaveByCity — prevents one city eating the nightly cap", () => {
+  test("round-robins so a capped slice covers every city", () => {
+    // 5 Miami then 5 NYC then 5 Chicago — a naive slice(0,6) would be all Miami.
+    const items = [
+      ...Array.from({ length: 5 }, (_, i) => ({ city: "Miami", n: i })),
+      ...Array.from({ length: 5 }, (_, i) => ({ city: "NYC", n: i })),
+      ...Array.from({ length: 5 }, (_, i) => ({ city: "Chicago", n: i })),
+    ];
+    const out = interleaveByCity(items);
+    const firstSix = out.slice(0, 6).map((x) => x.city);
+    expect(new Set(firstSix).size).toBe(3); // all three cities represented early
+    expect(out.length).toBe(15); // nothing dropped
+  });
+
+  test("preserves each city's internal order", () => {
+    const items = [
+      { city: "A", n: 0 },
+      { city: "A", n: 1 },
+      { city: "B", n: 0 },
+    ];
+    const out = interleaveByCity(items);
+    const aOrder = out.filter((x) => x.city === "A").map((x) => x.n);
+    expect(aOrder).toEqual([0, 1]);
+  });
+
+  test("handles a single city and an empty list", () => {
+    expect(interleaveByCity([]).length).toBe(0);
+    expect(interleaveByCity([{ city: "A", n: 1 }]).length).toBe(1);
   });
 });
