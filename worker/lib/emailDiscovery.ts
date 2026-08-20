@@ -59,6 +59,14 @@ export type DiscoveredEmail = {
   rank: number; // 1 (best) .. 4 (weak); lower is better
 };
 
+// Exported so enrichment can fetch the homepage ONCE and hand the HTML to both
+// this module (discoverEmail) and the photo-fit gates — the same page drives
+// email extraction and the website-photo assessment, so it shouldn't be fetched
+// twice.
+export async function fetchHomepageHtml(url: string): Promise<string | null> {
+  return fetchText(url);
+}
+
 async function fetchText(url: string): Promise<string | null> {
   try {
     const controller = new AbortController();
@@ -126,7 +134,13 @@ function contactLinks(html: string, baseUrl: string): string[] {
   return [...links].slice(0, 3);
 }
 
-export async function discoverEmail(websiteUrl: string): Promise<DiscoveredEmail | null> {
+// `homepageHtml`: pass the already-fetched homepage HTML to skip re-downloading
+// it (enrichment fetches it once for the photo gates). `undefined` = fetch it
+// here; `null` = caller fetched and got nothing (skip — don't retry).
+export async function discoverEmail(
+  websiteUrl: string,
+  homepageHtml?: string | null
+): Promise<DiscoveredEmail | null> {
   const domain = siteDomain(websiteUrl);
   const candidates = new Map<string, number>(); // email -> best rank seen
 
@@ -138,7 +152,7 @@ export async function discoverEmail(websiteUrl: string): Promise<DiscoveredEmail
     }
   };
 
-  const home = await fetchText(websiteUrl);
+  const home = homepageHtml === undefined ? await fetchText(websiteUrl) : homepageHtml;
   if (home) {
     consider(home);
     // Crawl a couple of contact/about pages for addresses not on the homepage.

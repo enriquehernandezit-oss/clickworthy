@@ -8,9 +8,10 @@ import { db } from "@/db";
 import { restaurants } from "@/db/schema";
 import { config } from "../config";
 import { priceLevelToInt, fetchPhotoBytes } from "../lib/places";
-import { discoverEmail } from "../lib/emailDiscovery";
+import { discoverEmail, fetchHomepageHtml } from "../lib/emailDiscovery";
 import { verifyEmail, isContactable } from "../lib/neverbounce";
 import { scorePhoto, checkHospitalityGroup } from "../lib/anthropic";
+import { assessPhotoFit } from "../lib/photoFit";
 import { priorityScore } from "../lib/priority";
 
 export { ENRICH_QUEUE } from "@/lib/queues";
@@ -23,7 +24,7 @@ export type EnrichJobData = {
 // Final pipeline statuses set by this job:
 //   queued            -> passed everything, has a contactable email, ready for outreach
 //   needs_manual_email-> passed everything but no email found (Jose's manual list)
-//   rejected          -> disqualified (chain / hospitality group)
+//   rejected          -> disqualified (chain / hospitality group / already-pro photos)
 type FinalStatus = "queued" | "needs_manual_email" | "rejected";
 
 // Photo scoring is the dominant per-restaurant cost (a Google fetch + a Claude
@@ -98,12 +99,37 @@ export async function runEnrichment(data: EnrichJobData): Promise<void> {
     ownerFirstName = group.ownerFirstName;
   }
 
-  // 2. Email discovery + NeverBounce verification.
+  // 2. Fetch the homepage ONCE — it drives both the photo-fit gates and email
+  //    discovery (same page, one download).
+  const homepageHtml = restaurant.website ? await fetchHomepageHtml(restaurant.website) : null;
+
+  // 3. Photo-fit gates. Reject restaurants that ALREADY have professional
+  //    photography BEFORE paying for NeverBounce / dish scoring / a human's
+  //    review — but only when the free structural read AND a Vision look at their
+  //    own best photo agree (worker/lib/photoFit.ts). Sparse sites skip Vision.
+  const fit = await assessPhotoFit(homepageHtml, restaurant.website);
+  if (fit.decision === "reject") {
+    await db
+      .update(restaurants)
+      .set({
+        contactFirstName: ownerFirstName,
+        isHospitalityGroup: false,
+        enrichmentStatus: "rejected",
+        rejectionReason: fit.reason,
+      })
+      .where(eq(restaurants.id, restaurant.id));
+    console.log(`[enrich] "${restaurant.name}" -> rejected (photo-fit: ${fit.reason})`);
+    return;
+  }
+
+  // 4. Email discovery (reusing the homepage) + NeverBounce verification.
   let email: string | null = null;
   let emailRank: number | null = null;
   let emailSource: string | null = null;
   if (restaurant.website) {
-    const discovered = await discoverEmail(restaurant.website);
+    // null homepage (fetch failed) -> pass undefined so discoverEmail retries its
+    // own fetch rather than skipping outright.
+    const discovered = await discoverEmail(restaurant.website, homepageHtml ?? undefined);
     if (discovered) {
       try {
         const verdict = await verifyEmail(discovered.email);
@@ -118,10 +144,22 @@ export async function runEnrichment(data: EnrichJobData): Promise<void> {
     }
   }
 
-  // 3. Photo scoring (aggregates only) + the signature dish for the cold email.
-  const { avg: avgPhotoScore, count, signatureDish } = await scorePhotos(data.photoNames, config.photoScoreLimit);
+  // 5. Signature dish + photo score. Prefer a dish Gate 2 already saw on the
+  //    website (free — those images were scored for the fit check); only fall
+  //    back to scoring Google photos when the website gave us nothing. Google
+  //    scoring is also where avgPhotoScore (a priority signal) comes from, so a
+  //    website-dish lead trades that minor signal for the saved Vision calls.
+  let signatureDish = fit.dish;
+  let avgPhotoScore: number | null = null;
+  let photosScored = 0;
+  if (!signatureDish) {
+    const g = await scorePhotos(data.photoNames, config.photoScoreLimit);
+    signatureDish = g.signatureDish;
+    avgPhotoScore = g.avg;
+    photosScored = g.count;
+  }
 
-  // 4. Priority score from all signals.
+  // 6. Priority score from all signals.
   const score = priorityScore({
     rating: restaurant.rating,
     reviewCount: restaurant.reviewCount,
@@ -131,11 +169,8 @@ export async function runEnrichment(data: EnrichJobData): Promise<void> {
     avgPhotoScore,
   });
 
-  // 5. Final status. A contactable email is all that's required to queue. A
-  //    signature dish still personalizes Touch 1 when present, but a dish-less
-  //    lead now drafts too (with a generic {{dish}} fallback — see outreachEmail)
-  //    rather than being held; the human reviews/tailors every draft anyway.
-  //    Only a missing email holds a lead as needs_manual_email.
+  // 7. Final status. A contactable email is all that's required to queue; a
+  //    missing email holds a lead as needs_manual_email.
   const finalStatus: FinalStatus = email ? "queued" : "needs_manual_email";
 
   await db
@@ -149,7 +184,7 @@ export async function runEnrichment(data: EnrichJobData): Promise<void> {
       avgPhotoScore,
       // photosScored (how many we ran Vision on), NOT photoCount — leave the
       // raw Places photo count set at sourcing intact as the priority signal.
-      photosScored: count,
+      photosScored,
       priorityScore: score,
       isHospitalityGroup: false,
       enrichmentStatus: finalStatus,
@@ -158,6 +193,6 @@ export async function runEnrichment(data: EnrichJobData): Promise<void> {
 
   console.log(
     `[enrich] "${restaurant.name}" -> ${finalStatus} ` +
-      `(priority ${score}, dish ${signatureDish ?? "none"}, email ${email ?? "none"})`
+      `(band ${fit.band}, priority ${score}, dish ${signatureDish ?? "none"}, email ${email ?? "none"})`
   );
 }

@@ -38,6 +38,28 @@ export const RAMP = { start: RAMP_START, step: RAMP_STEP, cap: RAMP_CAP };
 // it just stops the pile growing without bound if drafts never get actioned.
 const DRAFT_REVIEW_CAP = 200;
 
+// How many NEW Touch-1 drafts to stage per day in manual-approval mode — the
+// size of the fresh batch that lands in your approvals queue each night. The
+// point of the photo-fit gates is that this batch is now mostly leads you'll
+// actually want, so a tight number beats a 200-deep pile. Best-first (by
+// priority), so you always see the strongest leads. Tunable without a deploy via
+// the `outreach_daily_draft_target` app-setting; falls back to this default.
+const DEFAULT_DAILY_DRAFT_TARGET = 20;
+
+async function dailyDraftTarget(): Promise<number> {
+  const override = await getSetting("outreach_daily_draft_target");
+  return typeof override === "number" && override > 0 ? Math.floor(override) : DEFAULT_DAILY_DRAFT_TARGET;
+}
+
+// New Touch-1 drafts composed so far today (bumps excluded — different budget).
+async function draftedToday(): Promise<number> {
+  const [{ n }] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(outreachJobs)
+    .where(and(eq(outreachJobs.kind, "touch1"), gte(outreachJobs.draftedAt, startOfToday())));
+  return n ?? 0;
+}
+
 function startOfToday(): Date {
   // Note: Date.now()/new Date() are fine at runtime in the worker (this is not a
   // workflow script); only the Workflow tool forbids them.
@@ -158,12 +180,16 @@ async function draftBatch(autosend: boolean): Promise<void> {
     const already = await sentToday();
     room = Math.max(0, cap - already - pending);
   } else {
-    room = Math.max(0, DRAFT_REVIEW_CAP - pending);
+    // Manual mode: stage at most `target` NEW drafts today (best-first), and never
+    // let the review pile exceed DRAFT_REVIEW_CAP overall. Both bounds apply.
+    const target = await dailyDraftTarget();
+    const madeToday = await draftedToday();
+    room = Math.max(0, Math.min(DRAFT_REVIEW_CAP - pending, target - madeToday));
   }
 
   console.log(
     `[draft] pending ${pending}, drafting up to ${room}` +
-      (autosend ? " [AUTOSEND — paced to daily cap]" : ` [review pile / ${DRAFT_REVIEW_CAP}]`) +
+      (autosend ? " [AUTOSEND — paced to daily cap]" : ` [manual — daily target / ${DRAFT_REVIEW_CAP} pile cap]`) +
       (config.dryRun ? " [DRY RUN — no writes]" : "")
   );
   if (room === 0) return;
