@@ -35,7 +35,12 @@ export const DEFAULT_FILTER_THRESHOLDS: FilterThresholds = {
   minReviews: 20,
   maxReviews: 800,
   maxPriceLevel: 2,
-  requireWebsite: true,
+  // No longer required: a good restaurant with NO website used to be dropped
+  // here (un-emailable), but that discarded ~20% of prime small targets — the
+  // exact low-digital-footprint places that most need the service. They now flow
+  // through and enrichment routes them to the `call_list` (phone) segment instead
+  // of rejecting them. Segment A of the three-channel outreach plan.
+  requireWebsite: false,
   maxRating: null,
 };
 

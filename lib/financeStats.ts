@@ -104,7 +104,7 @@ function bounds(from: Date, to: Date) {
 // Trusted constant list, inlined as a SQL literal (not a bound param) so it's a
 // real IN list — interpolating a JS array here would render a tuple and break
 // `any((...))`.
-const ENRICHED_FILTER = sql`enrichment_status in ('queued', 'needs_manual_email', 'contacted', 'rejected')`;
+const ENRICHED_FILTER = sql`enrichment_status in ('queued', 'needs_manual_email', 'call_list', 'contacted', 'rejected')`;
 
 // Stripe TEST-MODE checkouts must never reach the P&L. A test checkout runs the
 // real webhook, so it writes a real `payments` row (and a real enhancement_orders

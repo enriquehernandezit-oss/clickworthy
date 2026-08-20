@@ -12,7 +12,7 @@ import AddRestaurantForm from "./AddRestaurantForm";
 export const dynamic = "force-dynamic";
 
 const LIMIT = 50;
-const STATUSES = ["sourced", "queued", "needs_manual_email", "contacted", "rejected"] as const;
+const STATUSES = ["sourced", "queued", "needs_manual_email", "call_list", "contacted", "rejected"] as const;
 
 async function getRestaurants(status: string, q: string, page: number) {
   const filters = [];

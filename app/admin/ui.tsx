@@ -185,6 +185,7 @@ const BADGE_TONES: Record<string, string> = {
   processing: "bg-blue-50 text-blue-700 ring-blue-200",
   pending: "bg-stone-100 text-stone-600 ring-stone-200",
   needs_manual_email: "bg-amber-50 text-amber-700 ring-amber-200",
+  call_list: "bg-purple-50 text-purple-700 ring-purple-200",
   rejected: "bg-red-50 text-red-700 ring-red-200",
   failed: "bg-red-50 text-red-700 ring-red-200",
   denied: "bg-red-50 text-red-700 ring-red-200",

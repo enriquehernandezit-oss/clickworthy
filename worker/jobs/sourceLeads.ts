@@ -11,12 +11,12 @@
 // returns EVERY restaurant in each circle nearest-first, so the modest
 // neighborhood spots this product serves finally enter the pipeline. See grid.ts.
 //
-// COST SHAPE — the sweep (many Nearby calls) runs on the cheap Pro SKU. The
-// Enterprise fields the filters need (rating/reviews/price/website/phone) are
-// fetched via Place Details ONLY for new candidates, and only up to the nightly
-// cap (config.nightlyEnrichCap). A place is Details-fetched at most once ever:
-// candidates that fail the filters are recorded as `rejected` so they're skipped
-// on future sweeps instead of re-billing a Details call every night.
+// COST SHAPE — every field the filters need rides on the Nearby search call
+// itself (rating/reviews/price/website/phone; ~1/11th the cost of per-place
+// Place Details — see worker/lib/places.ts). Enrichment (Vision + NeverBounce)
+// is the only per-lead spend, capped by config.nightlyEnrichCap. Candidates that
+// fail the free hard filters are recorded as `rejected` so a future sweep skips
+// them instead of re-enriching.
 
 import type { PgBoss } from "pg-boss";
 import { inArray } from "drizzle-orm";
@@ -26,7 +26,6 @@ import { config } from "../config";
 import { sendAlert } from "@/lib/alerts";
 import {
   searchNearbyRestaurants,
-  getPlaceDetailsForSourcing,
   priceLevelToInt,
   ownerPhotos,
   type Place,
@@ -97,9 +96,8 @@ export async function runSourcing(boss: PgBoss, data: SourceJobData): Promise<vo
   const existingIds = new Set(existingRows.map((r) => r.pid));
   const newAll = [...discovered.values()].filter((c) => !existingIds.has(c.place.id));
 
-  // Drop known national franchises BEFORE spending a Place Details call on them —
-  // the Nearby result already carries displayName, so this is free. They're not
-  // recorded (no row), so they just get re-skipped for free on future sweeps.
+  // Drop known national franchises up front — free (the Nearby result carries
+  // displayName). They're not recorded, so they re-skip for free on future sweeps.
   const newCandidates = newAll.filter((c) => !isKnownChain(c.place.displayName?.text));
   const chainsSkipped = newAll.length - newCandidates.length;
 
@@ -111,29 +109,18 @@ export async function runSourcing(boss: PgBoss, data: SourceJobData): Promise<vo
   const ordered = interleaveByCity(newCandidates);
   const toProcess = candidateCap > 0 ? ordered.slice(0, candidateCap) : ordered;
 
-  // --- 4. For each: Place Details -> hard filters -> insert + enqueue (or record
-  //        the rejection so we never Details-fetch it again). ---
+  // --- 4. For each: hard filters -> insert + enqueue (or record the rejection so
+  //        it's not reconsidered). The Nearby result already carries every field
+  //        the filters read — no per-place Place Details call. ---
   let enqueued = 0;
   let rejected = 0;
-  let detailsFailed = 0;
 
-  for (const { place: nearbyPlace, city } of toProcess) {
-    let place: Place | null;
-    try {
-      place = await getPlaceDetailsForSourcing(nearbyPlace.id);
-    } catch (err) {
-      detailsFailed++;
-      console.error(`[source] details FAILED for ${nearbyPlace.id}:`, err instanceof Error ? err.message : err);
-      continue; // no row written -> retried on a future sweep
-    }
-    await sleep(config.placesThrottleMs);
-    if (!place) continue; // 404 / permanently gone; skip (may reappear, that's fine)
-
+  for (const { place, city } of toProcess) {
     const name = place.displayName?.text ?? "(unknown)";
     const verdict = passesHardFilters(place);
 
     // Common column values whether we keep or reject — recording rejects means a
-    // future sweep sees the row as "existing" and skips the Details re-fetch.
+    // future sweep sees the row as "existing" and skips re-processing.
     const base = {
       name,
       googlePlaceId: place.id,
@@ -184,8 +171,7 @@ export async function runSourcing(boss: PgBoss, data: SourceJobData): Promise<vo
   console.log(
     `[source] done: swept ${cellsSwept} cells (${cellFailures} failed), ` +
       `discovered ${discovered.size} unique, ${chainsSkipped} chains skipped, ${newCandidates.length} new ` +
-      `(${toProcess.length} processed this run), ${enqueued} enqueued, ${rejected} filtered out, ` +
-      `${detailsFailed} details-failed` +
+      `(${toProcess.length} processed this run), ${enqueued} enqueued, ${rejected} filtered out` +
       (config.dryRun ? " (DRY RUN)" : "")
   );
 

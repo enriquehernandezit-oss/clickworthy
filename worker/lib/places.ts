@@ -69,22 +69,32 @@ type SearchResponse = {
   nextPageToken?: string;
 };
 
-// --- Grid sourcing (Nearby Search), billed in two tiers on purpose ---
+// --- Grid sourcing (Nearby Search) — all fields on the one search call ---
 //
-// The nightly grid makes MANY search calls (one per neighborhood cell), so the
-// search request stays on the Pro SKU ($32/1k, 5,000 free calls/mo): id, name,
-// businessStatus, photos. The Enterprise-priced fields the pipeline also needs
-// (rating, review count, price level, website, phone — $35/1k with only 1,000
-// free when put on a SEARCH) are fetched afterwards via Place Details ($20/1k)
-// and ONLY for places we haven't seen before. The old single-mask design billed
-// every search page at the top SKU; this split keeps the whole grid inside the
-// free tiers at current volume.
+// The nightly grid makes MANY search calls (one per neighborhood cell). Nearby
+// Search bills per CALL (up to 20 places) at whatever the top field in the mask
+// costs — so putting the Enterprise fields (rating/reviews/price/website/phone)
+// on the SEARCH costs the same per call as a Pro search but returns everything
+// the filters and priority score need for all 20 places at once. That is ~1/11th
+// the cost of a per-place Place Details lookup and needs no second round-trip.
+// (An earlier design paid Place Details per new place — 11x more; testing caught
+// it.) getPlaceDetailsForSourcing below is retained for ad-hoc/manual use.
 
 const NEARBY_FIELD_MASK = [
   "places.id",
   "places.displayName",
   "places.businessStatus",
   "places.primaryType",
+  // The filter/priority fields ride on the SEARCH call now (verified Aug 2026:
+  // one Nearby call returns these for all 20 places). Search bills per CALL (20
+  // places) at the Enterprise SKU, so this is ~1/11th the cost of a per-place
+  // Place Details lookup — and needs no second call. See sourceLeads.ts.
+  "places.rating",
+  "places.userRatingCount",
+  "places.priceLevel",
+  "places.websiteUri",
+  "places.nationalPhoneNumber",
+  "places.delivery",
   "places.photos.name",
   "places.photos.authorAttributions",
 ].join(",");

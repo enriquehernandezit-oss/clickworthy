@@ -22,10 +22,11 @@ export type EnrichJobData = {
 };
 
 // Final pipeline statuses set by this job:
-//   queued            -> passed everything, has a contactable email, ready for outreach
-//   needs_manual_email-> passed everything but no email found (Jose's manual list)
+//   queued            -> passed everything, has a contactable email, ready for EMAIL outreach
+//   needs_manual_email-> HAS a website but no email auto-found (Jose can find the address; email segment)
+//   call_list         -> NO website at all -> no email path; phone segment (Jose calls; has a phone number)
 //   rejected          -> disqualified (chain / hospitality group / already-pro photos)
-type FinalStatus = "queued" | "needs_manual_email" | "rejected";
+type FinalStatus = "queued" | "needs_manual_email" | "call_list" | "rejected";
 
 // Photo scoring is the dominant per-restaurant cost (a Google fetch + a Claude
 // Vision call each), so it's ADAPTIVE: score photos one at a time and stop the
@@ -177,9 +178,11 @@ export async function runEnrichment(data: EnrichJobData): Promise<void> {
     avgPhotoScore,
   });
 
-  // 7. Final status. A contactable email is all that's required to queue; a
-  //    missing email holds a lead as needs_manual_email.
-  const finalStatus: FinalStatus = email ? "queued" : "needs_manual_email";
+  // 7. Final status routes the lead to its outreach SEGMENT:
+  //    - a contactable email  -> queued          (Segment B: email photo outreach)
+  //    - has a website, no email found -> needs_manual_email (still an email lead — Jose finds the address)
+  //    - no website at all     -> call_list       (Segment A: phone — no email path exists)
+  const finalStatus: FinalStatus = email ? "queued" : restaurant.website ? "needs_manual_email" : "call_list";
 
   await db
     .update(restaurants)

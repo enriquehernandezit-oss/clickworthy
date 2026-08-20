@@ -26,12 +26,19 @@ import { fetchHomepageHtml } from "@/worker/lib/emailDiscovery";
 import { assessPhotoFit } from "@/worker/lib/photoFit";
 
 const THROTTLE_MS = 200;
-const CELLS_PER_CITY = 2; // when no city arg — keep the preview cheap
+const CELLS_PER_CITY = 3; // when no city arg — how many neighborhoods per city to sweep
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-const cityArg = process.argv[2];
-const capArg = Number(process.argv[3]);
-const maxCandidates = Number.isFinite(capArg) && capArg > 0 ? Math.floor(capArg) : 24;
+// Arg parsing: a leading NUMBER means "all cities, this cap"; a leading city name
+// means "that city, cap = next arg". So:
+//   preview-pipeline.ts            -> all cities, default cap
+//   preview-pipeline.ts 48         -> all cities, cap 48
+//   preview-pipeline.ts "Miami, FL" 30
+const arg2 = process.argv[2];
+const arg2IsNum = arg2 !== undefined && arg2.trim() !== "" && Number.isFinite(Number(arg2));
+const cityArg = arg2IsNum ? undefined : arg2;
+const capRaw = arg2IsNum ? Number(arg2) : Number(process.argv[3]);
+const maxCandidates = Number.isFinite(capRaw) && capRaw > 0 ? Math.floor(capRaw) : 24;
 
 // Build the cell list: one city if named, else the first N cells of each city.
 const cells: { city: string; lat: number; lng: number; radiusM: number; name: string }[] = [];

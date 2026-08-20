@@ -50,8 +50,15 @@ describe("passesHardFilters — defaults", () => {
     expect(passesHardFilters(place({ priceLevel: undefined })).pass).toBe(true);
   });
 
-  test("no website fails (un-emailable)", () => {
-    expect(passesHardFilters(place({ websiteUri: undefined })).pass).toBe(false);
+  test("no website now PASSES (routed to the phone call_list, not dropped)", () => {
+    // Segment A: a good restaurant with no website is captured for phone outreach
+    // rather than rejected. requireWebsite defaults to false.
+    expect(passesHardFilters(place({ websiteUri: undefined })).pass).toBe(true);
+  });
+
+  test("requireWebsite:true (injected) still rejects a no-website place", () => {
+    const t: FilterThresholds = { ...DEFAULT_FILTER_THRESHOLDS, requireWebsite: true };
+    expect(passesHardFilters(place({ websiteUri: undefined }), t).pass).toBe(false);
   });
 
   test("non-operational fails", () => {

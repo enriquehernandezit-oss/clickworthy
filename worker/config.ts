@@ -52,9 +52,9 @@ export const config = {
   placesThrottleMs: intEnv("WORKER_PLACES_THROTTLE_MS", 200),
 
   // Cap on how many NEW (never-seen) grid candidates to fully process per run —
-  // this is the nightly SPEND CEILING. Each processed candidate costs one Place
-  // Details call (to get rating/website/etc. the cheap Nearby search omits) and,
-  // if it passes the hard filters, one enrichment job (NeverBounce + Vision).
+  // this is the nightly SPEND CEILING. Filtering is free (fields ride on the
+  // Nearby search); the cost is one enrichment job (NeverBounce + Vision) per
+  // candidate that clears the hard filters.
   // The grid can discover hundreds of new places on the first sweeps, so unlike
   // the old text-search path this MUST be capped. 0 = no cap. Aiming at ~20
   // queued/night: roughly half of processed candidates historically yield a

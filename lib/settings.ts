@@ -56,6 +56,10 @@ export type SettingsMap = {
   outreach_daily_cap: number | null;
   // Days to wait before sending the one-time Touch 1.5 bump.
   bump_after_days: number;
+  // How many NEW Touch-1 drafts the nightly job stages for review in
+  // manual-approval mode (autosend paces to the send cap instead). Read fresh
+  // each run by worker/jobs/sendOutreach.ts.
+  outreach_daily_draft_target: number;
   worker_boot_info: WorkerBootInfo | null;
 
   // --- Outreach identity + copy (editable on /admin/photo/templates) ---------
@@ -107,6 +111,7 @@ const DEFAULTS: SettingsMap = {
   outreach_autosend: false,
   outreach_daily_cap: null,
   bump_after_days: 3,
+  outreach_daily_draft_target: 20,
   worker_boot_info: null,
 
   // Calibrated 2026-08-18 against measured API usage and the real subscription

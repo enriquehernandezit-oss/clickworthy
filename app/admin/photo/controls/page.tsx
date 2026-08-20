@@ -146,6 +146,14 @@ export default async function ControlsPage() {
           nullable={false}
           suffix="days"
         />
+        <NumberSetting
+          settingKey="outreach_daily_draft_target"
+          label="Daily draft target"
+          help="How many NEW Touch 1 drafts the nightly job stages for review (manual-approval mode). Autosend paces to the send cap instead."
+          value={values.outreach_daily_draft_target}
+          nullable={false}
+          suffix="/ day"
+        />
       </section>
 
       {/* Deliverability guard */}
