@@ -50,10 +50,19 @@ export const config = {
   // the guess fallback off entirely and keeps the extractors.
   emailGuessLimit: intEnv("WORKER_EMAIL_GUESS_LIMIT", 3),
 
-  // The chain/hospitality-group check (Claude + up to 3 web searches, ~6¢ each)
-  // is a paid disqualifier. Off by default under the wide-net strategy — we'd
-  // rather email a franchise than pay to exclude it. Flip to true to re-enable.
-  enableChainCheck: process.env.WORKER_ENABLE_CHAIN_CHECK === "true",
+  // The chain/hospitality-group check (Claude + up to 3 web searches, ~6¢ each).
+  // ON by default (flipped 2026-08-21) — the static denylist (chains.ts) kept
+  // missing real cases in production the same night this shipped: two 7-Eleven
+  // locations, Pollo Feliz, Pure Green, and — the one that mattered most — a
+  // legitimate independent (Tree House Chicago) whose listed contact was a
+  // shared hospitality-GROUP mailbox, which no name-matching denylist can catch
+  // by design. This check runs on every candidate that clears the free hard
+  // filters (~15-20/night at the current cap), so budget ~$1-1.20/night
+  // (~$30-35/month) — not the old "~6¢/call" framing, which undersold the real
+  // nightly rate. Bonus: it also fills ownerFirstName for personalization,
+  // which had never been populated with this off. Set WORKER_ENABLE_CHAIN_CHECK
+  // to "false" to opt back into the wide-net strategy.
+  enableChainCheck: process.env.WORKER_ENABLE_CHAIN_CHECK !== "false",
 
   // Politeness delay between Places search calls in the sourcing loop (ms).
   placesThrottleMs: intEnv("WORKER_PLACES_THROTTLE_MS", 200),
