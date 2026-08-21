@@ -64,6 +64,10 @@ const FRANCHISE_NAMES: string[] = [
   // queued via a per-city-subdomain franchise site (chicago.pollofeliz.com,
   // "Pollo Feliz USA" branding) — same shape as the Lazy Dog catch above.
   "pollo feliz",
+  // Caught the same night: "Pure Green" (juice bar) reached queued via
+  // puregreenfranchise.com/new-york/washington-heights/ — the domain itself
+  // says "franchise", and the per-location URL path confirms it.
+  "pure green",
 ];
 
 // Hotel/hospitality-CHAIN domains. A restaurant living on one of these is a

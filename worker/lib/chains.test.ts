@@ -71,6 +71,14 @@ describe("isKnownChain — production gaps (Aug 2026 backfill run)", () => {
     expect(isKnownChain("Pollo Feliz")).toBe(true);
   });
 
+  test("Pure Green — caught via a franchise domain with per-location URL paths", () => {
+    // puregreenfranchise.com/new-york/washington-heights/ — the domain guard
+    // correctly allows the on-domain contact address; the gap was the chain
+    // name list, not the domain check.
+    expect(isKnownChain("Pure Green")).toBe(true);
+    expect(isKnownChain("Pure Green - Juice Bar Washington Heights")).toBe(true);
+  });
+
   test("a hotel-chain dining outlet is caught by its WEBSITE domain, not its name", () => {
     // "Noe Restaurant & Bar" itself is unbranded — only the website reveals it's
     // a corporate hotel-chain outlet (info@omnihotels.com).
