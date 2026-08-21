@@ -54,7 +54,7 @@ export function passesHardFilters(
 
   // Known national franchise — a guaranteed non-lead (corporate owns the brand
   // photography). Deterministic and free; the neighborhood grid surfaces plenty.
-  if (isKnownChain(place.displayName?.text)) {
+  if (isKnownChain(place.displayName?.text, place.websiteUri)) {
     return { pass: false, reason: `known chain (${place.displayName?.text ?? "?"})` };
   }
 

@@ -49,6 +49,30 @@ const FRANCHISE_NAMES: string[] = [
   "bob evans", "friendlys", "carrabbas", "carrabbas italian grill", "on the border",
   "pf changs", "pf changs china bistro", "california pizza kitchen",
   "buffalo wild wings go", "arbys",
+  // Convenience stores that Google tags as restaurants (they sell hot food) —
+  // caught in production: two 7-Eleven locations queued for outreach.
+  "7 eleven", "circle k", "wawa", "sheetz", "quiktrip", "casey s general store",
+  "speedway", "royal farms",
+  // Regional / casual-dining chains missed by the first pass — caught in
+  // production: Lazy Dog (~50 locations) and Foster's Freeze (~90 locations)
+  // both reached the queued/email-ready pool.
+  "lazy dog restaurant", "lazy dog", "fosters freeze", "black bear diner",
+  "mimis cafe", "corner bakery cafe", "portillos", "portillos hot dogs",
+  "raising canes chicken fingers", "chicken salad chick", "first watch",
+  "another broken egg cafe", "snooze an am eatery", "eggs up grill",
+];
+
+// Hotel/hospitality-CHAIN domains. A restaurant living on one of these is a
+// hotel dining outlet with a corporate marketing team, not an independent
+// owner — caught in production: "Noe Restaurant & Bar" resolved to an
+// info@omnihotels.com corporate mailbox. Name-matching can't catch this (the
+// restaurant's own name is unbranded), so it's checked against the WEBSITE
+// domain instead.
+const HOTEL_CHAIN_DOMAINS = [
+  "omnihotels.com", "marriott.com", "hilton.com", "hyatt.com", "ihg.com",
+  "wyndhamhotels.com", "choicehotels.com", "bestwestern.com", "fourseasons.com",
+  "ritzcarlton.com", "fairmont.com", "loewshotels.com", "kimptonhotels.com",
+  "sonesta.com", "marriott.com", "starwoodhotels.com", "accor.com",
 ];
 
 // Normalize to bare lowercase alphanumerics + single spaces (same shape used for
@@ -69,8 +93,16 @@ function normalize(value: string): string {
 // normalized name or a leading franchise-name token run, so location suffixes and
 // store numbers still hit while a local name that merely CONTAINS a food word
 // (e.g. "Havana Pizza") does not.
-export function isKnownChain(name: string | null | undefined): boolean {
+export function isKnownChain(name: string | null | undefined, website?: string | null): boolean {
   const n = normalize(name ?? "");
-  if (!n) return false;
-  return FRANCHISE_NAMES.some((f) => n === f || n.startsWith(f + " "));
+  if (n && FRANCHISE_NAMES.some((f) => n === f || n.startsWith(f + " "))) return true;
+  if (website) {
+    try {
+      const host = new URL(website).hostname.replace(/^www\./, "").toLowerCase();
+      if (HOTEL_CHAIN_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`))) return true;
+    } catch {
+      // malformed URL — fall through, not a chain signal either way
+    }
+  }
+  return false;
 }

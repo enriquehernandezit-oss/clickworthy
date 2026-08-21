@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { restaurants } from "@/db/schema";
 import Link from "next/link";
 import RestaurantActions from "./RestaurantActions";
-import { Badge, EmptyState, Pager, SectionHeading } from "../../ui";
+import { Badge, EmptyState, Pager, SectionHeading, telHref } from "../../ui";
 import AddRestaurantForm from "./AddRestaurantForm";
 
 // The lead database, browsable. The important job here is unblocking rows the
@@ -35,6 +35,7 @@ async function getRestaurants(status: string, q: string, page: number) {
       suppressed: restaurants.suppressed,
       held: restaurants.held,
       website: restaurants.website,
+      phone: restaurants.phone,
     })
     .from(restaurants)
     .where(filters.length ? and(...filters) : undefined)
@@ -153,16 +154,20 @@ export default async function RestaurantsPage({
                       {r.suppressed && <span className="ml-1 font-medium text-red-600">· suppressed</span>}
                       {r.held && <span className="ml-1 font-medium text-amber-600">· held</span>}
                     </div>
-                    {r.website && (
-                      <a
-                        href={r.website}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-orange-700 hover:underline"
-                      >
-                        website ↗
-                      </a>
-                    )}
+                    <div className="mt-0.5 flex items-center gap-2 text-xs">
+                      {r.website ? (
+                        <a href={r.website} target="_blank" rel="noopener noreferrer" className="text-orange-700 hover:underline">
+                          website ↗
+                        </a>
+                      ) : (
+                        <span className="text-stone-400">no website</span>
+                      )}
+                      {r.phone && (
+                        <a href={telHref(r.phone)} className="tabular-nums text-blue-600 hover:underline">
+                          {r.phone}
+                        </a>
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-3">
                     <Badge value={r.enrichmentStatus} />

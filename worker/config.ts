@@ -43,6 +43,13 @@ export const config = {
   // is just the worst-case ceiling (see scorePhotos in enrichRestaurant.ts).
   photoScoreLimit: intEnv("WORKER_PHOTO_SCORE_LIMIT", 4),
 
+  // How many guessed mailboxes (info@/contact@/hello@ on the restaurant's own
+  // domain) to run past NeverBounce when the free extractors find nothing. This
+  // is the ONLY new per-lead cost in discovery v2 (~$0.008 per check, and only
+  // on leads that would otherwise be dead). Lower it to 1 to cut spend; 0 turns
+  // the guess fallback off entirely and keeps the extractors.
+  emailGuessLimit: intEnv("WORKER_EMAIL_GUESS_LIMIT", 3),
+
   // The chain/hospitality-group check (Claude + up to 3 web searches, ~6¢ each)
   // is a paid disqualifier. Off by default under the wide-net strategy — we'd
   // rather email a franchise than pay to exclude it. Flip to true to re-enable.

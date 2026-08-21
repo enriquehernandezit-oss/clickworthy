@@ -98,7 +98,7 @@ export async function runSourcing(boss: PgBoss, data: SourceJobData): Promise<vo
 
   // Drop known national franchises up front — free (the Nearby result carries
   // displayName). They're not recorded, so they re-skip for free on future sweeps.
-  const newCandidates = newAll.filter((c) => !isKnownChain(c.place.displayName?.text));
+  const newCandidates = newAll.filter((c) => !isKnownChain(c.place.displayName?.text, c.place.websiteUri));
   const chainsSkipped = newAll.length - newCandidates.length;
 
   // --- 3. Cap the number of new candidates we spend on this run. Interleave

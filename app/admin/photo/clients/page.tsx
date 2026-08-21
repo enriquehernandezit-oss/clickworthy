@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import Link from "next/link";
-import { EmptyState, SectionHeading, money } from "../../ui";
+import { EmptyState, SectionHeading, money, telHref } from "../../ui";
 
 // Who we've done business with — retention view over the payments ledger. Groups
 // every payment by client (restaurant for package/outreach sales, email for
@@ -22,6 +22,7 @@ type Row = {
   firstPaid: string;
   lastPaid: string;
   hasSub: boolean;
+  website: string | null;
   lastSubPaid: string | null;
   products: string[];
 };
@@ -33,6 +34,7 @@ async function getClients(): Promise<Row[]> {
       max(p.restaurant_id) as "restaurantId",
       max(r.name) as "name",
       max(r.city) as "city",
+      max(r.website) as "website",
       coalesce(max(r.phone), max(p.customer_email)) as "contact",
       sum(p.gross_cents - p.refunded_cents)::int as "lifetimeCents",
       count(*)::int as "orders",
@@ -124,6 +126,11 @@ export default async function ClientsPage() {
                       <span className="text-stone-800">{c.contact ?? "Self-serve"}</span>
                     )}
                     {c.city ? <span className="text-stone-400"> · {c.city}</span> : null}
+                    {c.website && (
+                      <a href={c.website} target="_blank" rel="noopener noreferrer" className="ml-2 text-xs text-blue-600 hover:underline">
+                        site ↗
+                      </a>
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${TONE[c.status]}`}>{LABEL[c.status]}</span>
@@ -133,7 +140,13 @@ export default async function ClientsPage() {
                   <td className="px-3 py-2 text-stone-600">{fmt(c.lastPaid)}</td>
                   <td className={`px-3 py-2 tabular-nums ${c.status === "lapsed_sub" ? "text-red-600 font-semibold" : "text-stone-600"}`}>{c.daysSince}</td>
                   <td className="px-3 py-2 text-stone-500">{c.products.join(", ")}</td>
-                  <td className="px-3 py-2 text-stone-600">{c.contact ?? "—"}</td>
+                  <td className="px-3 py-2 text-stone-600">
+                    {c.contact && /^[\d ()+-]+$/.test(c.contact) ? (
+                      <a href={telHref(c.contact)} className="tabular-nums text-blue-600 hover:underline">{c.contact}</a>
+                    ) : (
+                      c.contact ?? "—"
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

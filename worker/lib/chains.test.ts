@@ -47,3 +47,44 @@ describe("isKnownChain — spares independents", () => {
     expect(isKnownChain("   ")).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression: 4 real leads reached the "queued" (ready-to-email) pool in
+// production before this fix — two 7-Eleven convenience-store locations, and
+// two casual-dining chains (Lazy Dog, Foster's Freeze) not in the first pass.
+// ---------------------------------------------------------------------------
+
+describe("isKnownChain — production gaps (Aug 2026 backfill run)", () => {
+  test("convenience stores Google tags as restaurants", () => {
+    expect(isKnownChain("7-Eleven")).toBe(true);
+    expect(isKnownChain("Circle K")).toBe(true);
+    expect(isKnownChain("Wawa")).toBe(true);
+  });
+
+  test("regional casual-dining chains missed by the first pass", () => {
+    expect(isKnownChain("Lazy Dog Restaurant & Bar")).toBe(true);
+    expect(isKnownChain("Fosters Freeze")).toBe(true);
+    expect(isKnownChain("Portillo's")).toBe(true);
+  });
+
+  test("a hotel-chain dining outlet is caught by its WEBSITE domain, not its name", () => {
+    // "Noe Restaurant & Bar" itself is unbranded — only the website reveals it's
+    // a corporate hotel-chain outlet (info@omnihotels.com).
+    expect(isKnownChain("Noe Restaurant & Bar")).toBe(false); // name alone: no signal
+    expect(isKnownChain("Noe Restaurant & Bar", "https://www.omnihotels.com/hotels/x/dining/noe-restaurant")).toBe(true);
+  });
+
+  test("other major hotel-chain domains are caught the same way", () => {
+    for (const domain of ["https://www.marriott.com/x", "https://www.hilton.com/x", "https://www.hyatt.com/x"]) {
+      expect(isKnownChain("Some Hotel Restaurant", domain), domain).toBe(true);
+    }
+  });
+
+  test("an independent restaurant's own domain is never mistaken for a hotel chain", () => {
+    expect(isKnownChain("Joe's Diner", "https://joesdiner.com")).toBe(false);
+  });
+
+  test("a malformed website never throws, just contributes no domain signal", () => {
+    expect(isKnownChain("Some Place", "not a url")).toBe(false);
+  });
+});

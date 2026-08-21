@@ -13,6 +13,7 @@ const TABS = [
   ["/admin/photo/templates", "Templates"],
   ["/admin/photo/financials", "Financials"],
   ["/admin/photo/restaurants", "Leads"],
+  ["/admin/photo/call-list", "Call list"],
   ["/admin/photo/website-leads", "Website leads"],
   ["/admin/photo/clients", "Clients"],
   ["/admin/photo/suppressions", "Suppressions"],

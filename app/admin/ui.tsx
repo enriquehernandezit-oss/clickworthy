@@ -299,3 +299,30 @@ export function Pager({
     </div>
   );
 }
+
+// Click-to-call. Phones are stored formatted ("(305) 301-3128"); tel: needs digits.
+export function telHref(phone: string): string {
+  const d = phone.replace(/\D/g, "");
+  return `tel:${d.length === 10 ? `+1${d}` : `+${d}`}`;
+}
+
+// A phone number rendered as a click-to-call link (falls back to muted text).
+export function PhoneLink({ phone, className = "" }: { phone: string | null | undefined; className?: string }) {
+  if (!phone) return <span className="text-stone-400">—</span>;
+  return (
+    <a href={telHref(phone)} className={`tabular-nums text-blue-600 hover:underline ${className}`}>
+      {phone}
+    </a>
+  );
+}
+
+// A restaurant's own website, opened in a new tab. Used on every page that
+// lists restaurants so the site is always one click away.
+export function WebsiteLink({ website, className = "" }: { website: string | null | undefined; className?: string }) {
+  if (!website) return <span className="text-stone-400">—</span>;
+  return (
+    <a href={website} target="_blank" rel="noopener noreferrer" className={`text-blue-600 hover:underline ${className}`}>
+      site ↗
+    </a>
+  );
+}

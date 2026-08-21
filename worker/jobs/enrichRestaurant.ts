@@ -8,8 +8,8 @@ import { db } from "@/db";
 import { restaurants } from "@/db/schema";
 import { config } from "../config";
 import { priceLevelToInt, fetchPhotoBytes } from "../lib/places";
-import { discoverEmail, fetchHomepageHtml } from "../lib/emailDiscovery";
-import { verifyEmail, isContactable } from "../lib/neverbounce";
+import { fetchHomepageHtml } from "../lib/emailDiscovery";
+import { findVerifiedEmail } from "../lib/findEmail";
 import { scorePhoto, checkHospitalityGroup } from "../lib/anthropic";
 import { assessPhotoFit } from "../lib/photoFit";
 import { priorityScore } from "../lib/priority";
@@ -132,24 +132,20 @@ export async function runEnrichment(data: EnrichJobData): Promise<void> {
   }
 
   // 4. Email discovery (reusing the homepage) + NeverBounce verification.
+  //    Four free extractors first; if they find nothing, a few standard
+  //    mailboxes on the restaurant's own domain are verified as a fallback.
+  //    Only a NeverBounce-contactable address is ever kept (see findEmail.ts).
   let email: string | null = null;
   let emailRank: number | null = null;
   let emailSource: string | null = null;
   if (restaurant.website) {
-    // null homepage (fetch failed) -> pass undefined so discoverEmail retries its
+    // null homepage (fetch failed) -> pass undefined so discovery retries its
     // own fetch rather than skipping outright.
-    const discovered = await discoverEmail(restaurant.website, homepageHtml ?? undefined);
-    if (discovered) {
-      try {
-        const verdict = await verifyEmail(discovered.email);
-        if (isContactable(verdict)) {
-          email = discovered.email;
-          emailRank = discovered.rank;
-          emailSource = "website";
-        }
-      } catch (err) {
-        console.warn(`[enrich] NeverBounce failed for ${discovered.email}:`, err instanceof Error ? err.message : err);
-      }
+    const { found } = await findVerifiedEmail(restaurant.website, homepageHtml ?? undefined);
+    if (found) {
+      email = found.email;
+      emailRank = found.rank;
+      emailSource = found.source; // 'website' | 'guessed' — kept for calibration
     }
   }
 
