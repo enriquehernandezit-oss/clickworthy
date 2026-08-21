@@ -76,28 +76,45 @@ export async function runEnrichment(data: EnrichJobData): Promise<void> {
     return;
   }
 
-  // 1. Chain / hospitality-group disqualifier (Claude + web search). Off by
-  //    default under the wide-net strategy — it's a paid disqualifier (~6¢/call)
-  //    and we'd rather email a franchise than pay to exclude it. When enabled,
-  //    a group verdict short-circuits the rest of the (paid) enrichment.
+  // 1. Chain / hospitality-group disqualifier (Claude + web search). ON by
+  //    default since 2026-08-21 — it catches what the static denylist
+  //    structurally cannot: a restaurant whose NAME gives no hint it belongs to
+  //    a group (verified live — 9 of 14 approved drafts were groups). A group
+  //    verdict short-circuits the rest of the (paid) enrichment.
   //    ownerFirstName is a byproduct of this call; without it, Touch 1 falls
   //    back to a generic "Hi there," greeting (see worker/lib/outreachEmail.ts).
+  //
+  //    FAILS OPEN. This is the first step of enrichment and the most
+  //    failure-prone (external API + up to 3 web searches), so a transient
+  //    timeout/rate-limit must not throw the whole job: pg-boss would leave the
+  //    restaurant stranded at `sourced`, and a retry would re-pay for every
+  //    downstream step. On error we log and continue as "not a group" — the
+  //    static denylist (worker/lib/chains.ts) already ran at the filter stage as
+  //    a backstop, and a human reviews every draft anyway. Letting a possible
+  //    chain through to review beats silently losing the lead.
   let ownerFirstName: string | null = null;
   if (config.enableChainCheck) {
-    const group = await checkHospitalityGroup(restaurant.name, restaurant.city ?? "");
-    if (group.isGroup) {
-      await db
-        .update(restaurants)
-        .set({
-          isHospitalityGroup: true,
-          enrichmentStatus: "rejected",
-          rejectionReason: `Chain / hospitality group: ${group.reasoning}`,
-        })
-        .where(eq(restaurants.id, restaurant.id));
-      console.log(`[enrich] "${restaurant.name}" rejected: hospitality group (${group.reasoning})`);
-      return;
+    try {
+      const group = await checkHospitalityGroup(restaurant.name, restaurant.city ?? "");
+      if (group.isGroup) {
+        await db
+          .update(restaurants)
+          .set({
+            isHospitalityGroup: true,
+            enrichmentStatus: "rejected",
+            rejectionReason: `Chain / hospitality group: ${group.reasoning}`,
+          })
+          .where(eq(restaurants.id, restaurant.id));
+        console.log(`[enrich] "${restaurant.name}" rejected: hospitality group (${group.reasoning})`);
+        return;
+      }
+      ownerFirstName = group.ownerFirstName;
+    } catch (err) {
+      console.warn(
+        `[enrich] chain check FAILED for "${restaurant.name}" — continuing as independent:`,
+        err instanceof Error ? err.message : err
+      );
     }
-    ownerFirstName = group.ownerFirstName;
   }
 
   // 2. Fetch the homepage ONCE — it drives both the photo-fit gates and email
