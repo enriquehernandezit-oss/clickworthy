@@ -57,10 +57,24 @@ async function createMessage(
   }
 }
 
-// Pulls the first text block out of a Messages response.
-function firstText(message: Anthropic.Message): string {
-  const block = message.content.find((b) => b.type === "text");
-  return block && block.type === "text" ? block.text.trim() : "";
+// Joins every text block in a Messages response, in order. A plain (no-tool)
+// response has exactly one text block, so this is a no-op for scorePhoto /
+// generateRevenueImpactCopy. checkHospitalityGroup is different: the web_search
+// tool makes Claude interleave text with server_tool_use/web_search_tool_result
+// blocks across multiple rounds, and its system prompt says to "End your reply"
+// with the JSON — so the JSON lands in the LAST text block, not the first.
+// Taking only the first block (the old behavior) silently grabbed the model's
+// opening remark before it ever searched, which the JSON parse then failed on —
+// producing a false "unparseable, defaulted to independent" on EVERY call and
+// making the whole disqualifier a no-op. Caught 2026-08-21 rechecking 14 live
+// drafts: Claude's own reasoning correctly called out several as chains/groups,
+// but 0 of 14 were ever flagged because the JSON was never where this looked.
+export function allText(message: Anthropic.Message): string {
+  return message.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("\n")
+    .trim();
 }
 
 // Extracts a JSON object from a model reply that may wrap it in prose/fences.
@@ -106,7 +120,7 @@ export async function scorePhoto(bytes: Buffer, contentType: string): Promise<Ph
     ],
   });
 
-  const parsed = parseJsonObject<PhotoScore>(firstText(message));
+  const parsed = parseJsonObject<PhotoScore>(allText(message));
   return {
     score: clamp(parsed.score, 2, 6),
     category: parsed.category || "other",
@@ -132,7 +146,15 @@ export async function checkHospitalityGroup(
 ): Promise<HospitalityGroupResult> {
   const message = await createMessage({
     model: config.claudeModel,
-    max_tokens: 500,
+    // 500 was too tight: up to 3 web-search rounds plus reasoning after each
+    // can exhaust it before the model ever reaches the "end with JSON"
+    // instruction, so the response gets cut off mid-sentence and (even after
+    // fixing allText) there is genuinely no JSON anywhere in the output.
+    // Caught 2026-08-21 rechecking live drafts: 6 of 14 truncated mid-word
+    // ("...As part of the renowned San[kalp]", "...woman-own[ed]"). Raising
+    // the CAP costs nothing unless the model actually needs the room — output
+    // is billed on tokens actually generated, not the ceiling.
+    max_tokens: 1500,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }],
     system:
       "For a given restaurant, decide two things and search the web if unsure. " +
@@ -147,7 +169,7 @@ export async function checkHospitalityGroup(
     ],
   });
 
-  const text = firstText(message);
+  const text = allText(message);
   try {
     const parsed = parseJsonObject<HospitalityGroupResult>(text);
     return {
@@ -208,7 +230,7 @@ export async function generateRevenueImpactCopy(i: RevenueImpactInputs): Promise
       },
     ],
   });
-  return firstText(message);
+  return allText(message);
 }
 
 function clamp(n: number, lo: number, hi: number): number {
