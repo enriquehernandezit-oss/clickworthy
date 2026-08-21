@@ -67,6 +67,10 @@ describe("isKnownChain — production gaps (Aug 2026 backfill run)", () => {
     expect(isKnownChain("Portillo's")).toBe(true);
   });
 
+  test("Pollo Feliz — caught via a per-city franchise subdomain (chicago.pollofeliz.com)", () => {
+    expect(isKnownChain("Pollo Feliz")).toBe(true);
+  });
+
   test("a hotel-chain dining outlet is caught by its WEBSITE domain, not its name", () => {
     // "Noe Restaurant & Bar" itself is unbranded — only the website reveals it's
     // a corporate hotel-chain outlet (info@omnihotels.com).

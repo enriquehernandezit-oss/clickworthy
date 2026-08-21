@@ -60,6 +60,10 @@ const FRANCHISE_NAMES: string[] = [
   "mimis cafe", "corner bakery cafe", "portillos", "portillos hot dogs",
   "raising canes chicken fingers", "chicken salad chick", "first watch",
   "another broken egg cafe", "snooze an am eatery", "eggs up grill",
+  // Caught in the next run: "Pollo Feliz" (680 reviews, Chicago) reached
+  // queued via a per-city-subdomain franchise site (chicago.pollofeliz.com,
+  // "Pollo Feliz USA" branding) — same shape as the Lazy Dog catch above.
+  "pollo feliz",
 ];
 
 // Hotel/hospitality-CHAIN domains. A restaurant living on one of these is a
