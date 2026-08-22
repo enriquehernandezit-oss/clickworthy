@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import Link from "next/link";
-import { Badge, EmptyState, SectionHeading, telHref } from "../../ui";
+import { Badge, EmptyState, SectionHeading, telHref, fmtDate } from "../../ui";
 
 // The PHONE channel. Restaurants with no website at all can't be emailed (there
 // is no site to scrape an address from), so they land in `call_list` during
@@ -139,7 +139,7 @@ export default async function CallListPage({
                     )}
                   </td>
                   <td className="px-3 py-2 text-stone-500">
-                    {r.lastContactedAt ? new Date(r.lastContactedAt).toLocaleDateString() : <Badge value="not yet" />}
+                    {r.lastContactedAt ? fmtDate(new Date(r.lastContactedAt)) : <Badge value="not yet" />}
                   </td>
                 </tr>
               ))}

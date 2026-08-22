@@ -223,16 +223,28 @@ export function EmptyState({ children }: { children: React.ReactNode }) {
   return <p className="mt-3 text-sm text-stone-500">{children}</p>;
 }
 
+// These pages are Next.js Server Components — they format Dates on the
+// server, not in the viewer's browser. Railway's container runs UTC (no TZ
+// env var), so without an explicit IANA zone, toLocaleString silently prints
+// the server's UTC clock while looking like local time — every timestamp in
+// the admin panel read 4h ahead of Enrique's actual time (AST/UTC-4), which
+// surfaced as "it says done at 2:23pm but it's only 2:20pm" (2026-08-22:
+// today's Touch-1 batch really drafted at 10:23am AST — 14:23 UTC — the page
+// just relabeled the UTC hour as if it were local). Hardcoded, not derived
+// from the visitor: this is an internal single-operator admin tool, not a
+// public page serving viewers in different zones.
+const ADMIN_TZ = "America/Puerto_Rico"; // AST, UTC-4 year-round (no DST)
+
 // Formats a nullable timestamp for dense table cells. Formatting an existing
 // Date is fine under the react-compiler purity rules (we never construct one).
 export function fmtDate(d: Date | null): string {
   if (!d) return "—";
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: ADMIN_TZ });
 }
 
 export function fmtDateTime(d: Date | null): string {
   if (!d) return "—";
-  return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: ADMIN_TZ });
 }
 
 // Relative time for the activity feed. `nowMs` is passed in (captured in the
@@ -246,7 +258,7 @@ export function relTime(d: Date | null, nowMs: number): string {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
   if (days < 30) return `${days}d ago`;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: ADMIN_TZ });
 }
 
 // Prev/Next pager that preserves the page's existing filters. `params` is the
