@@ -52,14 +52,14 @@ const PAYMENT_CONFIRMATION_COPY = {
     body: (name: string, url: string) =>
       `Hi,\n\nThanks for choosing Clickworthy for ${name}! Your payment went through.\n\n` +
       `Upload your photos here whenever you're ready — no rush, this link doesn't expire soon:\n\n${url}\n\n` +
-      "Once we have them, we'll get your enhanced photos back to you. Reply to this email anytime if you need anything.\n\nClickworthy",
+      "Once we have them, we'll get your enhanced photos back to you. Reply to this email anytime if you need anything.",
   },
   es: {
     subject: (name: string) => `Gracias por su pedido, ${name} — suba sus fotos`,
     body: (name: string, url: string) =>
       `Hola,\n\n¡Gracias por elegir Clickworthy para ${name}! Su pago fue procesado.\n\n` +
       `Suba sus fotos aquí cuando esté listo — sin apuro, este enlace no vence pronto:\n\n${url}\n\n` +
-      "Una vez las tengamos, le enviaremos sus fotos mejoradas. Responda este correo cuando necesite algo.\n\nClickworthy",
+      "Una vez las tengamos, le enviaremos sus fotos mejoradas. Responda este correo cuando necesite algo.",
   },
 } as const;
 

@@ -8,6 +8,8 @@ import { sendAlert } from "@/lib/alerts";
 import { recordStripePayment } from "@/lib/paymentLedger";
 import { composePackagePaymentConfirmationEmail } from "@/lib/customerEmail";
 import { PACKAGES, isPackageId } from "@/lib/packages";
+import { getSetting } from "@/lib/settings";
+import { signatureBlock } from "@/worker/lib/outreachEmail";
 
 function appOriginFrom(request: NextRequest): string {
   const proto = request.headers.get("x-forwarded-proto") ?? request.nextUrl.protocol.replace(":", "");
@@ -161,13 +163,23 @@ export async function POST(request: NextRequest) {
             language: restaurant.language ?? "en",
             uploadUrl: `${appOrigin}/l/${token}/upload`,
           });
+          const [senderName, signature] = await Promise.all([
+            getSetting("outreach_sender_name"),
+            getSetting("outreach_signature"),
+          ]);
+          // Baked into the stored draft (like Touch 1/bump/Touch 2), not
+          // appended at send time — a human reviews this in Approvals, so
+          // what they see should be what actually ships. postalAddress is
+          // unused by signatureBlock (this send isn't CAN-SPAM commercial
+          // mail — it's a receipt for a completed purchase).
+          const fullBody = body + signatureBlock({ senderName, postalAddress: "", signature });
           await db.insert(outreachJobs).values({
             restaurantId: link.restaurantId,
             magicLinkId: link.id,
             kind: "payment_confirmation",
             touchNumber: null,
             subject,
-            emailContent: body,
+            emailContent: fullBody,
             draftedAt: new Date(),
             status: "draft",
           });
