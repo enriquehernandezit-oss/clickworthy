@@ -32,13 +32,18 @@ async function loadTemplateAndIdentity(): Promise<{
   nodishTemplate: Touch1Template;
   identity: ComposeIdentity;
 }> {
-  const [template, nodishTemplate, senderNameSetting, postalAddressSetting] = await Promise.all([
+  const [template, nodishTemplate, senderNameSetting, postalAddressSetting, signatureSetting] = await Promise.all([
     getSetting("outreach_touch1_template"),
     getSetting("outreach_touch1_nodish_template"),
     getSetting("outreach_sender_name"),
     getSetting("outreach_postal_address"),
+    getSetting("outreach_signature"),
   ]);
-  return { template, nodishTemplate, identity: { senderName: senderNameSetting, postalAddress: postalAddressSetting } };
+  return {
+    template,
+    nodishTemplate,
+    identity: { senderName: senderNameSetting, postalAddress: postalAddressSetting, signature: signatureSetting },
+  };
 }
 
 type RedraftResult =

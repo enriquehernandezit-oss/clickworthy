@@ -34,7 +34,20 @@ export function normalizeLanguage(value: string | null | undefined): Language {
 // but emailable leads in the pipeline instead of holding them.
 const FALLBACK_DISH: Record<Language, string> = { en: "food", es: "comida" };
 
-export type ComposeIdentity = { senderName: string; postalAddress: string };
+export type ComposeIdentity = { senderName: string; postalAddress: string; signature: string };
+
+// Code-owned sign-off, appended outside the editable template body — same
+// reasoning as complianceFooter below: the base "{{senderName}}\nClickworthy"
+// line shouldn't live duplicated across 8 template bodies (touch1/bump/touch2
+// x en/es), and `signature` (title, address, contact links — see Templates
+// admin page) is free text the operator controls without touching a template
+// at all. Gmail's own signature feature never applies to these emails: every
+// send goes through the Gmail API's messages.send directly, bypassing the
+// compose-window UI entirely.
+export function signatureBlock(identity: ComposeIdentity): string {
+  const extra = identity.signature.trim();
+  return `\n\n${identity.senderName}\nClickworthy` + (extra ? `\n${extra}` : "");
+}
 
 function greeting(firstName: string | null, language: Language): string {
   if (firstName) return language === "es" ? `Hola ${firstName},` : `Hi ${firstName},`;
@@ -110,7 +123,7 @@ export function composeTouch1(params: {
   const subjectTemplate = t.subjects[v] ?? t.subjects[0];
 
   const subject = sanitizeSubject(renderTemplate(subjectTemplate, vars));
-  const body = renderTemplate(t.body, vars) + complianceFooter(language, identity.postalAddress);
+  const body = renderTemplate(t.body, vars) + signatureBlock(identity) + complianceFooter(language, identity.postalAddress);
   return { subject, body };
 }
 
@@ -131,7 +144,7 @@ export function composeBump(params: {
   const { language, template, identity } = params;
   const t = template[language] ?? template.en;
   const vars = baseVars({ ...params, senderName: identity.senderName });
-  return renderTemplate(t.body, vars) + complianceFooter(language, identity.postalAddress);
+  return renderTemplate(t.body, vars) + signatureBlock(identity) + complianceFooter(language, identity.postalAddress);
 }
 
 // --- Free-sample delivery / Touch 2 (solicited; sent the moment a human
@@ -167,7 +180,7 @@ export function composeTouch2(params: {
   const vars: TemplateVars = { ...baseVars({ ...params, senderName: identity.senderName }), funnelUrl, talkLine };
 
   const subject = sanitizeSubject(renderTemplate(t.subject, vars));
-  const body = renderTemplate(t.body, vars) + complianceFooter(language, identity.postalAddress);
+  const body = renderTemplate(t.body, vars) + signatureBlock(identity) + complianceFooter(language, identity.postalAddress);
   return { subject, body };
 }
 

@@ -196,13 +196,14 @@ async function draftBatch(autosend: boolean): Promise<void> {
 
   // Fetched once per batch, not per restaurant — one round-trip, and every
   // restaurant in this run composes against the identical template/identity.
-  const [template, nodishTemplate, senderNameSetting, postalAddressSetting] = await Promise.all([
+  const [template, nodishTemplate, senderNameSetting, postalAddressSetting, signatureSetting] = await Promise.all([
     getSetting("outreach_touch1_template"),
     getSetting("outreach_touch1_nodish_template"),
     getSetting("outreach_sender_name"),
     getSetting("outreach_postal_address"),
+    getSetting("outreach_signature"),
   ]);
-  const identity: ComposeIdentity = { senderName: senderNameSetting, postalAddress: postalAddressSetting };
+  const identity: ComposeIdentity = { senderName: senderNameSetting, postalAddress: postalAddressSetting, signature: signatureSetting };
 
   const candidates = await db
     .select()

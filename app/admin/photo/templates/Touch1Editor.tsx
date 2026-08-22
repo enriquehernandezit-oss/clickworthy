@@ -7,7 +7,7 @@ import { composeTouch1, hasComplianceFooter } from "@/worker/lib/outreachEmail";
 import { TemplateRenderError } from "@/worker/lib/renderTemplate";
 
 type PreviewRestaurant = { name: string; contactFirstName: string | null; signatureDish: string; city: string | null };
-type Identity = { senderName: string; postalAddress: string };
+type Identity = { senderName: string; postalAddress: string; signature: string };
 
 const VARS_HELP: { key: string; desc: string }[] = [
   { key: "restaurant", desc: "restaurant name" },
@@ -147,6 +147,7 @@ export default function Touch1Editor({
       fd.set("template", JSON.stringify(template));
       fd.set("senderName", identity.senderName);
       fd.set("postalAddress", identity.postalAddress);
+      fd.set("signature", identity.signature);
       const res = await fetch("/api/admin/templates", { method: "POST", body: fd });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {

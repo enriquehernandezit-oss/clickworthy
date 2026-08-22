@@ -17,7 +17,7 @@ const LIMIT = 25;
 const HISTORY_STATUSES = ["approved", "rejected"] as const;
 
 async function getQueue() {
-  const [rows, touch2Template, senderNameSetting, postalAddressSetting] = await Promise.all([
+  const [rows, touch2Template, senderNameSetting, postalAddressSetting, signatureSetting] = await Promise.all([
     db
       .select({
         id: magicLinks.id,
@@ -42,8 +42,9 @@ async function getQueue() {
     getSetting("outreach_touch2_template"),
     getSetting("outreach_sender_name"),
     getSetting("outreach_postal_address"),
+    getSetting("outreach_signature"),
   ]);
-  const identity: ComposeIdentity = { senderName: senderNameSetting, postalAddress: postalAddressSetting };
+  const identity: ComposeIdentity = { senderName: senderNameSetting, postalAddress: postalAddressSetting, signature: signatureSetting };
 
   // The Touch 2 seed is only shown once a photo's actually finished (that's
   // when SampleActions reveals the editable email) — composed here, server

@@ -5,6 +5,7 @@ import { outreachJobs, restaurants } from "@/db/schema";
 import { getSetting } from "@/lib/settings";
 import { sendCustomerEmail } from "@/lib/customerEmail";
 import { sendEmail, getThreadTail } from "@/worker/lib/gmail";
+import { signatureBlock } from "@/worker/lib/outreachEmail";
 
 // Approve/deny/send actions for the kinds that don't fit Touch 1's own route
 // (app/api/admin/outreach/route.ts, kind-scoped to "touch1"): bump, reply, and
@@ -120,14 +121,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const senderNameSetting = await getSetting("outreach_sender_name");
+    const [senderNameSetting, signatureSetting] = await Promise.all([
+      getSetting("outreach_sender_name"),
+      getSetting("outreach_signature"),
+    ]);
+    // Replies are hand-typed fresh each time (no template) — the signature is
+    // appended here at send time, same as Touch 1/bump/Touch 2 get it via
+    // signatureBlock(), so a customer replying to a cold-open still gets a
+    // consistently-signed reply back.
+    const fullBody = body + signatureBlock({ senderName: senderNameSetting, postalAddress: "", signature: signatureSetting });
     try {
       const { messageId: inReplyTo, subject: origSubject } = await getThreadTail(job.gmailThreadId);
       const subject = origSubject ? (/^re:/i.test(origSubject) ? origSubject : `Re: ${origSubject}`) : "";
       const sent = await sendEmail({
         to: job.replyFrom,
         subject,
-        body,
+        body: fullBody,
         fromName: senderNameSetting,
         threadId: job.gmailThreadId,
         inReplyTo,
@@ -136,7 +145,7 @@ export async function POST(request: NextRequest) {
       await db
         .update(outreachJobs)
         .set({
-          emailContent: body,
+          emailContent: fullBody,
           subject,
           status: "sent",
           approvedAt: now,

@@ -54,7 +54,8 @@ export async function POST(request: NextRequest) {
   const language = normalizeLanguage(String(form.get("language") ?? "en"));
   const senderName = String(form.get("senderName") ?? "").trim() || "Enrique";
   const postalAddress = String(form.get("postalAddress") ?? "").trim();
-  const identity: ComposeIdentity = { senderName, postalAddress };
+  const signature = String(form.get("signature") ?? "").trim();
+  const identity: ComposeIdentity = { senderName, postalAddress, signature };
 
   let templateJson: unknown;
   try {

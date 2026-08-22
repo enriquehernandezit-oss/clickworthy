@@ -60,14 +60,23 @@ export default async function TemplatesPage() {
     getPendingDraftCount(),
   ]);
 
-  const identity = { senderName: values.outreach_sender_name, postalAddress: values.outreach_postal_address };
+  const identity = {
+    senderName: values.outreach_sender_name,
+    postalAddress: values.outreach_postal_address,
+    signature: values.outreach_signature,
+  };
 
   return (
     <div className="flex flex-col gap-10">
       <section>
         <SectionHeading>Identity</SectionHeading>
         <div className="mt-3">
-          <IdentityForm senderName={values.outreach_sender_name} postalAddress={values.outreach_postal_address} pendingDrafts={pendingDrafts} />
+          <IdentityForm
+            senderName={values.outreach_sender_name}
+            postalAddress={values.outreach_postal_address}
+            signature={values.outreach_signature}
+            pendingDrafts={pendingDrafts}
+          />
         </div>
       </section>
 

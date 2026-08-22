@@ -70,6 +70,14 @@ export type SettingsMap = {
   // read by both services removes that failure mode entirely.
   outreach_sender_name: string; // signs every email + the Gmail From name — must match, or mail is signed by one name and sent as another
   outreach_postal_address: string; // CAN-SPAM requires a real physical address in every commercial email; empty renders a loud placeholder AND blocks sending (see sendApproved's pre-send assertion)
+  // Free-text lines appended under "{{senderName}}\nClickworthy" on every outreach
+  // email (touch1/bump/touch2/reply) — title, address, contact links, etc. Gmail's
+  // own signature feature never applies here: every send goes through the Gmail
+  // API's messages.send directly, which bypasses the compose-window UI entirely
+  // (caught 2026-08-22 — Enrique's configured Gmail signature never appeared on
+  // any outreach email, silently, since the mailbox went live). Empty = just the
+  // bare "{{senderName}}\nClickworthy" line, same as before this setting existed.
+  outreach_signature: string;
   outreach_touch1_template: Touch1Template; // the cold-open email (leads WITH a signature dish)
   outreach_touch1_nodish_template: Touch1Template; // cold-open for leads with NO signature dish — the dish-personalized copy would read wrong for them
   outreach_bump_template: BumpTemplate; // the one-time Touch 1.5 follow-up
@@ -153,6 +161,7 @@ const DEFAULTS: SettingsMap = {
 
   outreach_sender_name: "Enrique",
   outreach_postal_address: "", // unset — footer shows a placeholder and sending is blocked until this is filled in
+  outreach_signature: "", // unset — emails sign off with just "{{senderName}}\nClickworthy" until this is filled in
 
   // Defaults are today's live copy, character-for-character, with the literal
   // interpolations swapped for {{placeholders}}. Shipping this changes nothing
@@ -168,8 +177,7 @@ const DEFAULTS: SettingsMap = {
         "{{greeting}}\n\n" +
         "I was looking at {{restaurant}} online and your {{dish}} caught my eye — but honestly, the photo doesn't do it justice. And photos are doing more selling than menus these days.\n\n" +
         "I run a small studio that enhances real food photos for independent restaurants (no stock images, no fake AI food — your actual dishes, made to look the way they do in person).\n\n" +
-        "Want to see it on your own food? Reply with one photo of any dish — even a phone shot — and I'll send it back enhanced within a day. Free, no strings. If you don't love it, delete it and that's that.\n\n" +
-        "{{senderName}}\nClickworthy",
+        "Want to see it on your own food? Reply with one photo of any dish — even a phone shot — and I'll send it back enhanced within a day. Free, no strings. If you don't love it, delete it and that's that.",
     },
     es: {
       subjects: [
@@ -181,8 +189,7 @@ const DEFAULTS: SettingsMap = {
         "{{greeting}}\n\n" +
         "Estaba viendo {{restaurant}} en línea y el {{dish}} me llamó la atención — pero honestamente, la foto no le hace justicia. Y hoy en día las fotos venden más que el menú.\n\n" +
         "Tengo un estudio pequeño que mejora fotos reales de comida para restaurantes independientes (nada de fotos de banco ni comida falsa de IA — sus platos reales, con el aspecto que tienen en persona).\n\n" +
-        "¿Quiere verlo con su propia comida? Responda con una foto de cualquier plato — aunque sea del celular — y se la devuelvo mejorada en un día. Gratis, sin compromiso. Si no le encanta, la borra y ya.\n\n" +
-        "{{senderName}}\nClickworthy",
+        "¿Quiere verlo con su propia comida? Responda con una foto de cualquier plato — aunque sea del celular — y se la devuelvo mejorada en un día. Gratis, sin compromiso. Si no le encanta, la borra y ya.",
     },
   },
   // Cold-open for leads with NO signature dish on file. Same offer and shape as
@@ -200,8 +207,7 @@ const DEFAULTS: SettingsMap = {
         "{{greeting}}\n\n" +
         "I was looking at {{restaurant}} online and your food looks great — but honestly, the photos don't do it justice. And photos are doing more selling than menus these days.\n\n" +
         "I run a small studio that enhances real food photos for independent restaurants (no stock images, no fake AI food — your actual dishes, made to look the way they do in person).\n\n" +
-        "Want to see it on your own food? Reply with one photo of any dish — even a phone shot — and I'll send it back enhanced within a day. Free, no strings. If you don't love it, delete it and that's that.\n\n" +
-        "{{senderName}}\nClickworthy",
+        "Want to see it on your own food? Reply with one photo of any dish — even a phone shot — and I'll send it back enhanced within a day. Free, no strings. If you don't love it, delete it and that's that.",
     },
     es: {
       subjects: [
@@ -213,8 +219,7 @@ const DEFAULTS: SettingsMap = {
         "{{greeting}}\n\n" +
         "Estaba viendo {{restaurant}} en línea y su comida se ve muy bien — pero honestamente, las fotos no le hacen justicia. Y hoy en día las fotos venden más que el menú.\n\n" +
         "Tengo un estudio pequeño que mejora fotos reales de comida para restaurantes independientes (nada de fotos de banco ni comida falsa de IA — sus platos reales, con el aspecto que tienen en persona).\n\n" +
-        "¿Quiere verlo con su propia comida? Responda con una foto de cualquier plato — aunque sea del celular — y se la devuelvo mejorada en un día. Gratis, sin compromiso. Si no le encanta, la borra y ya.\n\n" +
-        "{{senderName}}\nClickworthy",
+        "¿Quiere verlo con su propia comida? Responda con una foto de cualquier plato — aunque sea del celular — y se la devuelvo mejorada en un día. Gratis, sin compromiso. Si no le encanta, la borra y ya.",
     },
   },
   outreach_bump_template: {
@@ -223,16 +228,14 @@ const DEFAULTS: SettingsMap = {
         "{{greeting}}\n\n" +
         "Quick bump in case this got buried.\n\n" +
         "The offer stands: send me one photo of a dish and I'll send it back professionally enhanced, free. Takes you 30 seconds, costs you nothing, and you keep the photo either way.\n\n" +
-        "If it's a no, no worries — just say so and I won't follow up again.\n\n" +
-        "{{senderName}}",
+        "If it's a no, no worries — just say so and I won't follow up again.",
     },
     es: {
       body:
         "{{greeting}}\n\n" +
         "Un recordatorio rápido por si esto quedó enterrado.\n\n" +
         "La oferta sigue en pie: mándeme una foto de un plato y se la devuelvo mejorada profesionalmente, gratis. Le toma 30 segundos, no cuesta nada, y la foto es suya de todos modos.\n\n" +
-        "Si no le interesa, sin problema — dígamelo y no vuelvo a escribir.\n\n" +
-        "{{senderName}}",
+        "Si no le interesa, sin problema — dígamelo y no vuelvo a escribir.",
     },
   },
   // Character-for-character today's hardcoded composeTouch2() prose, with the
@@ -250,8 +253,7 @@ const DEFAULTS: SettingsMap = {
         "Here's the part most owners haven't done the math on: the delivery apps take 15–30% of every order — closer to 30–40% once promos and fees pile on — while your own website, Google profile, and Instagram pay you 100%. But for most restaurants, the apps' listings look better than their own channels. So that's where people order.\n\n" +
         "We fix that. We take your top 20–30 dishes, enhance them like the one above, and deliver them sized and ready for your website, Google Business Profile, Instagram, and Yelp — so your own channels finally outsell your DoorDash page. A photographer charges $1,200–$3,500 for a session like that. We do it for a fraction, using photos you already have or shoot on your phone.\n\n" +
         "Everything's here, including your before/after: {{funnelUrl}}{{talkLine}}\n\n" +
-        "Either way, enjoy the photo.\n\n" +
-        "{{senderName}}\nClickworthy",
+        "Either way, enjoy the photo.",
     },
     es: {
       subject: "su {{dish}}, mejorado",
@@ -262,8 +264,7 @@ const DEFAULTS: SettingsMap = {
         "Ahora, la parte que pocos dueños han calculado: las apps de delivery se quedan con 15–30% de cada orden — más bien 30–40% cuando suman promociones y cargos — mientras que su propio sitio web, perfil de Google e Instagram le pagan el 100%. Pero en la mayoría de los restaurantes, las apps se ven mejor que los canales propios. Y por eso la gente ordena por ahí.\n\n" +
         "Eso es lo que arreglamos. Tomamos sus 20–30 platos principales, los mejoramos como el de arriba, y se los entregamos listos para su sitio web, Google Business Profile, Instagram y Yelp — para que sus propios canales vendan más que su página de DoorDash. Un fotógrafo cobra $1,200–$3,500 por una sesión así. Nosotros lo hacemos por una fracción, con fotos que ya tiene o que toma con su celular.\n\n" +
         "Todo está aquí, incluyendo su antes y después: {{funnelUrl}}{{talkLine}}\n\n" +
-        "De cualquier forma, disfrute la foto.\n\n" +
-        "{{senderName}}\nClickworthy",
+        "De cualquier forma, disfrute la foto.",
     },
   },
 };

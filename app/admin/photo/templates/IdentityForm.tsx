@@ -24,12 +24,14 @@ function TextField({
   help,
   value,
   placeholder,
+  multiline,
 }: {
-  settingKey: "outreach_sender_name" | "outreach_postal_address";
+  settingKey: "outreach_sender_name" | "outreach_postal_address" | "outreach_signature";
   label: string;
   help: string;
   value: string;
   placeholder?: string;
+  multiline?: boolean;
 }) {
   const router = useRouter();
   const [raw, setRaw] = useState(value);
@@ -51,27 +53,39 @@ function TextField({
     <div className="rounded-xl border border-stone-200 bg-white p-5">
       <div className="text-base font-semibold text-stone-900">{label}</div>
       <p className="mt-1 max-w-xl text-sm text-stone-600">{help}</p>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <input
-          type="text"
-          value={raw}
-          onChange={(e) => setRaw(e.target.value)}
-          placeholder={placeholder}
-          className="w-full max-w-md rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800"
-        />
-        <button
-          type="button"
-          disabled={busy || !dirty}
-          onClick={save}
-          className="rounded-lg bg-stone-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {busy ? "Saving…" : "Save"}
-        </button>
-        {msg && (
-          <span className={`text-xs ${msg.ok ? "text-teal-700" : "text-red-600"}`} role="alert">
-            {msg.text}
-          </span>
+      <div className={`mt-3 flex ${multiline ? "flex-col items-start" : "flex-wrap items-center"} gap-2`}>
+        {multiline ? (
+          <textarea
+            value={raw}
+            onChange={(e) => setRaw(e.target.value)}
+            placeholder={placeholder}
+            rows={4}
+            className="w-full max-w-md rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800"
+          />
+        ) : (
+          <input
+            type="text"
+            value={raw}
+            onChange={(e) => setRaw(e.target.value)}
+            placeholder={placeholder}
+            className="w-full max-w-md rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800"
+          />
         )}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={busy || !dirty}
+            onClick={save}
+            className="rounded-lg bg-stone-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy ? "Saving…" : "Save"}
+          </button>
+          {msg && (
+            <span className={`text-xs ${msg.ok ? "text-teal-700" : "text-red-600"}`} role="alert">
+              {msg.text}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -138,10 +152,12 @@ function ApplyIdentityToPending({ pendingDrafts }: { pendingDrafts: number }) {
 export default function IdentityForm({
   senderName,
   postalAddress,
+  signature,
   pendingDrafts,
 }: {
   senderName: string;
   postalAddress: string;
+  signature: string;
   pendingDrafts: number;
 }) {
   return (
@@ -165,6 +181,19 @@ export default function IdentityForm({
         help="Appears in the compliance footer of every Touch 1, bump, and Touch 2. Required by CAN-SPAM."
         value={postalAddress}
         placeholder="123 Main St, Miami, FL 33101"
+      />
+      <TextField
+        settingKey="outreach_signature"
+        label="Signature"
+        help={
+          'Appended under "Sender name / Clickworthy" on every outreach email (Touch 1, bump, Touch 2, ' +
+          "and replies). Gmail's own signature never applies here — every send goes through the Gmail API " +
+          "directly, bypassing the compose window entirely — so this is the only way it appears. Plain text " +
+          "only (no logo/HTML)."
+        }
+        value={signature}
+        placeholder={"Founder\n\n868 N Wells St, Chicago, IL 60610\ncontact@clickworthytool.com\nhttps://clickworthytool.com/"}
+        multiline
       />
       <ApplyIdentityToPending pendingDrafts={pendingDrafts} />
     </div>

@@ -15,7 +15,7 @@ const NULLABLE_INT_KEYS = new Set(["outreach_daily_cap"]);
 const NON_NEG_NUMBER_KEYS = new Set<string>(COST_KEYS);
 // Outreach identity: short strings, editable to empty (postal address starts
 // unset; sender name could legitimately be cleared to fall back to nothing).
-const TEXT_KEYS = new Set(["outreach_sender_name", "outreach_postal_address"]);
+const TEXT_KEYS = new Set(["outreach_sender_name", "outreach_postal_address", "outreach_signature"]);
 const MAX_TEXT_LEN = 300;
 // Whole template objects, sent as a JSON-encoded string in the `value` field.
 const TEMPLATE_KEYS = new Set(["outreach_touch1_template", "outreach_touch1_nodish_template", "outreach_bump_template", "outreach_touch2_template"]);
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
     if (trimmed.length > MAX_TEXT_LEN) {
       return NextResponse.json({ error: `Value is too long (max ${MAX_TEXT_LEN} characters).` }, { status: 400 });
     }
-    await setSetting(key as "outreach_sender_name" | "outreach_postal_address", trimmed);
+    await setSetting(key as "outreach_sender_name" | "outreach_postal_address" | "outreach_signature", trimmed);
     return NextResponse.json({ ok: true, key, value: trimmed });
   }
 

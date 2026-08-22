@@ -57,12 +57,13 @@ async function draftBumps(): Promise<void> {
   if (due.length === 0) return;
   console.log(`[bump] ${due.length} candidate(s) to review for drafting` + (config.dryRun ? " [DRY RUN — no writes]" : ""));
 
-  const [template, senderNameSetting, postalAddressSetting] = await Promise.all([
+  const [template, senderNameSetting, postalAddressSetting, signatureSetting] = await Promise.all([
     getSetting("outreach_bump_template"),
     getSetting("outreach_sender_name"),
     getSetting("outreach_postal_address"),
+    getSetting("outreach_signature"),
   ]);
-  const identity: ComposeIdentity = { senderName: senderNameSetting, postalAddress: postalAddressSetting };
+  const identity: ComposeIdentity = { senderName: senderNameSetting, postalAddress: postalAddressSetting, signature: signatureSetting };
 
   for (const row of due) {
     if (row.restaurantId == null) continue;
