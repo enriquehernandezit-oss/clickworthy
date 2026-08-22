@@ -31,9 +31,17 @@ export type FilterThresholds = {
 // neighborhood grid feeding a real cross-section, the ceiling does its actual
 // job: a place with thousands of reviews is an established destination that
 // buys its own photography, and (measured) the segment we hand-reject.
+//
+// Raised 800 -> 2000 on 2026-08-22: rechecking the 800-2000 band with the
+// photo-fit gate (credits restored) showed it KEEPS 69% of that band (11/16
+// sampled) rather than hand-rejecting all of it — the gate itself already
+// screens out the professionally-photographed places in that range, so the
+// ceiling was discarding recoverable email-ready supply (186 leads rejected,
+// 183 of them with websites) for no gate-verified reason. Revert if the queue
+// gets noticeably noisier than before.
 export const DEFAULT_FILTER_THRESHOLDS: FilterThresholds = {
   minReviews: 20,
-  maxReviews: 800,
+  maxReviews: 2000,
   maxPriceLevel: 2,
   // No longer required: a good restaurant with NO website used to be dropped
   // here (un-emailable), but that discarded ~20% of prime small targets — the

@@ -36,12 +36,12 @@ describe("passesHardFilters — defaults", () => {
   });
 
   test("above the review ceiling fails — the established-destination cut", () => {
-    const r = passesHardFilters(place({ userRatingCount: 900 }));
+    const r = passesHardFilters(place({ userRatingCount: DEFAULT_FILTER_THRESHOLDS.maxReviews! + 100 }));
     expect(r.pass).toBe(false);
     if (!r.pass) expect(r.reason).toContain("established destination");
   });
 
-  test("exactly at the ceiling passes (800 is not > 800)", () => {
+  test("exactly at the ceiling passes (2000 is not > 2000)", () => {
     expect(passesHardFilters(place({ userRatingCount: DEFAULT_FILTER_THRESHOLDS.maxReviews! })).pass).toBe(true);
   });
 
