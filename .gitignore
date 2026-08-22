@@ -49,3 +49,6 @@ skills-lock.json
 tmp-*.ts
 *service-account*.json
 *.serviceaccount.json
+
+# Stray World Bank 404 page mis-saved as .xlsx, committed by accident (0480f24)
+wbes_innov.xlsx
