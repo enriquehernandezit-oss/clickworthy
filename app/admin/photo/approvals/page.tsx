@@ -7,6 +7,8 @@ import DraftActions, { ApproveAllButton } from "../outreach/DraftActions";
 import BumpDraftActions from "./BumpDraftActions";
 import ReplyDraftActions from "./ReplyDraftActions";
 import PaymentConfirmationDraftActions from "./PaymentConfirmationDraftActions";
+import SortSelect from "./SortSelect";
+import { parseSort, type SortValue } from "./sortOptions";
 
 // The single "approve or deny" surface for every email kind that needs a
 // human in the loop before it sends: Touch 1, the bump, a reply, and a
@@ -34,7 +36,24 @@ function kindLabel(kind: string | null): string {
   }
 }
 
-async function getQueue() {
+// Oldest first is the original default — work through the pile in the order
+// it arrived, same as Touch 1's old queue — everything else is opt-in via the
+// sort dropdown.
+function queueOrderBy(sort: SortValue) {
+  switch (sort) {
+    case "date-desc":
+      return [desc(outreachJobs.draftedAt)];
+    case "restaurant":
+      return [asc(restaurants.name)];
+    case "city":
+      return [sql`${restaurants.city} asc nulls last`, asc(outreachJobs.draftedAt)];
+    case "date-asc":
+    default:
+      return [asc(outreachJobs.draftedAt)];
+  }
+}
+
+async function getQueue(sort: SortValue) {
   return db
     .select({
       id: outreachJobs.id,
@@ -54,8 +73,7 @@ async function getQueue() {
     .from(outreachJobs)
     .innerJoin(restaurants, eq(outreachJobs.restaurantId, restaurants.id))
     .where(and(inArray(outreachJobs.kind, ASYNC_KINDS), eq(outreachJobs.status, "draft")))
-    // Oldest first — work through the pile in order, same as Touch 1's old queue.
-    .orderBy(asc(outreachJobs.draftedAt))
+    .orderBy(...queueOrderBy(sort))
     .limit(100);
 }
 
@@ -88,8 +106,9 @@ export default async function ApprovalsPage({
 }) {
   const sp = await searchParams;
   const page = Math.max(1, Number(sp.page) || 1);
+  const sort = parseSort(sp.sort);
 
-  const [queue, historyRows] = await Promise.all([getQueue(), getHistory(page)]);
+  const [queue, historyRows] = await Promise.all([getQueue(sort), getHistory(page)]);
   const history = historyRows.slice(0, LIMIT);
   const touch1DraftCount = queue.filter((d) => d.kind === "touch1").length;
 
@@ -98,12 +117,20 @@ export default async function ApprovalsPage({
       <section>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <SectionHeading>Awaiting your approval ({queue.length})</SectionHeading>
-          {touch1DraftCount > 0 && (
+          <div className="flex flex-wrap items-center gap-3">
+            {touch1DraftCount > 0 && (
+              <div className="flex items-center gap-2">
+                <ApproveAllButton count={touch1DraftCount} />
+                <span className="text-xs text-stone-500">Touch 1 only — everything else still needs individual review.</span>
+              </div>
+            )}
             <div className="flex items-center gap-2">
-              <ApproveAllButton count={touch1DraftCount} />
-              <span className="text-xs text-stone-500">Touch 1 only — everything else still needs individual review.</span>
+              <label htmlFor="sort" className="text-xs font-medium text-stone-500">
+                Sort by
+              </label>
+              <SortSelect value={sort} />
             </div>
-          )}
+          </div>
         </div>
         {queue.length === 0 ? (
           <EmptyState>Nothing waiting right now.</EmptyState>
