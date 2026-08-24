@@ -2,12 +2,15 @@ import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import Link from "next/link";
 import { Badge, EmptyState, SectionHeading } from "../../ui";
+import { classifyWebsite, describeWebsiteTier, type WebsiteTier } from "@/worker/lib/websitePlatform";
+import { isKnownChain } from "@/worker/lib/chains";
 
-// Prospects for the future WEBSITE product, banked automatically. Two motions:
+// Prospects for the future WEBSITE product, banked automatically. Three motions:
 //   - No website at all  -> phone (they're also the photo call_list). A single
 //     call can pitch both "get you online" and photos.
-//   - Weak website (Gate-1 'sparse') -> reachable by email; the future website
-//     cold-email pitch reads this exact set.
+//   - No site of their OWN (free subdomain / ordering page / social page) ->
+//     the strongest email pitch: they never bought a domain.
+//   - Weak website (Gate-1 'sparse' or a DIY builder) -> reachable by email.
 // Read-only view over data the pipeline already stores — no new tables/writes.
 export const dynamic = "force-dynamic";
 
@@ -16,24 +19,48 @@ type Row = {
   reviewCount: number | null; rating: number | null; band: string | null; richness: number | null; status: string | null;
 };
 
-async function getLeads(): Promise<Row[]> {
-  const rows = await db.execute(sql`
+type ClassifiedRow = Row & { tier: WebsiteTier; platform: string | null };
+
+// Qualification runs in JS, not SQL, because it's a URL classification
+// (worker/lib/websitePlatform.ts) rather than something expressible as a column
+// predicate. The band='sparse' test alone used to miss the clearest prospects
+// of all: Raspados Don Manuel scores richness 51 ("unclear") while sitting on a
+// FREE Weebly subdomain — never bought a domain, and invisible to this page.
+async function getLeads(): Promise<ClassifiedRow[]> {
+  const rows = (await db.execute(sql`
     select id, name, city, phone, website,
       review_count as "reviewCount", rating,
       website_photo_band as "band", website_photo_richness as "richness",
       enrichment_status as "status"
     from restaurants
     where coalesce(suppressed, false) = false
-      and coalesce(rejection_reason, '') not ilike '%chain%'
       and coalesce(rejection_reason, '') not ilike '%professional photography%'
-      and (website is null or website_photo_band = 'sparse')
     order by review_count desc nulls last
-    limit 400
-  `);
-  return rows as unknown as Row[];
+    limit 1000
+  `)) as unknown as Row[];
+
+  return rows
+    .map((r) => {
+      const c = classifyWebsite(r.website);
+      return { ...r, tier: c.tier, platform: c.platform };
+    })
+    // A prospect is anything we can plausibly improve on: no site, someone
+    // else's site, or a weak one. `custom` only qualifies when Gate 1 read the
+    // page as genuinely thin.
+    .filter((r) => r.tier !== "custom" || r.band === "sparse")
+    // Chain-REJECTED leads are deliberately still eligible here. That rejection
+    // answers the PHOTO question ("do they have corporate marketing that shoots
+    // their food?"), which is not the website question. Raspados Don Manuel —
+    // five family raspados stands, 431 reviews — is disqualified for photos yet
+    // is a prime website lead precisely BECAUSE it has five locations and no
+    // real site. The web presence is the better evidence anyway: nobody with a
+    // marketing department is running off a free Weebly subdomain, so the tier
+    // filter above already drops the real corporates (they have custom sites).
+    // Only the unambiguous national brands are excluded, and that check is free.
+    .filter((r) => !isKnownChain(r.name, r.website));
 }
 
-function Table({ rows }: { rows: Row[] }) {
+function Table({ rows }: { rows: ClassifiedRow[] }) {
   return (
     <div className="mt-3 overflow-x-auto">
       <table className="w-full min-w-[60rem] border-collapse text-sm">
@@ -43,6 +70,7 @@ function Table({ rows }: { rows: Row[] }) {
             <th className="px-3 py-2 font-semibold">City</th>
             <th className="px-3 py-2 font-semibold">Phone</th>
             <th className="px-3 py-2 font-semibold">Website</th>
+            <th className="px-3 py-2 font-semibold" title="What their current site is built on. A free subdomain or an ordering page means they never bought a domain — the strongest pitch.">Platform</th>
             <th className="px-3 py-2 font-semibold">Reviews</th>
             <th className="px-3 py-2 font-semibold">Rating</th>
             <th className="px-3 py-2 font-semibold" title="Website richness 0–100 (lower = weaker site). '—' = no site to score.">Site score</th>
@@ -60,6 +88,16 @@ function Table({ rows }: { rows: Row[] }) {
               <td className="px-3 py-2 text-stone-600">
                 {r.website ? <a href={r.website} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">site ↗</a> : "—"}
               </td>
+              <td className="px-3 py-2 text-stone-600">
+                {r.platform ? (
+                  <span title={describeWebsiteTier(r.tier)}>
+                    {r.platform}
+                    <span className="ml-1 text-xs text-stone-400">{describeWebsiteTier(r.tier)}</span>
+                  </span>
+                ) : (
+                  <span className="text-stone-400">{describeWebsiteTier(r.tier)}</span>
+                )}
+              </td>
               <td className="px-3 py-2 tabular-nums text-stone-600">{r.reviewCount ?? "—"}</td>
               <td className="px-3 py-2 tabular-nums text-stone-600">{r.rating ?? "—"}</td>
               <td className="px-3 py-2 tabular-nums text-stone-600">{r.richness ?? "—"}</td>
@@ -74,8 +112,13 @@ function Table({ rows }: { rows: Row[] }) {
 
 export default async function WebsiteLeadsPage() {
   const all = await getLeads();
-  const noSite = all.filter((r) => r.website == null);
-  const weakSite = all.filter((r) => r.website != null);
+  const noSite = all.filter((r) => r.tier === "none");
+  // Strongest email pitch: they're online, but on someone else's property — a
+  // free subdomain, an ordering page, or a social profile. They never bought a
+  // domain, so "you don't really own your web presence" is literally true.
+  const notTheirs = all.filter((r) => r.tier === "free_subdomain" || r.tier === "ordering_platform" || r.tier === "social_only");
+  // Own domain, but a DIY build or a page Gate 1 read as thin.
+  const weakSite = all.filter((r) => r.tier === "diy_builder" || r.tier === "custom");
 
   return (
     <div>
@@ -94,7 +137,17 @@ export default async function WebsiteLeadsPage() {
 
       <div className="mt-8">
         <h3 className="text-sm font-semibold text-stone-800">
-          Weak website <span className="font-normal text-stone-400">· {weakSite.length} · reachable by email (future website pitch)</span>
+          No site of their own{" "}
+          <span className="font-normal text-stone-400">
+            · {notTheirs.length} · free subdomain / ordering page / social page — never bought a domain
+          </span>
+        </h3>
+        {notTheirs.length === 0 ? <EmptyState>None yet.</EmptyState> : <Table rows={notTheirs} />}
+      </div>
+
+      <div className="mt-8">
+        <h3 className="text-sm font-semibold text-stone-800">
+          Weak website <span className="font-normal text-stone-400">· {weakSite.length} · own domain, DIY build or thin page</span>
         </h3>
         {weakSite.length === 0 ? <EmptyState>None yet.</EmptyState> : <Table rows={weakSite} />}
       </div>

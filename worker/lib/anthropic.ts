@@ -156,21 +156,26 @@ export async function checkHospitalityGroup(
     // is billed on tokens actually generated, not the ceiling.
     max_tokens: 1500,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }],
-    // The disqualifier exists because a group/chain has corporate marketing
-    // that owns its brand photography — the owner can't buy this service. A
-    // small family operation with a second location does NOT have that:
-    // loosened 2026-08-24 after 3 nights of live data showed the check
-    // rejecting exactly-our-customer businesses ("Fiorito Almacén — sibling
-    // location run by the same brothers", "Raiz Kitchen — same owners as one
-    // other sushi bar") alongside the real catches.
+    // The disqualifier exists for ONE reason: a chain has corporate marketing
+    // that owns its brand photography, so the owner can't buy this service.
+    // Location count is only a proxy for that, and a poor one — which is why
+    // the bar has moved twice: 2026-08-24 morning from "any 2nd location" to
+    // "3+", then the same day to "5+" after Raspados Don Manuel (three family
+    // raspados stands on a FREE Weebly page, 431 reviews) was rejected as a
+    // "small family-run chain". A family with three stands and a free website
+    // has no marketing department; it is precisely the target customer. Judge
+    // the marketing function, not the storefront count.
     system:
       "For a given restaurant, decide two things and search the web if unsure. " +
-      "(1) Should it be DISQUALIFIED as a group/chain? Disqualify ONLY when at least one of these holds: " +
-      "it has THREE or more locations; it is a franchise location of any larger brand; it is a hotel or " +
-      "casino dining outlet; or it belongs to a multi-concept hospitality group with a corporate/marketing " +
-      "team. A single independent restaurant is NOT a group even if the name sounds corporate — and neither " +
-      "is a small family operation with just TWO locations run by the same owners (they still make their own " +
-      "marketing decisions; treat them as independent). " +
+      "(1) Should it be DISQUALIFIED as a group/chain? The ONLY thing that matters is whether it has a " +
+      "corporate or in-house MARKETING function that already produces its brand photography. Disqualify " +
+      "only when at least one of these holds: it is a franchise location of any larger brand; it is a hotel " +
+      "or casino dining outlet; it belongs to a multi-concept hospitality group with a corporate/marketing " +
+      "team; or it operates FIVE or more locations. A single independent restaurant is NOT a group even if " +
+      "the name sounds corporate, and neither is a family-run business with TWO, THREE, or FOUR locations " +
+      "under the same owners — they still make their own marketing decisions and shoot their own photos, so " +
+      "treat them as independent. A family running three neighborhood stands off a DIY website builder is " +
+      "exactly the independent operator we want, not a chain. " +
       "(2) What is the OWNER's first name? Only give it if you find it confidently (bio, press, 'owner' mention); " +
       "otherwise null. Never guess a name. " +
       'End your reply with a JSON object on its own: {"isGroup": <bool>, "reasoning": "<one sentence>", ' +

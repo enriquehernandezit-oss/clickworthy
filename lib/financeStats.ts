@@ -104,7 +104,20 @@ function bounds(from: Date, to: Date) {
 // Trusted constant list, inlined as a SQL literal (not a bound param) so it's a
 // real IN list — interpolating a JS array here would render a tuple and break
 // `any((...))`.
-const ENRICHED_FILTER = sql`enrichment_status in ('queued', 'needs_manual_email', 'call_list', 'contacted', 'rejected')`;
+// A lead only costs money once it reaches PAID enrichment (the chain check).
+// Leads killed by the free hard filters — review count, price level, the static
+// chain denylist — are rejected at the sourcing stage and never cost a cent, so
+// billing them overstated acquisition spend by ~46% (207 of 656 all-time).
+const ENRICHED_FILTER = sql`enrichment_status in ('queued', 'needs_manual_email', 'call_list', 'contacted', 'rejected')
+  and coalesce(rejection_reason, '') not like 'Hard filter:%'`;
+
+// Vision calls we ACTUALLY paid for: Google photos we scored, plus one Gate-2
+// call per lead that got a website pro-score. Previously this summed
+// `coalesce(photos_scored, photo_count, 0)` — falling back to photo_count, the
+// raw number of photos the restaurant has ON GOOGLE, which we never scored.
+// Every lead we scored zero photos for was billed for its entire Google photo
+// library: 1,039 claimed vs 513 real, a ~2x overstatement.
+const SCORED_EXPR = sql`coalesce(sum(coalesce(photos_scored, 0)), 0)::int + count(*) filter (where website_pro_score is not null)::int`;
 
 // Stripe TEST-MODE checkouts must never reach the P&L. A test checkout runs the
 // real webhook, so it writes a real `payments` row (and a real enhancement_orders
@@ -128,7 +141,7 @@ export async function getCostDrivers(from: Date, to: Date): Promise<CostDrivers>
     select
       count(*)::int as sourced,
       count(*) filter (where ${ENRICHED_FILTER})::int as enriched,
-      coalesce(sum(coalesce(photos_scored, photo_count, 0)), 0)::int as scored
+      ${SCORED_EXPR} as scored
     from restaurants
     where created_at >= ${fromIso}::timestamptz and created_at < ${toIso}::timestamptz
   `)) as unknown as { sourced: number; enriched: number; scored: number }[];
@@ -337,7 +350,7 @@ export async function getMonthlySeries(range: Range, a: CostAssumptions): Promis
     select to_char(date_trunc('month', created_at), 'YYYY-MM') as month,
            count(*)::int as sourced,
            count(*) filter (where ${ENRICHED_FILTER})::int as enriched,
-           coalesce(sum(coalesce(photos_scored, photo_count, 0)), 0)::int as scored
+           ${SCORED_EXPR} as scored
     from restaurants
     where created_at >= ${fromIso}::timestamptz and created_at < ${toIso}::timestamptz
     group by 1
@@ -494,7 +507,7 @@ export async function getClientEconomics(a: CostAssumptions): Promise<ClientRow[
       group by ml.restaurant_id
     )
     select r.id, r.name, r.city, r.is_new_opening,
-           coalesce(r.photos_scored, r.photo_count, 0) as photo_count,
+           coalesce(r.photos_scored, 0) + (case when r.website_pro_score is not null then 1 else 0 end) as photo_count,
            coalesce(pay.gross, 0) as gross,
            coalesce(pay.refunded, 0) as refunded,
            coalesce(pay.net, 0) as net,
@@ -650,7 +663,7 @@ export async function getCityEconomics(a: CostAssumptions): Promise<CityRow[]> {
     select coalesce(r.city, '—') as city,
            count(*)::int as leads,
            count(pay.restaurant_id)::int as payers,
-           coalesce(sum(coalesce(r.photos_scored, r.photo_count, 0)), 0)::int as scored,
+           coalesce(sum(coalesce(r.photos_scored, 0)), 0)::int + count(*) filter (where r.website_pro_score is not null)::int as scored,
            coalesce(sum(coalesce(sends.n, 0)), 0)::int as sends,
            coalesce(sum(coalesce(links.n, 0)), 0)::int as n_links,
            coalesce(sum(coalesce(pay.gross, 0)), 0)::int as gross,
