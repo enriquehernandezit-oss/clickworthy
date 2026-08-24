@@ -68,6 +68,14 @@ const FRANCHISE_NAMES: string[] = [
   // puregreenfranchise.com/new-york/washington-heights/ — the domain itself
   // says "franchise", and the per-location URL path confirms it.
   "pure green",
+  // Caught 2026-08-24, when an Anthropic outage took the LLM chain check
+  // offline and these reached `queued` with nothing to stop them. They are
+  // exactly the case this free list exists for — big, unambiguous names that
+  // should never have depended on a paid API call in the first place.
+  // ("shake shack" is already listed under burgers above — don't re-add.)
+  "sweetgreen", "lou malnatis", "big bad breakfast", "cava",
+  "daves hot chicken", "halal guys", "the halal guys", "nandos",
+  "pollo tropical", "wing zone",
 ];
 
 // Hotel/hospitality-CHAIN domains. A restaurant living on one of these is a

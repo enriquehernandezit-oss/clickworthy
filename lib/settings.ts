@@ -133,12 +133,20 @@ const DEFAULTS: SettingsMap = {
   // list (was: provisional order-of-magnitude guesses). Every line says where
   // its number came from; anything still unmeasured is marked PROVISIONAL.
   cost_source_per_lead_cents: 0.2, // Text Search ~$0.035 ÷ 20 results, spread over the wide-net pass rate; the search itself is rounding error — photo scoring is the real per-lead cost
-  // 0 by design: the chain-check (the only paid Claude call in enrichment) is
-  // OFF (WORKER_ENABLE_CHAIN_CHECK), and NeverBounce is a flat subscription, so
-  // it's a fixed opex line below rather than a per-lead charge. If verification
-  // volume ever exceeds the plan's credits, raise the NeverBounce opex line —
-  // don't reintroduce a per-lead number, or it double-counts the subscription.
-  cost_enrich_per_lead_cents: 0.0,
+  // The chain check (Claude + up to 3 web searches) is the only paid Claude call
+  // in enrichment. This was 0.0 on the assumption the check was OFF — stale since
+  // 2026-08-21 when it was enabled, so Financials reported $0 for what was
+  // actually the single largest line item (~$4-5/night, measured Aug 20-23: 273
+  // checks over 4 days at ~$0.06-0.08 each).
+  //
+  // 7.0 = ~$0.07 per CHECKED lead. Note this is charged per lead that reaches
+  // the check, and since 2026-08-24 the check only runs on leads that got a
+  // verified email (enrichRestaurant step 4) — roughly 1 in 8 of what reaches
+  // enrichment. lib/costs.ts applies it per enriched lead, so this slightly
+  // OVERSTATES spend; that's the safe direction, and it beats the old $0.
+  // Recalibrate against a real Anthropic invoice when there's a month of data.
+  // NeverBounce stays out of here — flat subscription, in opex_items below.
+  cost_enrich_per_lead_cents: 7.0,
   // MEASURED 2026-08-18: one Claude Vision call = 846 input + 132 output tokens
   // on claude-sonnet-5 ≈ $0.0030, plus a Places Photo fetch ~$0.007 ≈ $0.010.
   // NOTE: Sonnet 5 intro pricing ($2/$10 per MTok) ends 2026-08-31 → standard

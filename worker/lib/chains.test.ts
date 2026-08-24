@@ -100,3 +100,31 @@ describe("isKnownChain — production gaps (Aug 2026 backfill run)", () => {
     expect(isKnownChain("Some Place", "not a url")).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression: on 2026-08-24 an Anthropic outage took the LLM chain check
+// offline (it fails open), and these reached `queued` with nothing to stop
+// them — exactly the big, unambiguous names this FREE list exists to catch so
+// they never depend on a paid API call.
+// ---------------------------------------------------------------------------
+
+describe("isKnownChain — names that slipped through during the Anthropic outage", () => {
+  test("the three that actually reached the queue", () => {
+    expect(isKnownChain("sweetgreen - Healthy Salads, Wraps, and Bowls")).toBe(true);
+    expect(isKnownChain("Lou Malnati's Pizzeria")).toBe(true);
+    expect(isKnownChain("Big Bad Breakfast-Nashville")).toBe(true);
+  });
+
+  test("other national fast-casual names added in the same pass", () => {
+    for (const n of ["CAVA", "Dave's Hot Chicken", "The Halal Guys", "Nando's", "Pollo Tropical"]) {
+      expect(isKnownChain(n), n).toBe(true);
+    }
+  });
+
+  test("still spares independents whose names merely start similarly", () => {
+    // "Cava" is a real word (and a wine) — make sure we only match it standing
+    // alone or as a leading token, not buried in a local name.
+    expect(isKnownChain("La Cava del Tequila")).toBe(false);
+    expect(isKnownChain("Sweetgreens Family Diner")).toBe(false); // 'sweetgreens' != 'sweetgreen'
+  });
+});

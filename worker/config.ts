@@ -41,6 +41,13 @@ export const config = {
   // per-restaurant cost (a Google fetch + a Claude Vision call each), so this is
   // the main cost dial. Scoring stops EARLY once a signature dish is found — this
   // is just the worst-case ceiling (see scorePhotos in enrichRestaurant.ts).
+  //
+  // NOT the dominant cost any more (this comment said so until 2026-08-24 and
+  // was off by ~40x, which is exactly what made photo scoring look like the
+  // thing to cut). Measured over Aug 20-23: 480 restaurants -> 148 Vision calls
+  // total, i.e. 0.31 per restaurant (~$0.11/night) — the adaptive early-exit
+  // above works. The real per-lead cost is the chain check in enrichRestaurant
+  // step 4 at ~$4-5/night before it was gated to emailable leads only.
   photoScoreLimit: intEnv("WORKER_PHOTO_SCORE_LIMIT", 4),
 
   // How many guessed mailboxes (info@/contact@/hello@ on the restaurant's own
