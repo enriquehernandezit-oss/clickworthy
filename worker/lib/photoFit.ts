@@ -35,6 +35,12 @@ export type PhotoFitVerdict = {
   proScore: number | null; // best real-photo Vision score (2–6), null if none judged / sparse
   dish: string | null; // a signature dish seen on the website (free byproduct of Gate 2)
   imagesScored: number; // how many Vision calls Gate 2 actually made
+  // False when we never actually saw the page (no website, or the homepage
+  // fetch failed) — the verdict is then "keep by default", NOT a real read of
+  // their photography. Callers must not persist `band` as fact when this is
+  // false; enrichment stores null instead so scripts/rescreen-backlog.ts picks
+  // the lead up later (it targets rows with no band).
+  screened: boolean;
   reason: string;
 };
 
@@ -79,7 +85,30 @@ export async function assessPhotoFit(
   websiteUrl: string | null,
   deps: PhotoFitDeps = defaultDeps
 ): Promise<PhotoFitVerdict> {
-  const { band, richness } = analyzeWebsitePhotos(homepageHtml ?? "");
+  // NO HTML IS NOT A THIN SITE. Analyzing "" yields every signal false and
+  // richness 0, which lands in the `sparse` band — i.e. "strong keep, skip
+  // Vision", the most confident KEEP this module produces. So a failed homepage
+  // fetch silently impersonated our best possible lead and skipped Gate 2
+  // entirely. Caught 2026-08-24 on Kitchen Mouse (stored band=sparse,
+  // richness=0, while the live page actually scores 55/unclear): 24 leads with
+  // real websites were never screened at all, two of them already emailed.
+  // Bail out FIRST, before the band is computed, and tell the caller we never
+  // looked.
+  if (!homepageHtml) {
+    const noSite = !websiteUrl;
+    return {
+      decision: "keep",
+      band: "unclear", // never auto-rejects; the honest value is "unknown"
+      richness: 0,
+      proScore: null,
+      dish: null,
+      imagesScored: 0,
+      screened: false,
+      reason: noSite ? "no website to screen" : "homepage fetch failed — photo fit NOT assessed",
+    };
+  }
+
+  const { band, richness } = analyzeWebsitePhotos(homepageHtml);
 
   // Gate 1: a sparse/thin site is a strong KEEP — don't even pay for Vision.
   if (band === "sparse") {
@@ -90,6 +119,7 @@ export async function assessPhotoFit(
       proScore: null,
       dish: null,
       imagesScored: 0,
+      screened: true,
       reason: "sparse website — likely needs photos (Vision skipped)",
     };
   }
@@ -121,7 +151,7 @@ export async function assessPhotoFit(
   // KEEP. This is the guard that stopped the first dry run rejecting Hearth on a
   // logo.
   if (proScore === null) {
-    return { decision: "keep", band, richness, proScore: null, dish, imagesScored: graded.length, reason: `kept — ${basis}` };
+    return { decision: "keep", band, richness, proScore: null, dish, imagesScored: graded.length, screened: true, reason: `kept — ${basis}` };
   }
 
   const fit = decidePhotoFit(band, proScore);
@@ -132,6 +162,7 @@ export async function assessPhotoFit(
     proScore,
     dish,
     imagesScored: graded.length,
+    screened: true,
     reason: "reason" in fit ? fit.reason : "",
   };
 }

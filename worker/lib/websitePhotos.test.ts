@@ -103,6 +103,40 @@ describe("analyzeWebsitePhotos — band classification", () => {
     expect(a.signals.instagramFeed).toBe(true);
   });
 
+  // Regression: Kitchen Mouse (Owner.com) scored 55/unclear because its platform
+  // wasn't recognized, so Gate 2 never confirmed what Enrique spotted by eye —
+  // a professional site with good photos. Added 2026-08-24 with SpotHopper,
+  // Webflow and Duda after scanning 148 real lead homepages.
+  test("site builders added from the 2026-08-24 scan are recognized", () => {
+    const cases: [string, string][] = [
+      ["Owner.com", `<img srcset="/pluto-images/funnel/images/abc?w=1920 1920w">`],
+      ["Owner.com CDN", `<img src="https://static-content.owner.com/funnel/images/x">`],
+      ["SpotHopper", `<script src="https://cdn.spotapps.co/site.js"></script>`],
+      ["Webflow", `<img src="https://assets.website-files.com/abc/hero.jpg">`],
+      ["Duda", `<img src="https://irp.cdn-website.com/abc/hero.jpg">`],
+    ];
+    for (const [label, html] of cases) {
+      expect(analyzeWebsitePhotos(html).signals.proPlatform, label).toBe(true);
+    }
+  });
+
+  // These were measured as too COMMON to discriminate (WordPress 54/148, Toast
+  // 48/148, generic CDNs 14/148). Treating them as "pro platform" would flip a
+  // third of all sites to `rich` and pay for Vision on each. Pinned so the
+  // exclusion is deliberate rather than an oversight someone later "fixes".
+  test("common CMS / ordering widgets / generic CDNs are NOT pro-platform signals", () => {
+    const cases: [string, string][] = [
+      ["wordpress", `<link href="/wp-content/uploads/2024/x.css">`],
+      ["elementor", `<div class="elementor-widget"></div>`],
+      ["toast ordering", `<a href="https://www.toasttab.com/local/order/x">Order</a>`],
+      ["cloudfront", `<img src="https://d1abc.cloudfront.net/x.jpg">`],
+      ["godaddy", `<img src="https://img1.wsimg.com/isteam/x.jpg">`],
+    ];
+    for (const [label, html] of cases) {
+      expect(analyzeWebsitePhotos(html).signals.proPlatform, label).toBe(false);
+    }
+  });
+
   test("bare dated diner → sparse", () => {
     const a = analyzeWebsitePhotos(BARE_DINER);
     expect(a.band).toBe("sparse");

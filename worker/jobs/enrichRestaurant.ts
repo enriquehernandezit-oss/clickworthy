@@ -87,11 +87,19 @@ export async function runEnrichment(data: EnrichJobData): Promise<void> {
   const fit = await assessPhotoFit(homepageHtml, restaurant.website);
   // Fit signals stored on every enriched lead (kept or rejected) — the feedback
   // loop reads them back against approve/skip decisions (scripts/calibrate-threshold.ts).
-  const fitSignals = {
-    websitePhotoBand: fit.band,
-    websitePhotoRichness: fit.richness,
-    websiteProScore: fit.proScore,
-  };
+  // When the gate never actually saw the page (fetch failed / no website),
+  // store NULL rather than the placeholder band — otherwise an unscreened lead
+  // is indistinguishable from a genuinely-thin one, which is exactly how 24
+  // leads with real websites ended up recorded as "sparse, richness 0" and
+  // treated as our best targets. Null also makes them automatic candidates for
+  // scripts/rescreen-backlog.ts, which targets rows with no band.
+  const fitSignals = fit.screened
+    ? {
+        websitePhotoBand: fit.band,
+        websitePhotoRichness: fit.richness,
+        websiteProScore: fit.proScore,
+      }
+    : { websitePhotoBand: null, websitePhotoRichness: null, websiteProScore: null };
   if (fit.decision === "reject") {
     await db
       .update(restaurants)

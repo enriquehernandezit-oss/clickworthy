@@ -99,3 +99,46 @@ describe("assessPhotoFit — the auto-reject decision", () => {
     expect(d.calls()).toBe(1); // stopped after the first confirmed-pro photo
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression: a FAILED homepage fetch used to be analyzed as "" — every signal
+// false, richness 0, band `sparse` — i.e. the single most confident KEEP this
+// module produces, with Gate 2 skipped entirely. Caught 2026-08-24 on Kitchen
+// Mouse (stored sparse/richness 0; the live page actually scores 55/unclear).
+// 24 leads with real websites had never been screened, two already emailed.
+// ---------------------------------------------------------------------------
+
+describe("assessPhotoFit — an unfetched page is never mistaken for a thin one", () => {
+  test("null HTML with a website is reported as NOT screened, not as sparse", async () => {
+    const d = deps([]);
+    const v = await assessPhotoFit(null, "https://kitchenmousela.com/", d);
+    expect(v.screened).toBe(false);
+    expect(v.band).not.toBe("sparse"); // the bug: 'sparse' claimed a read we never made
+    expect(v.decision).toBe("keep"); // still fail-open — we just don't lie about why
+    expect(v.reason).toContain("fetch failed");
+    expect(d.calls()).toBe(0); // nothing to score, so nothing paid for
+  });
+
+  test("no website at all is also flagged unscreened, with its own reason", async () => {
+    const v = await assessPhotoFit(null, null, deps([]));
+    expect(v.screened).toBe(false);
+    expect(v.decision).toBe("keep");
+    expect(v.reason).toContain("no website");
+  });
+
+  test("a genuinely thin page IS screened and still bands sparse", async () => {
+    // One tiny image, no og:image, no gallery, no platform -> really is sparse.
+    const thin = `<html><body><img src="/a.jpg" width="120"></body></html>`;
+    const v = await assessPhotoFit(thin, "https://x.example/", deps([]));
+    expect(v.screened).toBe(true);
+    expect(v.band).toBe("sparse");
+    expect(v.decision).toBe("keep");
+  });
+
+  test("every screened path reports screened=true", async () => {
+    const rich = await assessPhotoFit(RICH_HTML, "https://x.example/", deps([{ score: 6, category: "food", dish: null }]));
+    expect(rich.screened).toBe(true);
+    const kept = await assessPhotoFit(RICH_HTML, "https://x.example/", deps([{ score: 3, category: "food", dish: null }]));
+    expect(kept.screened).toBe(true);
+  });
+});

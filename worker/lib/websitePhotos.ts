@@ -60,6 +60,11 @@ export const SPARSE_MAX = 25;
 // the raw HTML. Reservation widgets (OpenTable/Resy) are intentionally NOT here
 // — they signal an established venue, not necessarily good photography, and we
 // only want to reject on the photography question.
+//
+// Adding a platform is the SAFE direction to err. A false "rich" costs one
+// Vision call and is then kept anyway (a reject needs Vision >= 5 to agree),
+// whereas a false "sparse" skips Gate 2 entirely and can put a
+// professionally-photographed restaurant into outreach — the expensive mistake.
 const PRO_PLATFORM_FINGERPRINTS = [
   "squarespace-cdn",
   "static1.squarespace",
@@ -70,7 +75,28 @@ const PRO_PLATFORM_FINGERPRINTS = [
   "cloudinary",
   "imgix",
   "imageengine",
+  // Added 2026-08-24 after scanning 148 real lead homepages. Each is a
+  // restaurant/design site BUILDER that ships a photo-forward marketing page —
+  // not a widget bolted onto an arbitrary site.
+  "static-content.owner.com", // Owner.com — missed Kitchen Mouse (55 -> 75 with this)
+  "pluto-images", // Owner.com's image path
+  "spotapps.co", // SpotHopper
+  "spothopper",
+  "assets.website-files.com", // Webflow
+  "cdn.prod.website-files.com",
+  "multiscreensite.com", // Duda
+  "irp.cdn-website.com",
 ];
+
+// DELIBERATELY NOT fingerprints, measured over those same 148 homepages — each
+// is common enough to be noise rather than signal, and adding them would flip a
+// third of all sites to `rich` and pay for Vision on every one:
+//   wordpress / elementor  54/148 — the web's default CMS, says nothing about photos
+//   toasttab               48/148 — an ORDERING widget any restaurant can embed
+//   cloudfront/fastly/akamai 14/148 — generic CDNs, used by everything
+//   square.site, clover, olo, chownow, menufy — POS / online-ordering, not site builders
+//   weebly, godaddy (wsimg) — low-end builders; if anything a counter-signal
+// Re-check with scripts before adding any of these.
 
 // Live-Instagram-feed markers (an embedded feed = curated, current photography).
 // A bare <a href="instagram.com"> in the footer is NOT enough — nearly every
