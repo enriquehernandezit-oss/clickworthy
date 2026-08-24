@@ -230,4 +230,26 @@ describe("isNonOwnedHost / isAcceptableDomain — the platform-mailbox bug", () 
   test("the restaurant's real domain still passes", () => {
     expect(isAcceptableDomain("joesdiner.com", "joesdiner.com")).toBe(true);
   });
+
+  // Caught live 2026-08-23: Places listed white-label ordering pages as the
+  // restaurant's website, so the guess fallback burned NeverBounce checks on
+  // mailboxes like info@ordertaqueriamorelia.mobile-webview4.com. The numbered
+  // shards (mobile-webview2/4/6.com) can't be enumerated in a static list, so
+  // they match by pattern.
+  test("white-label ordering hosts caught in production are non-owned", () => {
+    expect(isNonOwnedHost("qmenu.us")).toBe(true);
+    expect(isNonOwnedHost("ordertaqueriamorelia.mobile-webview4.com")).toBe(true);
+    expect(isNonOwnedHost("ordertaqueraaelbosqueil.mobile-webview2.com")).toBe(true);
+    expect(isNonOwnedHost("orderlacarreta.mobile-webview6.com")).toBe(true);
+  });
+
+  test("the shard pattern doesn't swallow a real domain that merely mentions webview", () => {
+    expect(isNonOwnedHost("mobilewebview.com")).toBe(false); // no dot/hyphen shape match
+    expect(isNonOwnedHost("webviewcafe.com")).toBe(false);
+  });
+
+  test("guessing is skipped entirely on the pattern-matched hosts", () => {
+    expect(guessEmailCandidates("https://ordertaqueriamorelia.mobile-webview4.com")).toEqual([]);
+    expect(guessEmailCandidates("https://qmenu.us/#/tacos-el-rey")).toEqual([]);
+  });
 });

@@ -72,13 +72,19 @@ export const config = {
   // Nearby search); the cost is one enrichment job (NeverBounce + Vision) per
   // candidate that clears the hard filters.
   // The grid can discover hundreds of new places on the first sweeps, so unlike
-  // the old text-search path this MUST be capped. 0 = no cap. Aiming at ~20
-  // queued/night: roughly half of processed candidates historically yield a
-  // verified email (the rest land as needs_manual_email), so ~50 processed ≈ ~20
-  // queued. Tune against real nights; the precise queued target lands with the
-  // photo-fit gates. Candidates beyond the cap aren't recorded, so they simply
-  // reappear in tomorrow's sweep — the grid backfills over several nights.
-  nightlyEnrichCap: intEnv("WORKER_NIGHTLY_ENRICH_CAP", 50),
+  // the old text-search path this MUST be capped. 0 = no cap. Candidates beyond
+  // the cap aren't recorded, so they simply reappear in tomorrow's sweep — the
+  // grid backfills over several nights.
+  //
+  // Raised 50 -> 80 on 2026-08-24. Measured across 4 real nights: 50 processed
+  // -> ~17 survive all gates with a website -> 3-4 queued (verified email). The
+  // original "~50 processed ≈ ~20 queued" estimate was off by ~5x — at cap 50
+  // the 20/night target is arithmetically unreachable even with a perfect email
+  // hit rate. 80 processed projects to ~6-8 queued/night at the measured ~20%
+  // hit rate, for roughly +$1-1.50/night (chain checks + Vision + NeverBounce
+  // on ~15 extra gate-clearing candidates). Set WORKER_NIGHTLY_ENRICH_CAP on
+  // Railway to override without a deploy.
+  nightlyEnrichCap: intEnv("WORKER_NIGHTLY_ENRICH_CAP", 80),
 
   // Cities to source, SEMICOLON-separated (so each entry can be "City, State").
   // Each MUST have a grid in worker/lib/grid.ts. Added Nashville/Denver/San Diego

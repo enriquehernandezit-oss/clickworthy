@@ -156,10 +156,21 @@ export async function checkHospitalityGroup(
     // is billed on tokens actually generated, not the ceiling.
     max_tokens: 1500,
     tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }],
+    // The disqualifier exists because a group/chain has corporate marketing
+    // that owns its brand photography — the owner can't buy this service. A
+    // small family operation with a second location does NOT have that:
+    // loosened 2026-08-24 after 3 nights of live data showed the check
+    // rejecting exactly-our-customer businesses ("Fiorito Almacén — sibling
+    // location run by the same brothers", "Raiz Kitchen — same owners as one
+    // other sushi bar") alongside the real catches.
     system:
       "For a given restaurant, decide two things and search the web if unsure. " +
-      "(1) Is it part of a larger hospitality/restaurant group or a chain (multiple locations, parent company, " +
-      "or franchise)? A single independently-owned restaurant is NOT a group even if the name sounds corporate. " +
+      "(1) Should it be DISQUALIFIED as a group/chain? Disqualify ONLY when at least one of these holds: " +
+      "it has THREE or more locations; it is a franchise location of any larger brand; it is a hotel or " +
+      "casino dining outlet; or it belongs to a multi-concept hospitality group with a corporate/marketing " +
+      "team. A single independent restaurant is NOT a group even if the name sounds corporate — and neither " +
+      "is a small family operation with just TWO locations run by the same owners (they still make their own " +
+      "marketing decisions; treat them as independent). " +
       "(2) What is the OWNER's first name? Only give it if you find it confidently (bio, press, 'owner' mention); " +
       "otherwise null. Never guess a name. " +
       'End your reply with a JSON object on its own: {"isGroup": <bool>, "reasoning": "<one sentence>", ' +

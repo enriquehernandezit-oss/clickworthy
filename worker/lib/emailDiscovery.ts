@@ -88,10 +88,25 @@ const NON_OWNED_HOSTS = [
   // the restaurant's website, but their mailbox is the platform's, not the owner's
   "findaloco.com", "bentobox.com", "owner.com", "menusifu.com", "hungerrush.com",
   "restaurantji.com", "singleplatform.com", "zmenu.com", "allmenus.com", "seamless.com",
+  // white-label online-ordering hosts caught live 2026-08-23: Places listed
+  // qmenu.us and per-restaurant *.mobile-webviewN.com ordering pages as the
+  // restaurant's website, so the guess fallback burned 3 NeverBounce checks on
+  // addresses like info@ordertaqueriamorelia.mobile-webview4.com — mailboxes
+  // that can't exist. The numbered-shard family is matched by pattern below.
+  "qmenu.us",
+];
+
+// Platform families whose hostnames shard per customer (mobile-webview2.com,
+// mobile-webview4.com, …) — a static list can't enumerate them, so they're
+// matched by shape. Keep patterns tight: a false positive here silently turns
+// off email guessing for a legitimately-owned domain.
+const NON_OWNED_HOST_PATTERNS: RegExp[] = [
+  /(^|\.)mobile-webview\d*\.com$/,
 ];
 
 export function isNonOwnedHost(host: string): boolean {
-  return NON_OWNED_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
+  if (NON_OWNED_HOSTS.some((h) => host === h || host.endsWith(`.${h}`))) return true;
+  return NON_OWNED_HOST_PATTERNS.some((re) => re.test(host));
 }
 
 // The registrable label of a hostname, minus the TLD ("joesdiner.com" -> "joesdiner").
@@ -356,6 +371,6 @@ export function guessEmailCandidates(websiteUrl: string): string[] {
   const domain = siteDomain(websiteUrl);
   if (!domain) return [];
   if (FREE_MAILBOX_HOSTS.has(domain)) return [];
-  if (NON_OWNED_HOSTS.some((h) => domain === h || domain.endsWith(`.${h}`))) return [];
+  if (isNonOwnedHost(domain)) return [];
   return GUESS_LOCALPARTS.map((lp) => `${lp}@${domain}`);
 }
