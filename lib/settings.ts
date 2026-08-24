@@ -19,6 +19,13 @@ export type WorkerBootInfo = {
   crons: { sourcing: string; send: string; replyPoll: string; package: string; stats: string; sourcingReport: string };
   cities: string[];
   bootedAt: string; // ISO — jsonb can't hold a Date
+  // The nightly spend ceiling actually in force on the worker (config default,
+  // or WORKER_NIGHTLY_ENRICH_CAP if Railway overrides it). Recorded because it
+  // is the single most consequential number in the pipeline and was previously
+  // invisible from the web side: after raising the default 50 -> 80 there was
+  // no way to confirm which value the deployed worker was really using without
+  // reading Railway logs. Optional — rows written before 2026-08-24 lack it.
+  nightlyEnrichCap?: number;
   // Booleans only — the go-live checklist uses this to know which keys the
   // WORKER service can see. Values themselves are never sent through settings.
   envPresent?: Record<string, boolean>;

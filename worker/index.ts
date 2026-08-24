@@ -136,6 +136,7 @@ async function main() {
       sourcingReport: config.sourcingReportCron,
     },
     cities: config.targetCities,
+    nightlyEnrichCap: config.nightlyEnrichCap,
     bootedAt: new Date().toISOString(),
     envPresent: envPresence(WORKER_ENV_KEYS),
   }).catch((err) => console.error("[worker] failed to write boot info:", err));

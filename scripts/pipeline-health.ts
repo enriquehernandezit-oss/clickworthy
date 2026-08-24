@@ -19,13 +19,21 @@ const arg = Number(process.argv[2]);
 const hours = Number.isFinite(arg) && arg > 0 ? arg : 30;
 const since = new Date(Date.now() - hours * 3_600_000);
 
-const boot = (await getSetting("worker_boot_info")) as { bootedAt?: string } | null;
+const boot = (await getSetting("worker_boot_info")) as
+  | { bootedAt?: string; nightlyEnrichCap?: number }
+  | null;
 if (boot?.bootedAt) {
   const ageH = ((Date.now() - Date.parse(boot.bootedAt)) / 3_600_000).toFixed(1);
   console.log(`worker booted: ${boot.bootedAt} (${ageH}h ago)`);
 } else {
   console.log("worker boot info: (none)");
 }
+// The nightly spend ceiling the DEPLOYED worker is really using — env override
+// included. "(not recorded)" means the worker hasn't rebooted since this was
+// added, not that the cap is unset.
+console.log(
+  `nightly enrich cap: ${boot?.nightlyEnrichCap ?? "(not recorded — worker predates this field)"}`
+);
 
 console.log(`\n=== leads sourced in the last ${hours}h (since ${since.toISOString()}) ===`);
 const [agg] = await db
