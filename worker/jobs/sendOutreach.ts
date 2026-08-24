@@ -214,17 +214,39 @@ async function draftBatch(autosend: boolean): Promise<void> {
         eq(restaurants.suppressed, false),
         eq(restaurants.held, false),
         isNotNull(restaurants.email),
-        // No LIVE touch-1 row (drafted/approved/sent) — don't double-draft. A
-        // `cancelled` row is excluded so un-holding a restaurant whose draft was
-        // cancelled at send time can produce a fresh Touch 1.
-        sql`not exists (select 1 from ${outreachJobs} o where o.restaurant_id = ${restaurants.id} and o.touch_number = 1 and o.status <> 'cancelled')`
+        // No LIVE touch-1 row (drafted/approved/sent) for this EMAIL — don't
+        // double-draft. Keyed on the address, not the restaurant id, because two
+        // sibling locations routinely share one mailbox: caught 2026-08-24, when
+        // Emiliano's Restaurant and La Casa De Los Pollos Rostizados both reached
+        // `contacted` on foodemilianos3324@gmail.com (that owner got two cold
+        // opens from us), and Kitchen Mouse Cafe + Kitchen Mouse The Bakery were
+        // both drafted to info@kitchenmousela.com. One inbox, one cold open —
+        // anything else reads as spam and burns the domain's reputation.
+        // A `cancelled` row is excluded so un-holding a restaurant whose draft
+        // was cancelled at send time can produce a fresh Touch 1.
+        sql`not exists (
+          select 1 from ${outreachJobs} o
+          join ${restaurants} r2 on r2.id = o.restaurant_id
+          where o.touch_number = 1 and o.status <> 'cancelled'
+            and lower(r2.email) = lower(${restaurants.email})
+        )`
       )
     )
     .orderBy(sql`${restaurants.priorityScore} desc nulls last`)
     .limit(room);
 
+  // The query above can't see rows this same loop is about to create, so two
+  // candidates sharing a mailbox would both pass it. Track what we've drafted
+  // to in this batch and skip the second one.
+  const draftedTo = new Set<string>();
+
   for (const r of candidates) {
     const email = r.email!;
+
+    if (draftedTo.has(email.toLowerCase())) {
+      console.log(`[draft] skip ${r.name} — ${email} already drafted to earlier in this batch`);
+      continue;
+    }
 
     if (await isSuppressed(email)) {
       if (!config.dryRun) await db.update(restaurants).set({ suppressed: true }).where(eq(restaurants.id, r.id));
@@ -258,6 +280,9 @@ async function draftBatch(autosend: boolean): Promise<void> {
     const { subject, body } = composed;
 
     if (config.dryRun) {
+      // Mark it in the dry run too, so the log shows the same skips a real run
+      // would perform rather than a rosier picture.
+      draftedTo.add(email.toLowerCase());
       console.log(`[draft] (dry) would draft -> ${email} | ${subject}`);
       continue;
     }
@@ -273,6 +298,7 @@ async function draftBatch(autosend: boolean): Promise<void> {
       status: autosend ? "approved" : "draft",
       approvedAt: autosend ? now : null,
     });
+    draftedTo.add(email.toLowerCase());
     console.log(`[draft] ${autosend ? "auto-approved" : "drafted"} -> ${email} (${r.name})`);
   }
 }
