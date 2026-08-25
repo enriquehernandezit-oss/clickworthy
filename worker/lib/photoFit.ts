@@ -57,7 +57,15 @@ async function realFetchImage(url: string): Promise<{ bytes: Buffer; contentType
     const timer = setTimeout(() => controller.abort(), IMG_TIMEOUT_MS);
     const res = await fetch(url, {
       signal: controller.signal,
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; ClickworthyBot/1.0)", Accept: "image/*" },
+      // A real browser UA, not a declared bot — aligned with the same fix in
+      // worker/lib/emailDiscovery.ts's fetchText 2026-08-25. An image CDN that
+      // 403s a bot UA was failing Gate 2's fetch just as silently as a
+      // homepage fetch failure fails the photo-fit gate.
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+      },
       redirect: "follow",
     });
     clearTimeout(timer);
@@ -124,9 +132,33 @@ export async function assessPhotoFit(
     };
   }
 
-  // Gate 2: grade the best real photos the restaurant chose to show, stopping as
-  // soon as one confirms professional-grade. Capture a signature dish along the
-  // way — enrichment reuses it instead of paying to score Google photos again.
+  // `unclear` also skips Vision — decidePhotoFit's reject rule (websitePhotos.ts)
+  // requires band === "rich"; an unclear band can NEVER be rejected regardless of
+  // what Vision says. Measured 2026-08-25: 41 leads sat in needs_manual_email with
+  // band=unclear, every one Vision-scored, zero of which could have changed the
+  // keep/reject decision — pure spend with no effect on outreach. The only real
+  // loss is the free website dish those leads would have picked up as a byproduct;
+  // an emailable unclear lead still gets a dish from the existing Google-photo
+  // fallback in enrichRestaurant.ts (gated on having an email), so the cost moves
+  // rather than disappears for that minority — the saving is the emailless
+  // majority that fallback never runs for anyway.
+  if (band === "unclear") {
+    return {
+      decision: "keep",
+      band,
+      richness,
+      proScore: null,
+      dish: null,
+      imagesScored: 0,
+      screened: true,
+      reason: "unclear band — only 'rich' can be rejected, so Vision is never dispositive here (skipped)",
+    };
+  }
+
+  // Gate 2 (band === "rich" only, per the skip above): grade the best real
+  // photos the restaurant chose to show, stopping as soon as one confirms
+  // professional-grade. Capture a signature dish along the way — enrichment
+  // reuses it instead of paying to score Google photos again.
   const candidates = websiteUrl && homepageHtml ? extractImageCandidates(homepageHtml, websiteUrl, MAX_CANDIDATES) : [];
   const graded: { score: number; category: string }[] = [];
   let dish: string | null = null;

@@ -146,23 +146,50 @@ export async function fetchHomepageHtml(url: string): Promise<string | null> {
   return fetchText(url);
 }
 
-async function fetchText(url: string): Promise<string | null> {
+// A real browser UA + headers, not a declared bot — measured 2026-08-25: ~21%
+// of website-having leads were coming back with NULL fetch results, which
+// doesn't just skip email discovery, it also skips the entire photo-fit gate
+// (a null homepage reads as "unscreened", never as a reject) and disables the
+// contact-page crawl below (it needs the homepage HTML to find the links).
+// `ClickworthyBot` was giving hosting providers / bot-detection an easy signal
+// to block on for zero benefit — we're not a crawler that needs to identify
+// itself, we're fetching one page per restaurant, once.
+const BROWSER_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+};
+const RETRY_DELAY_MS = 750;
+
+async function fetchOnce(url: string): Promise<{ ok: true; body: string } | { ok: false; status: number | null }> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; ClickworthyBot/1.0)" },
-      redirect: "follow",
-    });
+    const res = await fetch(url, { signal: controller.signal, headers: BROWSER_HEADERS, redirect: "follow" });
     clearTimeout(timer);
-    if (!res.ok) return null;
+    if (!res.ok) return { ok: false, status: res.status };
     const ct = res.headers.get("content-type") ?? "";
-    if (!ct.includes("text/html") && !ct.includes("text/plain")) return null;
-    return await res.text();
+    if (!ct.includes("text/html") && !ct.includes("text/plain")) return { ok: false, status: res.status };
+    return { ok: true, body: await res.text() };
   } catch {
-    return null;
+    // Timeout, DNS failure, TLS error, network drop — all indistinguishable
+    // from here, and all worth one retry (a restaurant's cheap hosting is
+    // exactly where a cold connection or a momentary blip is common).
+    return { ok: false, status: null };
   }
+}
+
+async function fetchText(url: string): Promise<string | null> {
+  const first = await fetchOnce(url);
+  if (first.ok) return first.body;
+  // 404/410 are the site telling us definitively there's nothing here —
+  // retrying can't change that. Everything else (timeout, 403, 429, 5xx, a
+  // transient network error) gets one retry after a short backoff.
+  if (first.status === 404 || first.status === 410) return null;
+  await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+  const second = await fetchOnce(url);
+  return second.ok ? second.body : null;
 }
 
 // --- Extractor 1: Cloudflare email protection ---------------------------
@@ -296,18 +323,39 @@ function rankEmail(email: string, domain: string | null): number {
   return 4;
 }
 
-// Finds candidate contact links on the homepage to also crawl.
-function contactLinks(html: string, baseUrl: string): string[] {
+// Finds candidate contact links on the homepage to also crawl. Exported for
+// direct testing.
+//
+// Same-origin only (hostname match, or same rootLabel so a subdomain like
+// contact.joesdiner.com from www.joesdiner.com still crawls). The substring
+// match on the whole href was matching two things it shouldn't: an off-site
+// link that happens to contain "about" (e.g. a footer link to a press
+// mention), and — because `new URL("mailto:contact@x.com", base)` parses
+// successfully — a `mailto:` href, burning a crawl slot on a URL fetchText
+// can never fetch.
+export function contactLinks(html: string, baseUrl: string): string[] {
   const links = new Set<string>();
   const hrefRe = /href\s*=\s*["']([^"']+)["']/gi;
+  let baseHost: string;
+  try {
+    baseHost = new URL(baseUrl).hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return [];
+  }
+  const baseRoot = rootLabel(baseHost);
   for (const m of html.matchAll(hrefRe)) {
     const href = m[1];
     if (!CONTACT_PATH_HINTS.some((h) => href.toLowerCase().includes(h))) continue;
+    let url: URL;
     try {
-      links.add(new URL(href, baseUrl).toString());
+      url = new URL(href, baseUrl);
     } catch {
-      // ignore malformed hrefs
+      continue; // ignore malformed hrefs
     }
+    if (url.protocol !== "http:" && url.protocol !== "https:") continue; // drops mailto:, tel:, javascript:
+    const host = url.hostname.replace(/^www\./, "").toLowerCase();
+    if (host !== baseHost && rootLabel(host) !== baseRoot) continue; // off-site — not this restaurant's own site
+    links.add(url.toString());
   }
   return [...links].slice(0, 3);
 }

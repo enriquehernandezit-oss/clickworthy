@@ -50,12 +50,16 @@ export const config = {
   // step 4 at ~$4-5/night before it was gated to emailable leads only.
   photoScoreLimit: intEnv("WORKER_PHOTO_SCORE_LIMIT", 4),
 
-  // How many guessed mailboxes (info@/contact@/hello@ on the restaurant's own
-  // domain) to run past NeverBounce when the free extractors find nothing. This
-  // is the ONLY new per-lead cost in discovery v2 (~$0.008 per check, and only
-  // on leads that would otherwise be dead). Lower it to 1 to cut spend; 0 turns
-  // the guess fallback off entirely and keeps the extractors.
-  emailGuessLimit: intEnv("WORKER_EMAIL_GUESS_LIMIT", 3),
+  // How many guessed mailboxes to run past NeverBounce when the free
+  // extractors find nothing. Order in GUESS_LOCALPARTS (emailDiscovery.ts) is
+  // info/contact/hello — now load-bearing: measured 2026-08-25 across every
+  // verified guess ever, all 11 were info@; contact@/hello@ had verified ZERO.
+  // Lowered 3 -> 1 on that basis — no measured yield loss, and it keeps guess
+  // spend inside NeverBounce's flat 1,000-credit/mo plan at the current
+  // nightly cap (3/lead was heading toward overage). Raise via
+  // WORKER_EMAIL_GUESS_LIMIT if a later measurement shows contact@/hello@
+  // earning their keep; 0 turns the guess fallback off entirely.
+  emailGuessLimit: intEnv("WORKER_EMAIL_GUESS_LIMIT", 1),
 
   // The chain/hospitality-group check (Claude + up to 3 web searches, ~6¢ each).
   // ON by default (flipped 2026-08-21) — the static denylist (chains.ts) kept

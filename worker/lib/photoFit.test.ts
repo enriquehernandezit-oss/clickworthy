@@ -64,10 +64,21 @@ describe("assessPhotoFit — the auto-reject decision", () => {
     expect(v.proScore).toBe(4);
   });
 
-  test("unclear NEVER rejects, even if Vision scores it professional", async () => {
-    const v = await assessPhotoFit(UNCLEAR_HTML, "https://x.example/", deps([{ score: 6, category: "food", dish: "x" }]));
+  // 2026-08-25: decidePhotoFit's reject rule requires band === "rich", so
+  // unclear can NEVER be rejected regardless of Vision's opinion — Vision is
+  // now skipped for it entirely rather than paid for and ignored (measured:
+  // 41 needs_manual_email leads had band=unclear, every one Vision-scored,
+  // zero decisions it could have changed).
+  test("unclear NEVER rejects, and Vision never runs for it", async () => {
+    const d = deps([{ score: 6, category: "food", dish: "x" }]);
+    const v = await assessPhotoFit(UNCLEAR_HTML, "https://x.example/", d);
     expect(v.band).toBe("unclear");
     expect(v.decision).toBe("keep");
+    expect(v.screened).toBe(true); // Gate 1 DID run — this isn't a fetch failure
+    expect(v.proScore).toBeNull();
+    expect(v.dish).toBeNull();
+    expect(v.imagesScored).toBe(0);
+    expect(d.calls()).toBe(0); // no Vision spend — the whole point of the skip
   });
 
   test("rich but only logos/menus scored (no real photo): KEEP, proScore null", async () => {

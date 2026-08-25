@@ -24,6 +24,7 @@ import {
   isAcceptableDomain,
 } from "@/worker/lib/emailDiscovery";
 import { findVerifiedEmail } from "@/worker/lib/findEmail";
+import { config } from "@/worker/config";
 
 const commit = process.argv.includes("--commit");
 const limitArg = process.argv.indexOf("--limit");
@@ -102,7 +103,7 @@ if (commit) {
 } else {
   console.log(`=== DRY RUN (free) ===`);
   console.log(`  would find an address : ${candidates} of ${rows.length}  (${Math.round((candidates / (rows.length || 1)) * 100)}%)`);
-  console.log(`  no address, guessable : ${guessable}  (would cost up to 3 checks each)`);
+  console.log(`  no address, guessable : ${guessable}  (would cost up to ${config.emailGuessLimit} check${config.emailGuessLimit === 1 ? "" : "s"} each)`);
   console.log(`  potential total       : ${candidates + guessable} of ${rows.length}`);
   console.log(`\n  which extractor fired (leads where it found something):`);
   for (const [k, v] of Object.entries(bySource)) if (k !== "text") console.log(`    ${k.padEnd(11)} ${v}`);

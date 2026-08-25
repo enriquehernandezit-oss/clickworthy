@@ -13,6 +13,7 @@ import { findVerifiedEmail } from "../lib/findEmail";
 import { scorePhoto, checkHospitalityGroup } from "../lib/anthropic";
 import { assessPhotoFit } from "../lib/photoFit";
 import { priorityScore } from "../lib/priority";
+import { classifyWebsite } from "../lib/websitePlatform";
 
 export { ENRICH_QUEUE } from "@/lib/queues";
 
@@ -223,9 +224,27 @@ export async function runEnrichment(data: EnrichJobData): Promise<void> {
 
   // 7. Final status routes the lead to its outreach SEGMENT:
   //    - a contactable email  -> queued          (Segment B: email photo outreach)
-  //    - has a website, no email found -> needs_manual_email (still an email lead — Jose finds the address)
-  //    - no website at all     -> call_list       (Segment A: phone — no email path exists)
-  const finalStatus: FinalStatus = email ? "queued" : restaurant.website ? "needs_manual_email" : "call_list";
+  //    - has a website with a real mailbox that MIGHT exist, no email found ->
+  //      needs_manual_email (still an email lead — Jose finds the address)
+  //    - no website, OR the "website" is a social/ordering page with no
+  //      mailbox of its own -> call_list (Segment A: phone)
+  //
+  //    The social/ordering-page case is why classifyWebsite runs here, not just
+  //    on discovery/routing above: discovery ALREADY tries and fails to find an
+  //    address on these (isNonOwnedHost skips guessing them), so `email` is
+  //    correctly null — but the old rule then sent them to needs_manual_email
+  //    just because `restaurant.website` was non-null, sending Jose to "find
+  //    the address" on a page where no address can exist. Measured 2026-08-25:
+  //    15 of 119 needs_manual_email leads were exactly this — Instagram,
+  //    Facebook, or an ordering-platform URL. `free_subdomain` (Weebly/Wix/etc)
+  //    stays needs_manual_email on purpose: a real mailbox can still exist there.
+  const platformTier = restaurant.website ? classifyWebsite(restaurant.website).tier : "none";
+  const isDeadEndWebsite = platformTier === "social_only" || platformTier === "ordering_platform";
+  const finalStatus: FinalStatus = email
+    ? "queued"
+    : restaurant.website && !isDeadEndWebsite
+      ? "needs_manual_email"
+      : "call_list";
 
   await db
     .update(restaurants)

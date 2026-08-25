@@ -3,12 +3,14 @@ import { db } from "@/db";
 import Link from "next/link";
 import { Badge, EmptyState, SectionHeading, telHref, fmtDate } from "../../ui";
 
-// The PHONE channel. Restaurants with no website at all can't be emailed (there
-// is no site to scrape an address from), so they land in `call_list` during
-// enrichment. They are NOT a lesser lead — measured across sourcing runs they're
-// ~23% of everything sourced and skew toward exactly the independent, low-digital
-// -footprint places this product serves. Phone is the only way to reach them,
-// and one call can pitch BOTH photos and (later) a website.
+// The PHONE channel. Restaurants with no website — or whose only web presence
+// is a social page (Instagram/Facebook) or an ordering platform, where no
+// mailbox of the restaurant's own can exist — can't be emailed, so they land in
+// `call_list` during enrichment. They are NOT a lesser lead — measured across
+// sourcing runs they're ~23% of everything sourced and skew toward exactly the
+// independent, low-digital-footprint places this product serves. Phone is the
+// only way to reach them, and one call can pitch BOTH photos and (later) a
+// website.
 //
 // Read-only view: no new tables, no writes.
 export const dynamic = "force-dynamic";
@@ -59,8 +61,9 @@ export default async function CallListPage({
     <div>
       <SectionHeading>Call list</SectionHeading>
       <p className="mt-2 max-w-2xl text-sm text-stone-500">
-        Restaurants with <strong>no website</strong> — they can&apos;t be emailed, so phone is the only channel.
-        These are prime targets: no site means no professional photos either. One call can pitch photos now and a
+        Restaurants with <strong>no real website</strong> — no site at all, or only a social/ordering page with no
+        mailbox of their own — so they can&apos;t be emailed and phone is the only channel. These are prime targets:
+        little to no web presence usually means no professional photos either. One call can pitch photos now and a
         website later. Sorted busiest-first (more reviews = better prospect).
       </p>
 

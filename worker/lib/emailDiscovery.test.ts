@@ -15,6 +15,7 @@ import {
   extractMetaEmails,
   isAcceptableDomain,
   guessEmailCandidates,
+  contactLinks,
 } from "./emailDiscovery";
 
 // ---------------------------------------------------------------------------
@@ -251,5 +252,64 @@ describe("isNonOwnedHost / isAcceptableDomain — the platform-mailbox bug", () 
   test("guessing is skipped entirely on the pattern-matched hosts", () => {
     expect(guessEmailCandidates("https://ordertaqueriamorelia.mobile-webview4.com")).toEqual([]);
     expect(guessEmailCandidates("https://qmenu.us/#/tacos-el-rey")).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// contactLinks — same-origin filter, added 2026-08-25. A plain substring match
+// on the whole href was matching links it shouldn't: an off-site link that
+// happens to contain a hint word, and — because `new URL("mailto:x@y.com",
+// base)` parses successfully — a mailto: href, burning one of the 3 crawl
+// slots on a URL fetchText can never actually fetch.
+// ---------------------------------------------------------------------------
+
+describe("contactLinks — only crawls the restaurant's own site", () => {
+  const BASE = "https://www.joesdiner.com/";
+
+  test("keeps a relative same-site contact link", () => {
+    const html = `<a href="/contact-us">Contact</a>`;
+    expect(contactLinks(html, BASE)).toEqual(["https://www.joesdiner.com/contact-us"]);
+  });
+
+  test("keeps an absolute same-site link, and a same-rootLabel subdomain", () => {
+    const html = `
+      <a href="https://joesdiner.com/about">About</a>
+      <a href="https://contact.joesdiner.com/">Contact</a>
+    `;
+    const links = contactLinks(html, BASE);
+    expect(links).toContain("https://joesdiner.com/about");
+    expect(links).toContain("https://contact.joesdiner.com/");
+  });
+
+  test("drops an off-site link even if it contains a hint word", () => {
+    const html = `<a href="https://facebook.com/joesdiner/about">About us on Facebook</a>`;
+    expect(contactLinks(html, BASE)).toEqual([]);
+  });
+
+  test("drops a mailto: href — new URL() parses it, but it isn't a page to crawl", () => {
+    const html = `<a href="mailto:contact@joesdiner.com">Contact</a>`;
+    expect(contactLinks(html, BASE)).toEqual([]);
+  });
+
+  test("drops tel: and javascript: hrefs too", () => {
+    const html = `
+      <a href="tel:+15551234567">Contact us</a>
+      <a href="javascript:void(0)" data-hint="contact">Contact</a>
+    `;
+    expect(contactLinks(html, BASE)).toEqual([]);
+  });
+
+  test("caps at 3 links even when more match", () => {
+    const html = Array.from({ length: 6 }, (_, i) => `<a href="/contact-${i}">Contact ${i}</a>`).join("\n");
+    expect(contactLinks(html, BASE).length).toBe(3);
+  });
+
+  test("a malformed base URL returns no links rather than throwing", () => {
+    expect(contactLinks(`<a href="/contact">Contact</a>`, "not a url")).toEqual([]);
+  });
+
+  test("ignores an href with no hint word at all", () => {
+    const html = `<a href="/menu">Menu</a>`;
+    expect(contactLinks(html, BASE)).toEqual([]);
   });
 });
