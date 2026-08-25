@@ -35,10 +35,31 @@ import { fetchHomepageHtml } from "@/worker/lib/emailDiscovery";
 import { isKnownChain } from "@/worker/lib/chains";
 
 const commit = process.argv.includes("--commit");
+const refresh = process.argv.includes("--refresh");
 const hoursArg = Number(process.argv.find((a) => /^\d+$/.test(a)));
 const hours = Number.isFinite(hoursArg) && hoursArg > 0 ? hoursArg : 24;
 
 type Row = typeof restaurants.$inferSelect;
+
+// Verdict cache, keyed by restaurant id and persisted after EVERY paid check —
+// a Vision call plus up to 3 web searches per lead, on 75 leads, reliably
+// outruns the account's usage cap (hit repeatedly 2026-08-24). Without this, a
+// mid-run cap-out threw away every check already paid for; with it, a re-run
+// reuses them (near-free) and retries only the leads that errored. `--refresh`
+// forces a fresh look.
+type CachedVerdict = { action: "keep" | "reject_chain" | "reject_photo"; reason: string; band?: string | null; richness?: number | null; proScore?: number | null };
+const CACHE_PATH = `${process.env.TMPDIR ?? "/tmp"}/clickworthy-rescreen-outage.json`;
+async function loadCache(): Promise<Record<string, CachedVerdict>> {
+  if (refresh) return {};
+  try {
+    return JSON.parse(await Bun.file(CACHE_PATH).text()) as Record<string, CachedVerdict>;
+  } catch {
+    return {};
+  }
+}
+const cache = await loadCache();
+const cachedCount = Object.keys(cache).length;
+if (cachedCount) console.log(`(reusing ${cachedCount} cached verdict(s) from ${CACHE_PATH} — pass --refresh to re-ask)\n`);
 
 // Candidates: every still-live lead from the window. Deliberately NOT narrowed
 // to leads missing a Vision score — see the header: that misses sparse-band
@@ -81,11 +102,21 @@ const verdicts: Verdict[] = [];
 for (const r of rows) {
   const label = `${r.name}${r.city ? ` (${r.city})` : ""}`;
 
+  const hit = cache[String(r.id)];
+  if (hit) {
+    verdicts.push({ r, ...hit });
+    console.log(`  ${hit.action === "keep" ? "✓" : "✗"} ${label} — ${hit.reason.slice(0, 80)} (cached)`);
+    continue;
+  }
+
   // Free check first — the static denylist may have grown since this lead was
   // sourced (it did, the same day), so re-applying it costs nothing and can
   // save a paid call entirely.
   if (isKnownChain(r.name, r.website)) {
-    verdicts.push({ r, action: "reject_chain", reason: `known chain (denylist): ${r.name}` });
+    const v: CachedVerdict = { action: "reject_chain", reason: `known chain (denylist): ${r.name}` };
+    verdicts.push({ r, ...v });
+    cache[String(r.id)] = v;
+    await Bun.write(CACHE_PATH, JSON.stringify(cache, null, 2));
     console.log(`  ✗ ${label} — known chain (free denylist, no API call)`);
     continue;
   }
@@ -94,24 +125,29 @@ for (const r of rows) {
     const html = r.website ? await fetchHomepageHtml(r.website) : null;
     const fit = await assessPhotoFit(html, r.website);
 
+    let v: CachedVerdict;
     if (fit.decision === "reject") {
-      verdicts.push({ r, action: "reject_photo", reason: fit.reason, band: fit.band, richness: fit.richness, proScore: fit.proScore });
+      v = { action: "reject_photo", reason: fit.reason, band: fit.band, richness: fit.richness, proScore: fit.proScore };
       console.log(`  ✗ ${label} — photo-fit: ${fit.reason}`);
-      continue;
+    } else {
+      // Only leads that survive the photo gate are worth a paid chain check —
+      // same ordering logic as enrichRestaurant: never pay for a check on a lead
+      // something cheaper already disqualified.
+      const group = await checkHospitalityGroup(r.name, r.city ?? "");
+      if (group.isGroup) {
+        v = { action: "reject_chain", reason: `Chain / hospitality group: ${group.reasoning}`, band: fit.band, richness: fit.richness, proScore: fit.proScore };
+        console.log(`  ✗ ${label} — group: ${group.reasoning.slice(0, 90)}`);
+      } else {
+        v = { action: "keep", reason: "passed both gates", band: fit.band, richness: fit.richness, proScore: fit.proScore };
+        console.log(`  ✓ ${label} — keep (band ${fit.band}, pro ${fit.proScore ?? "n/a"})`);
+      }
     }
-
-    // Only leads that survive the photo gate are worth a paid chain check —
-    // same ordering logic as enrichRestaurant: never pay for a check on a lead
-    // something cheaper already disqualified.
-    const group = await checkHospitalityGroup(r.name, r.city ?? "");
-    if (group.isGroup) {
-      verdicts.push({ r, action: "reject_chain", reason: `Chain / hospitality group: ${group.reasoning}`, band: fit.band, richness: fit.richness, proScore: fit.proScore });
-      console.log(`  ✗ ${label} — group: ${group.reasoning.slice(0, 90)}`);
-      continue;
-    }
-
-    verdicts.push({ r, action: "keep", reason: "passed both gates", band: fit.band, richness: fit.richness, proScore: fit.proScore });
-    console.log(`  ✓ ${label} — keep (band ${fit.band}, pro ${fit.proScore ?? "n/a"})`);
+    verdicts.push({ r, ...v });
+    // Persist after every completed verdict — NOT at the end — so a cap-out
+    // keeps everything already paid for. An error below is NOT cached (see
+    // catch): a failed check is not a verdict, so a re-run retries exactly it.
+    cache[String(r.id)] = v;
+    await Bun.write(CACHE_PATH, JSON.stringify(cache, null, 2));
   } catch (err) {
     // An error here means we STILL couldn't verify — leave the lead untouched
     // rather than guessing in either direction, and report it so it can be
