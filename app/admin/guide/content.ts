@@ -9,7 +9,7 @@ export type DailyStep = { title: string; detail: string; href: string };
 export const DAILY_STEPS: DailyStep[] = [
   {
     title: "Clear Approvals",
-    detail: "Touch 1, the bump, a reply, and a payment confirmation all land here as drafts. Nothing sends until you approve, edit, deny — or for a reply, write it yourself and send.",
+    detail: "Touch 1, the bump, a reply, and a payment confirmation all land here as drafts. Nothing sends until you approve, edit, deny — or for a reply, write it yourself and send. Once you approve, it goes out on its own within about 20 minutes; you no longer have to trigger a send.",
     href: "/admin/photo/approvals",
   },
   {
@@ -29,7 +29,7 @@ export type SaleStep = { title: string; detail: string };
 export const COLD_OUTREACH_FLOW: SaleStep[] = [
   { title: "Sourced & enriched", detail: "The worker finds restaurants nightly, scores their photos, and picks a signature dish to personalize the email." },
   { title: "Touch 1 drafted", detail: "Composed from the current template (Templates tab), waiting in Approvals." },
-  { title: "You approve", detail: "Nothing sends without this — unless autosend is on (Controls)." },
+  { title: "You approve", detail: "Nothing sends without this — unless autosend is on (Controls). Once approved, it sends automatically on the next send cycle (about every 20 minutes), no manual trigger needed." },
   { title: "A bump if silent", detail: "One follow-up, drafted 3 days later by default if there's no reply — also waits for your approval in Approvals, same as Touch 1." },
   { title: "They reply with a photo", detail: "Creates a free sample here, awaiting your edit." },
   { title: "You edit, review & send", detail: "Finish the photo by hand, then review and send the Touch 2 email — both together, one screen." },
@@ -52,13 +52,16 @@ export type TabDoc = { label: string; href: string; detail: string };
 
 export const PHOTO_TABS: TabDoc[] = [
   { label: "Overview", href: "/admin/photo", detail: "Revenue, the sent→replied→sample→viewed→paid funnel, pipeline counts by status, per-city breakdown, and a live activity feed." },
-  { label: "Approvals", href: "/admin/photo/approvals", detail: "The single approve / edit / deny / send surface for every email that needs a human first — Touch 1, the bump, a reply, and a payment confirmation. Touch 2 and delivery aren't here — both are reviewed and sent in one screen where they're triggered (Samples / Orders)." },
+  { label: "Approvals", href: "/admin/photo/approvals", detail: "The single approve / edit / deny / send surface for every email that needs a human first — Touch 1, the bump, a reply, and a payment confirmation. Approve one and it sends on its own within ~20 minutes (no \"Run now\"); the daily cap and the pause switch still apply. Sort the queue by date, restaurant, or city. Touch 2 and delivery aren't here — both are reviewed and sent in one screen where they're triggered (Samples / Orders)." },
   { label: "Outreach", href: "/admin/photo/outreach", detail: "The cold-outreach track's historical log — Touch 1, the bump, and manual sends, with exact bodies and Gmail links. Read-only; drafts awaiting your decision are on Approvals." },
   { label: "Samples", href: "/admin/photo/samples", detail: "The free-sample edit queue, plus approved/rejected history. Un-reject to recover a mis-classified reply." },
   { label: "Orders", href: "/admin/photo/orders", detail: "The production queue up top (finish & deliver), then every package and self-serve order. Retry lives here for anything that failed." },
-  { label: "Templates", href: "/admin/photo/templates", detail: "Edit the Touch 1, Touch 1.5, and Touch 2 seed copy, plus the sender name and postal address every email carries. Touch 2 is still reviewed per-send on Samples — this only sets its starting text." },
-  { label: "Financials", href: "/admin/photo/financials", detail: "Full P&L, unit economics, and a ranked list of which clients are actually worth what they cost to acquire and serve." },
+  { label: "Templates", href: "/admin/photo/templates", detail: "Edit the Touch 1, Touch 1.5, and Touch 2 seed copy, plus the sender name, postal address, and signature every email carries. The signature is set here because Gmail's own signature never applies — outreach goes out through the API, not the Gmail compose window. Touch 2 is still reviewed per-send on Samples — this only sets its starting text." },
+  { label: "Financials", href: "/admin/photo/financials", detail: "Full P&L, unit economics, and a ranked list of which clients are actually worth what they cost to acquire and serve. Pick a preset period or a custom from/to date range." },
   { label: "Leads", href: "/admin/photo/restaurants", detail: "Every restaurant — search, filter, add a walk-in. Click through to a restaurant for the full dossier, payment links, and manual email." },
+  { label: "Call list", href: "/admin/photo/call-list", detail: "Restaurants with no website — they can't be emailed, so phone is the only channel. Click-to-call numbers, filterable by city, sorted busiest-first. These aren't lesser leads; a no-website spot most likely needs the photos AND (later) a website." },
+  { label: "Website leads", href: "/admin/photo/website-leads", detail: "Prospects for the future website product, banked automatically — no website, a free subdomain / ordering page / social page (they never bought a domain), or a weak site. The Platform column shows what each is running. Nothing here is contacted by the current pipeline; it's a call/pitch sheet that fills on its own." },
+  { label: "Clients", href: "/admin/photo/clients", detail: "Everyone who has paid, grouped by client, with lifetime value — and, most usefully, who has gone quiet. The retention view: an Always Fresh subscriber with no recent charge is the one to reach out to." },
   { label: "Suppressions", href: "/admin/photo/suppressions", detail: "The do-not-contact list. STOP replies land here automatically; add or remove manually." },
   { label: "Controls", href: "/admin/photo/controls", detail: "The panic button (pause all sending), approval↔autosend toggle, daily send cap, bump timing, and worker health." },
   { label: "Setup", href: "/admin/photo/setup", detail: "The go-live checklist — every environment variable, which service needs it, and what breaks if it's missing." },
@@ -66,7 +69,7 @@ export const PHOTO_TABS: TabDoc[] = [
 
 export const CONSOLE_TABS: TabDoc[] = [
   { label: "Overview", href: "/admin", detail: "Cross-venture KPIs and the Needs Attention list — the best first stop each day." },
-  { label: "Financials", href: "/admin/financials", detail: "Company-wide roll-up across every venture (only Photo Enhancement is live today)." },
+  { label: "Financials", href: "/admin/financials", detail: "Company-wide roll-up across every venture (only Photo Enhancement is live today). Preset periods or a custom from/to date range." },
   { label: "Guide", href: "/admin/guide", detail: "This page." },
 ];
 
@@ -91,8 +94,8 @@ export const TROUBLESHOOTING: TroubleshootRow[] = [
   },
   {
     symptom: "Drafts are piling up, never getting sent",
-    whatsHappening: "They're waiting on your approval, or the daily send cap is already used up for today.",
-    whatToDo: "Approve them in Approvals. If the pile is large, check the daily cap in Controls.",
+    whatsHappening: "They're waiting on your approval, or the daily send cap is already used up for today. Approved drafts send on their own within ~20 minutes — so if an APPROVED one hasn't gone after that, it's the cap or the pause switch, not a stuck queue.",
+    whatToDo: "Approve them in Approvals. If approved ones aren't sending, check the daily cap and the pause toggle in Controls.",
   },
   {
     symptom: "A reply came in with no photo attached",
