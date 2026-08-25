@@ -69,7 +69,10 @@ const trend = rows<TrendRow>(
   await db.execute(sql`
     select to_char(${AST_DAY}, 'YYYY-MM-DD (Dy)') as night,
       count(*)::int as sourced,
-      count(*) filter (where enrichment_status='queued')::int as queued,
+      -- email-ready = ever reached a verified email. A lead that got EMAILED
+      -- moves queued -> contacted, so counting only 'queued' made the number
+      -- SHRINK as leads succeeded once the send cron went live. Both count.
+      count(*) filter (where enrichment_status in ('queued','contacted'))::int as queued,
       count(*) filter (where enrichment_status='needs_manual_email')::int as needs,
       count(*) filter (where enrichment_status='call_list')::int as call,
       count(*) filter (where enrichment_status='rejected')::int as rej
@@ -106,7 +109,8 @@ const [f] = rows<Record<string, number>>(
       count(*)::int as sourced,
       count(*) filter (where rejection_reason like 'Hard filter:%')::int as free_filtered,
       count(*) filter (where enrichment_status='rejected' and rejection_reason not like 'Hard filter:%')::int as gate_rejected,
-      count(*) filter (where enrichment_status='queued')::int as queued,
+      count(*) filter (where enrichment_status in ('queued','contacted'))::int as queued,
+      count(*) filter (where enrichment_status='contacted')::int as contacted,
       count(*) filter (where enrichment_status='needs_manual_email')::int as needs_email,
       count(*) filter (where enrichment_status='call_list')::int as call_list,
       count(*) filter (where website is not null)::int as with_site
@@ -118,7 +122,7 @@ if (f) {
   console.log(`   ├─ killed by free filters    ${f.free_filtered}   (review count / price / denylist — $0)`);
   console.log(`   └─ reached paid enrichment   ${reached}`);
   console.log(`       ├─ rejected by gates     ${f.gate_rejected}   (photo-fit / chain check)`);
-  console.log(`       ├─ EMAIL-READY (queued)  ${f.queued}   ← the metric`);
+  console.log(`       ├─ EMAIL-READY           ${f.queued}   ← the metric  (${f.contacted} already emailed, ${f.queued - f.contacted} still queued)`);
   console.log(`       ├─ needs manual email    ${f.needs_email}   (has site, no address found)`);
   console.log(`       └─ call list             ${f.call_list}   (no website — phone only)`);
 }
@@ -148,8 +152,10 @@ hr("5 · EMAIL YIELD — of leads WITH a website, how many got a verified email"
 const yieldRows = rows<{ night: string; sites: number; emails: number }>(
   await db.execute(sql`
     select to_char(${AST_DAY}, 'MM-DD') as night,
-      count(*) filter (where website is not null and enrichment_status in ('queued','needs_manual_email'))::int as sites,
-      count(*) filter (where enrichment_status='queued')::int as emails
+      -- website-havers that finished as an email decision: got an email
+      -- (queued/contacted) or had a site but none found (needs_manual_email).
+      count(*) filter (where website is not null and enrichment_status in ('queued','contacted','needs_manual_email'))::int as sites,
+      count(*) filter (where enrichment_status in ('queued','contacted'))::int as emails
     from restaurants
     where created_at > now() - (${Math.min(nights, 7)} * interval '1 day')
     group by 1 order by 1 desc`)

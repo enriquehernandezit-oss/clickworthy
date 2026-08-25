@@ -36,7 +36,10 @@ const rows = (await db.execute(sql`
   select
     to_char(date_trunc('day', (created_at at time zone 'UTC') at time zone 'America/Puerto_Rico'), 'YYYY-MM-DD (Dy)') as night,
     count(*)::int                                                         as sourced,
-    count(*) filter (where enrichment_status = 'queued')::int             as "emailReady",
+    -- email-ready = ever got a verified email. Once EMAILED a lead moves
+    -- queued -> contacted, so counting only 'queued' makes the number shrink
+    -- as leads succeed (a bug once the send cron went live). Both count.
+    count(*) filter (where enrichment_status in ('queued','contacted'))::int as "emailReady",
     count(*) filter (where enrichment_status = 'needs_manual_email')::int as "needsEmail",
     count(*) filter (where enrichment_status = 'call_list')::int          as "callList",
     count(*) filter (where enrichment_status = 'rejected')::int           as rejected
