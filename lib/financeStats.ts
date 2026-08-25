@@ -30,8 +30,11 @@ import {
 // Date range
 // ---------------------------------------------------------------------------
 
-export type RangeKey = "30d" | "90d" | "mtd" | "ytd" | "12m" | "all";
+export type RangeKey = "30d" | "90d" | "mtd" | "ytd" | "12m" | "all" | "custom";
 
+// The presets shown in the picker. `custom` is deliberately NOT here — it's not
+// a preset the dropdown offers, it's the mode the page enters when explicit
+// from/to dates are supplied, so it's kept out of this list on purpose.
 export const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
   { key: "30d", label: "Last 30 days" },
   { key: "90d", label: "Last 90 days" },
@@ -41,6 +44,21 @@ export const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
   { key: "all", label: "All time" },
 ];
 
+// The URL params that reproduce a range — for sort links, pagers, and any other
+// href that must preserve the active window. A preset carries `range=<key>`; a
+// custom window carries `from`/`to` and NO `range` (which would otherwise win at
+// 30d, since `custom` isn't a recognized preset). Kept here beside resolveRange
+// so the encode/decode pair can't drift.
+export function rangeParams(range: Range): Record<string, string> {
+  if (range.key === "custom") {
+    const p: Record<string, string> = {};
+    if (range.fromInput) p.from = range.fromInput;
+    if (range.toInput) p.to = range.toInput;
+    return p;
+  }
+  return { range: range.key };
+}
+
 export type Range = {
   key: RangeKey;
   label: string;
@@ -49,18 +67,71 @@ export type Range = {
   days: number;
   // Immediately-preceding equal-length window, for KPI deltas.
   prev: { from: Date; to: Date };
+  // Echoed back so a custom range can repopulate the date inputs. yyyy-mm-dd
+  // for custom; null for presets (the dropdown carries their state instead).
+  fromInput: string | null;
+  toInput: string | null;
 };
 
 const DAY_MS = 86_400_000;
 // Fixed floor for "all time" — comfortably before the first Clickworthy row.
 const EPOCH = new Date("2020-01-01T00:00:00.000Z");
 
+// Parses a yyyy-mm-dd string (from an <input type="date">) as a UTC midnight,
+// so the range boundary doesn't drift by the server's timezone. Returns null on
+// anything that isn't a real calendar date.
+function parseDateInput(v: unknown): Date | null {
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  const d = new Date(`${v}T00:00:00.000Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function ymd(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
 // Plain module function (NOT a component body) so Date.now()/new Date() are fine
 // under the react-compiler purity rule. Pages call this from their async loader.
 export function resolveRange(sp: Record<string, string | string[] | undefined>): Range {
+  const now = new Date();
+
+  // Custom range: an explicit from and/or to date. Takes precedence over the
+  // preset dropdown so a user who picks dates isn't fighting a stale `range=`
+  // param. Either bound may be omitted — an open start falls back to EPOCH, an
+  // open end to now — so "everything up to March" and "March onward" both work.
+  let fromDay = parseDateInput(sp.from);
+  let toDay = parseDateInput(sp.to);
+  if (fromDay || toDay) {
+    // Normalize an inverted range at the DAY level, before any inclusivity math,
+    // so both the boundaries and the echoed-back input strings come out right.
+    if (fromDay && toDay && fromDay > toDay) [fromDay, toDay] = [toDay, fromDay];
+
+    const from = fromDay ?? EPOCH;
+    // `to` is inclusive of the chosen day: the input is that day's UTC midnight,
+    // so add a day to cover through end-of-day. Clamp to now so a future date
+    // doesn't invent an empty forward window.
+    let to = toDay ? new Date(toDay.getTime() + DAY_MS) : now;
+    if (to > now) to = now;
+
+    const days = Math.max(1, Math.round((to.getTime() - from.getTime()) / DAY_MS));
+    const prevTo = from;
+    const prevFrom = new Date(from.getTime() - (to.getTime() - from.getTime()));
+    const fromInput = ymd(from);
+    const toInput = ymd(toDay ?? now);
+    return {
+      key: "custom",
+      label: `${fromInput} → ${toInput}`,
+      from,
+      to,
+      days,
+      prev: { from: prevFrom, to: prevTo },
+      fromInput,
+      toInput,
+    };
+  }
+
   const raw = typeof sp.range === "string" ? sp.range : "30d";
   const key: RangeKey = RANGE_OPTIONS.some((o) => o.key === raw) ? (raw as RangeKey) : "30d";
-  const now = new Date();
   const to = now;
   let from: Date;
 
@@ -87,10 +158,10 @@ export function resolveRange(sp: Record<string, string | string[] | undefined>):
   }
 
   const days = Math.max(1, Math.round((to.getTime() - from.getTime()) / DAY_MS));
-  const label = RANGE_OPTIONS.find((o) => o.key === key)!.label;
+  const label = RANGE_OPTIONS.find((o) => o.key === key)?.label ?? "Last 30 days";
   const prevTo = from;
   const prevFrom = new Date(from.getTime() - (to.getTime() - from.getTime()));
-  return { key, label, from, to, days, prev: { from: prevFrom, to: prevTo } };
+  return { key, label, from, to, days, prev: { from: prevFrom, to: prevTo }, fromInput: null, toInput: null };
 }
 
 function bounds(from: Date, to: Date) {
@@ -178,11 +249,24 @@ export async function getCostDrivers(from: Date, to: Date): Promise<CostDrivers>
       where jsonb_typeof(o.results) = 'array'
         and o.completed_at >= ${fromIso}::timestamptz and o.completed_at < ${toIso}::timestamptz
         and o.id not in (${TEST_ORDER_IDS})
+    ),
+    -- Free-sample Claid "first pass". It is a real billable Claid operation but
+    -- only happens when a human clicks the button on the Samples page, so it
+    -- CANNOT be assumed from a sample existing — it was previously bundled into
+    -- cost_sample_per_reply_cents and charged on every reply, billing a pass
+    -- that had never run. Counted here instead, from the column that proves it
+    -- actually ran.
+    fs as (
+      select count(*)::int as ok
+      from magic_links ml
+      where ml.free_sample_first_pass_url is not null
+        and ml.created_at >= ${fromIso}::timestamptz and ml.created_at < ${toIso}::timestamptz
+        and ml.id not in (${TEST_LINK_IDS})
     )
     select
-      (coalesce(pkg.ok,0) + coalesce(ss.ok,0)) as delivered,
+      (coalesce(pkg.ok,0) + coalesce(ss.ok,0) + coalesce(fs.ok,0)) as delivered,
       (coalesce(pkg.failed,0) + coalesce(ss.failed,0)) as failed
-    from pkg, ss
+    from pkg, ss, fs
   `)) as unknown as { delivered: number; failed: number }[];
 
   return {

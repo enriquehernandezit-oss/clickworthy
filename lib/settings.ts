@@ -153,9 +153,16 @@ const DEFAULTS: SettingsMap = {
   // ($3/$15) puts the Vision half at ~$0.0045, so raise this to ~1.15 then.
   cost_photo_score_per_photo_cents: 1.0,
   cost_email_per_send_cents: 0.0, // Gmail API is free; knob exists so swapping to a paid ESP is one edit
-  // Revenue-impact copy (~300 output tokens ≈ $0.005) + one Claid first pass.
-  // Inherits the Claid number's uncertainty — recalibrate both together.
-  cost_sample_per_reply_cents: 7.0,
+  // Revenue-impact copy ONLY (~300 output tokens ≈ $0.005). This was 7.0 on the
+  // assumption that every reply also cost "one Claid first pass" — but that pass
+  // is a MANUAL button on the Samples page (app/api/admin/sample/route.ts), so
+  // it does not happen just because a reply arrived. Caught 2026-08-24: the one
+  // sample on file (Johnny's Shrimp Boat) had free_sample_first_pass_url = null,
+  // i.e. Claid had never run, yet Financials billed 7¢ for it. Real first passes
+  // are now counted from that column and billed at cost_claid_per_photo_cents
+  // (see the `fs` CTE in lib/financeStats.ts), so nothing is lost — it is just
+  // charged when it actually happens instead of assumed.
+  cost_sample_per_reply_cents: 0.5,
   cost_claid_per_photo_cents: 6.0, // 2 billable ops/photo. PROVISIONAL — no photo has been enhanced yet, so this has never met an invoice. Drives $0 today (0 photos delivered) and starts costing the moment the first order ships.
   cost_storage_per_photo_cents: 0.2, // nothing is ever deleted — rough NPV of storing one photo forever
   // Real costs as of 2026-08-18. Anthropic and Google Places are NOT here —

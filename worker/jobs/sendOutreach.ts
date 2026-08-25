@@ -106,6 +106,10 @@ const SUPPRESSION_RATE_MAX = 0.08; // 8%
 // without going near the send loop.
 export const DELIVERABILITY = { sampleMin: SUPPRESSION_SAMPLE_MIN, rateMax: SUPPRESSION_RATE_MAX };
 
+// Throttle for the deliverability alert — see the comment at its send site.
+const DELIVERABILITY_ALERT_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+let lastDeliverabilityAlertAt = 0;
+
 // Exported so other send phases (bump) can gate on the same guard without
 // duplicating it.
 export async function deliverabilityHealthy(): Promise<boolean> {
@@ -123,12 +127,24 @@ export async function deliverabilityHealthy(): Promise<boolean> {
 
   const rate = (supp ?? 0) / (sends ?? 1);
   if (rate > SUPPRESSION_RATE_MAX) {
-    await sendAlert(
-      "Outreach auto-paused — high opt-out/bounce rate",
-      `Suppression rate over the last 7 days is ${(rate * 100).toFixed(1)}% ` +
-        `(${supp}/${sends}), above the ${SUPPRESSION_RATE_MAX * 100}% threshold. ` +
-        "Touch 1 sending is paused this run. Review the list and copy before resuming."
-    );
+    // Alert at most once every 6 hours. This guard trips on EVERY run while the
+    // condition holds, and the condition persists until a human intervenes — so
+    // once the send job moved from daily to every 20 minutes (2026-08-24), an
+    // un-throttled alert would have sent 72 identical emails a day and buried
+    // the signal it exists to raise. Same in-memory cooldown shape as
+    // maybeAlertApiError in worker/lib/anthropic.ts; the worker is long-lived,
+    // and a reboot re-arming the alert is acceptable. Sending still stops every
+    // run regardless of whether the alert fires.
+    const now = Date.now();
+    if (now - lastDeliverabilityAlertAt >= DELIVERABILITY_ALERT_COOLDOWN_MS) {
+      lastDeliverabilityAlertAt = now;
+      await sendAlert(
+        "Outreach auto-paused — high opt-out/bounce rate",
+        `Suppression rate over the last 7 days is ${(rate * 100).toFixed(1)}% ` +
+          `(${supp}/${sends}), above the ${SUPPRESSION_RATE_MAX * 100}% threshold. ` +
+          "Touch 1 sending is paused until this clears. Review the list and copy before resuming."
+      ).catch(() => {}); // an alert failure must not mask the pause itself
+    }
     return false;
   }
   return true;

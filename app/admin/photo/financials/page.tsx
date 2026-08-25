@@ -11,6 +11,7 @@ import {
   getPayingClientCount,
   rollUpSegments,
   RANGE_OPTIONS,
+  rangeParams,
   type Range,
   type Pnl,
   type MonthRow,
@@ -248,8 +249,11 @@ function feeRateLabel(pnl: Pnl): string {
 // ---------------------------------------------------------------------------
 
 function RangeForm({ range }: { range: Range }) {
+  const isCustom = range.key === "custom";
   return (
-    <section>
+    <section className="flex flex-col gap-3">
+      {/* Preset picker. Submitting this form sends `range` only, so a preset
+          clears any custom from/to (this form has no date fields). */}
       <form method="GET" className="flex flex-wrap items-end gap-3">
         <div className="flex flex-col gap-1">
           <label htmlFor="range" className="text-xs font-medium" style={{ color: "var(--c-text-muted)" }}>
@@ -258,7 +262,7 @@ function RangeForm({ range }: { range: Range }) {
           <select
             id="range"
             name="range"
-            defaultValue={range.key}
+            defaultValue={isCustom ? "" : range.key}
             className="rounded-lg border bg-white px-3 py-1.5 text-sm text-stone-800"
             style={{ borderColor: "var(--line)" }}
           >
@@ -267,6 +271,7 @@ function RangeForm({ range }: { range: Range }) {
                 {o.label}
               </option>
             ))}
+            {isCustom && <option value="">Custom (below)</option>}
           </select>
         </div>
         <button
@@ -278,6 +283,51 @@ function RangeForm({ range }: { range: Range }) {
         <span className="pb-1.5 text-xs" style={{ color: "var(--c-text-faint)" }}>
           {fmtDate(range.from)} → {fmtDate(range.to)} · {range.days} days
         </span>
+      </form>
+
+      {/* Custom range. A separate form so submitting it sends from/to WITHOUT a
+          `range` param — resolveRange gives explicit dates precedence, so the
+          preset above is ignored while a custom range is active. Either date may
+          be left blank (open start = all history, open end = today). */}
+      <form method="GET" className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-col gap-1">
+          <label htmlFor="from" className="text-xs font-medium" style={{ color: "var(--c-text-muted)" }}>
+            From
+          </label>
+          <input
+            type="date"
+            id="from"
+            name="from"
+            defaultValue={range.fromInput ?? ""}
+            className="rounded-lg border bg-white px-3 py-1.5 text-sm text-stone-800"
+            style={{ borderColor: "var(--line)" }}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="to" className="text-xs font-medium" style={{ color: "var(--c-text-muted)" }}>
+            To
+          </label>
+          <input
+            type="date"
+            id="to"
+            name="to"
+            defaultValue={range.toInput ?? ""}
+            className="rounded-lg border bg-white px-3 py-1.5 text-sm text-stone-800"
+            style={{ borderColor: "var(--line)" }}
+          />
+        </div>
+        <button
+          type="submit"
+          className="btn-press rounded-lg border px-4 py-2 text-sm font-semibold text-stone-800 hover:bg-stone-50"
+          style={{ borderColor: "var(--line)" }}
+        >
+          Apply dates
+        </button>
+        {isCustom && (
+          <span className="pb-1.5 text-xs font-medium" style={{ color: "var(--c-accent, #b45309)" }}>
+            Custom range active
+          </span>
+        )}
       </form>
     </section>
   );
@@ -498,7 +548,10 @@ const VERDICT_TONE: Record<ClientRow["verdict"], { tone: PillTone; label: string
 };
 
 function ClientsTable({ d }: { d: Awaited<ReturnType<typeof loadFinancials>> }) {
-  const sortHref = (s: SortKey) => `/admin/photo/financials?range=${d.range.key}&sort=${s}`;
+  const sortHref = (s: SortKey) => {
+    const qs = new URLSearchParams({ ...rangeParams(d.range), sort: s });
+    return `/admin/photo/financials?${qs.toString()}`;
+  };
   return (
     <section>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -573,7 +626,7 @@ function ClientsTable({ d }: { d: Awaited<ReturnType<typeof loadFinancials>> }) 
         base="/admin/photo/financials"
         page={d.page}
         hasNext={d.hasNext}
-        params={{ range: d.range.key, sort: d.sort }}
+        params={{ ...rangeParams(d.range), sort: d.sort }}
       />
     </section>
   );

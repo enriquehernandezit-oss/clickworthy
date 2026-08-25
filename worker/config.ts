@@ -110,8 +110,21 @@ export const config = {
   // purpose so we're not hammering Google/Anthropic exactly on the hour.
   sourcingCron: process.env.WORKER_SOURCING_CRON ?? "17 2 * * *",
 
-  // Nightly Touch 1 send (after sourcing/enrichment has had time to run).
-  sendCron: process.env.WORKER_SEND_CRON ?? "23 14 * * *",
+  // Touch 1 drafting + sending. Every 20 minutes, NOT daily (changed
+  // 2026-08-24): approving a draft only flips a DB flag, so on the old
+  // "23 14 * * *" schedule an email approved at 2pm sat until 10:23 the next
+  // morning unless someone hit "Run now" on the Controls page — which is what
+  // Enrique was doing by hand every time.
+  //
+  // Running it 72x/day does NOT increase volume. sendApproved() is bounded by
+  // dailyCap() minus sentToday(), so the daily ceiling holds no matter how often
+  // the job ticks, and sends stay spread out rather than firing in one burst.
+  // draftBatch() computes its room as (daily draft target − the pending review
+  // pile), so extra ticks just top the pile back up to the same number instead
+  // of drafting more. The frequent tick did require throttling the
+  // deliverability alert, which trips on every run while it holds — see
+  // DELIVERABILITY_ALERT_COOLDOWN_MS in worker/jobs/sendOutreach.ts.
+  sendCron: process.env.WORKER_SEND_CRON ?? "*/20 * * * *",
 
   // How often to poll Gmail for replies.
   replyPollCron: process.env.WORKER_REPLY_POLL_CRON ?? "*/4 * * * *",

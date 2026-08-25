@@ -187,13 +187,24 @@ export async function runEnrichment(data: EnrichJobData): Promise<void> {
 
   // 5. Signature dish + photo score. Prefer a dish Gate 2 already saw on the
   //    website (free — those images were scored for the fit check); only fall
-  //    back to scoring Google photos when the website gave us nothing. Google
-  //    scoring is also where avgPhotoScore (a priority signal) comes from, so a
-  //    website-dish lead trades that minor signal for the saved Vision calls.
+  //    back to scoring Google photos when the website gave us nothing.
+  //
+  //    The paid Google fallback runs ONLY for a lead that has a verified email.
+  //    The dish exists for exactly one purpose: the Touch 1 cold email. A
+  //    call_list lead (no website) has no email path at all, and a
+  //    needs_manual_email lead has no address yet — neither sends a
+  //    dish-personalized email, so scoring their Google photos for a dish spends
+  //    on something structurally unusable. Measured 2026-08-24: 92 of 106
+  //    all-time Google Vision calls (87%) were on emailless leads. A website
+  //    dish (fit.dish above) is still kept for free regardless, and if Jose
+  //    later adds an address the no-dish template handles the missing dish
+  //    cleanly (worker/lib/outreachEmail.ts). avgPhotoScore is a minor priority
+  //    signal that only ranks the send queue — which emailless leads aren't in —
+  //    so nothing that affects outreach is lost.
   let signatureDish = fit.dish;
   let avgPhotoScore: number | null = null;
   let photosScored = 0;
-  if (!signatureDish) {
+  if (!signatureDish && email) {
     const g = await scorePhotos(data.photoNames, config.photoScoreLimit);
     signatureDish = g.signatureDish;
     avgPhotoScore = g.avg;
