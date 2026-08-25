@@ -208,14 +208,20 @@ if (s) {
 // ── 8. Anomaly detection ───────────────────────────────────────────────────
 hr("8 · ANOMALIES — outage signatures & red flags");
 const flags: string[] = [];
-// Gate-2 failed open: a rich/unclear band with NO pro-score means the Vision
-// call didn't happen — the whole reason 24 leads went unscreened on 2026-08-24.
+// Gate-2 failed open: a RICH band with no pro-score means the Vision call
+// didn't happen — the whole reason 24 leads went unscreened on 2026-08-24.
+// `unclear` is deliberately EXCLUDED here since 2026-08-25 (photoFit.ts): Gate
+// 2 now skips `unclear` by design (decidePhotoFit can never reject anything
+// but `rich`, so scoring unclear was pure spend with no effect on any
+// decision) — every unclear lead has a null pro-score on purpose now, and
+// counting them here would flag normal operation as an outage every single
+// night forever.
 const [g2] = rows<{ n: number }>(
   await db.execute(sql`
     select count(*)::int as n from restaurants
-    where ${inNight} and website_photo_band in ('rich','unclear') and website_pro_score is null`)
+    where ${inNight} and website_photo_band = 'rich' and website_pro_score is null`)
 );
-if (g2?.n > 0) flags.push(`Gate-2 (Vision) skipped on ${g2.n} rich/unclear lead(s) last night — likely an API outage; those leads were NOT photo-screened.`);
+if (g2?.n > 0) flags.push(`Gate-2 (Vision) skipped on ${g2.n} rich-band lead(s) last night — likely an API outage; those leads were NOT photo-screened (this can't reject them into a decision, but it means they were never actually judged).`);
 // Chain check failed open: a full run with zero chain/group rejections is
 // suspicious (a normal night rejects several).
 const [cc] = rows<{ n: number }>(
