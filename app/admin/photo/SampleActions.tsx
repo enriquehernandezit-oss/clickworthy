@@ -54,7 +54,7 @@ export default function SampleActions({
           type="button"
           disabled={busy !== null}
           onClick={() => post("first_pass")}
-          className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50"
+          className="rounded-lg border border-line px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-2 disabled:opacity-50"
         >
           {busy === "first_pass" ? "Running Claid… (~1 min)" : "Run Claid first pass"}
         </button>
@@ -74,7 +74,7 @@ export default function SampleActions({
           type="button"
           disabled={busy !== null}
           onClick={() => fileRef.current?.click()}
-          className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50"
+          className="rounded-lg border border-line px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-2 disabled:opacity-50"
         >
           {busy === "upload_finished" ? "Uploading…" : "Upload finished photo"}
         </button>
@@ -86,33 +86,33 @@ export default function SampleActions({
             if (!window.confirm("Reject this sample? The customer gets no reply and the lead is closed — this cannot be undone from the queue.")) return;
             post("reject");
           }}
-          className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-50 disabled:opacity-50"
+          className="rounded-lg border border-coral/40 px-4 py-2 text-sm font-semibold text-coral transition-colors hover:bg-coral/10 disabled:opacity-50"
         >
           Reject
         </button>
-        {error && <span className="text-sm text-red-600">{error}</span>}
+        {error && <span className="text-sm text-coral">{error}</span>}
       </div>
 
       {hasFinished && (
-        <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
-          <div className="text-xs font-medium text-stone-500">
+        <div className="rounded-lg border border-line bg-surface-2 p-3">
+          <div className="text-xs font-medium text-muted">
             Touch 2 — review and edit before sending. Nothing sends until you click below.
           </div>
           {seedError ? (
-            <p className="mt-2 text-sm font-semibold text-red-600">{seedError}</p>
+            <p className="mt-2 text-sm font-semibold text-coral">{seedError}</p>
           ) : (
             <div className="mt-2 flex flex-col gap-2">
               <input
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
-                className="w-full rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800"
+                className="w-full rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text"
                 placeholder="Subject"
               />
               <textarea
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
                 rows={10}
-                className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 font-sans text-sm leading-relaxed text-stone-800"
+                className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2 font-sans text-sm leading-relaxed text-text"
               />
             </div>
           )}
@@ -121,7 +121,7 @@ export default function SampleActions({
               type="button"
               disabled={busy !== null || Boolean(seedError) || !subject.trim() || !body.trim()}
               onClick={() => post("approve", { extra: { subject, body } })}
-              className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:text-stone-500"
+              className="rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-[#0F1216] transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-muted"
             >
               {busy === "approve" ? "Sending…" : "Approve & send"}
             </button>

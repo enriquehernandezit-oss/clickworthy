@@ -2,9 +2,17 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button, ConfirmDialog, Toast, fieldInputClass } from "../../ui";
 
 // Per-draft controls (approve / edit / redraft / skip). Same FormData →
 // /api/admin/outreach → router.refresh() pattern as SampleActions.
+//
+// Approve gets no confirmation — it's the expected, high-frequency action on
+// this page (per Emil's frequency rule: an action done tens of times a day
+// shouldn't carry friction or motion). Redraft and Skip go through
+// ConfirmDialog instead of window.confirm() — both are recoverable (a redraft
+// can be re-edited, a skip can be unheld from the restaurant page) so neither
+// needs the typed-confirmation fence reserved for irreversible sends.
 export default function DraftActions({
   outreachJobId,
   subject,
@@ -20,9 +28,9 @@ export default function DraftActions({
   const [editing, setEditing] = useState(false);
   const [draftSubject, setDraftSubject] = useState(subject);
   const [draftBody, setDraftBody] = useState(body);
+  const [confirming, setConfirming] = useState<"redraft" | "skip" | null>(null);
 
-  const post = async (action: string, extra: Record<string, string> = {}, confirmMsg?: string) => {
-    if (confirmMsg && !window.confirm(confirmMsg)) return;
+  const post = async (action: string, extra: Record<string, string> = {}) => {
     setBusy(action);
     setError(null);
     try {
@@ -37,6 +45,7 @@ export default function DraftActions({
         return;
       }
       if (action === "set_content") setEditing(false);
+      setConfirming(null);
       router.refresh();
     } catch {
       setError("Network error.");
@@ -45,78 +54,82 @@ export default function DraftActions({
     }
   };
 
-  const inputCls = "w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-stone-800";
-
   if (editing) {
     return (
       <div className="mt-3 flex flex-col gap-2">
-        <label className="text-xs font-medium text-stone-500">
+        <label className="text-xs font-medium text-faint">
           Subject
-          <input value={draftSubject} onChange={(e) => setDraftSubject(e.target.value)} className={`mt-1 ${inputCls}`} />
+          <input value={draftSubject} onChange={(e) => setDraftSubject(e.target.value)} className={`mt-1 ${fieldInputClass}`} />
         </label>
-        <label className="text-xs font-medium text-stone-500">
+        <label className="text-xs font-medium text-faint">
           Body
-          <textarea value={draftBody} onChange={(e) => setDraftBody(e.target.value)} rows={8} className={`mt-1 ${inputCls} font-sans leading-relaxed`} />
+          <textarea
+            value={draftBody}
+            onChange={(e) => setDraftBody(e.target.value)}
+            rows={8}
+            className={`mt-1 ${fieldInputClass} font-sans leading-relaxed`}
+          />
         </label>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
+          <Button variant="primary" size="sm" loading={busy === "set_content"} disabled={busy !== null} onClick={() => post("set_content", { subject: draftSubject, body: draftBody })}>
+            Save edit
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             disabled={busy !== null}
-            onClick={() => post("set_content", { subject: draftSubject, body: draftBody })}
-            className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-orange-700 disabled:opacity-50"
-          >
-            {busy === "set_content" ? "Saving…" : "Save edit"}
-          </button>
-          <button
-            type="button"
-            disabled={busy !== null}
-            onClick={() => { setEditing(false); setDraftSubject(subject); setDraftBody(body); }}
-            className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-100"
+            onClick={() => {
+              setEditing(false);
+              setDraftSubject(subject);
+              setDraftBody(body);
+            }}
           >
             Cancel
-          </button>
-          <span className="text-xs text-stone-500">Saving keeps it a draft. Redraft later overwrites your edit.</span>
-          {error && <span className="text-sm text-red-600" role="alert">{error}</span>}
+          </Button>
+          <span className="text-xs text-faint">Saving keeps it a draft. Redraft later overwrites your edit.</span>
         </div>
+        {error && <Toast tone="error" message={error} onDismiss={() => setError(null)} />}
       </div>
     );
   }
 
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-2">
-      <button
-        type="button"
-        disabled={busy !== null}
-        onClick={() => post("approve")}
-        className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-orange-700 disabled:opacity-50"
-      >
-        {busy === "approve" ? "Approving…" : "Approve"}
-      </button>
-      <button
-        type="button"
-        disabled={busy !== null}
-        onClick={() => setEditing(true)}
-        className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50"
-      >
-        Edit
-      </button>
-      <button
-        type="button"
-        disabled={busy !== null}
-        onClick={() => post("redraft", {}, "Recompose this draft from the restaurant's current fields? Any hand-edits will be lost.")}
-        className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50"
-      >
-        {busy === "redraft" ? "Redrafting…" : "Redraft"}
-      </button>
-      <button
-        type="button"
-        disabled={busy !== null}
-        onClick={() => post("skip", {}, "Skip this restaurant? The draft is deleted and the restaurant is held (won't be drafted again until you unhold it).")}
-        className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50"
-      >
-        {busy === "skip" ? "Skipping…" : "Skip"}
-      </button>
-      {error && <span className="text-sm text-red-600" role="alert">{error}</span>}
+    <div className="mt-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button className="kbd-approve" variant="primary" size="sm" loading={busy === "approve"} disabled={busy !== null} onClick={() => post("approve")}>
+          Approve
+        </Button>
+        <Button className="kbd-edit" variant="secondary" size="sm" disabled={busy !== null} onClick={() => setEditing(true)}>
+          Edit
+        </Button>
+        <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => setConfirming("redraft")}>
+          Redraft
+        </Button>
+        <Button className="kbd-deny" variant="secondary" size="sm" disabled={busy !== null} onClick={() => setConfirming("skip")}>
+          Skip
+        </Button>
+      </div>
+      {error && <Toast tone="error" message={error} onDismiss={() => setError(null)} />}
+
+      <ConfirmDialog
+        open={confirming === "redraft"}
+        title="Redraft this email?"
+        description="Recomposes it from the restaurant's current fields. Any hand-edits you've made will be lost."
+        confirmLabel="Redraft"
+        busy={busy === "redraft"}
+        onConfirm={() => post("redraft")}
+        onCancel={() => setConfirming(null)}
+      />
+      <ConfirmDialog
+        open={confirming === "skip"}
+        title="Skip this restaurant?"
+        description="The draft is deleted and the restaurant is held — it won't be drafted again until you unhold it from its profile."
+        confirmLabel="Skip"
+        danger
+        busy={busy === "skip"}
+        onConfirm={() => post("skip")}
+        onCancel={() => setConfirming(null)}
+      />
     </div>
   );
 }
@@ -125,9 +138,9 @@ export function ApproveAllButton({ count }: { count: number }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   const approveAll = async () => {
-    if (!window.confirm(`Approve all ${count} drafts? They'll send on the next send run (subject to the daily cap).`)) return;
     setBusy(true);
     setError(null);
     try {
@@ -139,6 +152,7 @@ export function ApproveAllButton({ count }: { count: number }) {
         setBusy(false);
         return;
       }
+      setConfirming(false);
       router.refresh();
     } catch {
       setError("Network error.");
@@ -149,15 +163,19 @@ export function ApproveAllButton({ count }: { count: number }) {
 
   return (
     <div className="flex items-center gap-3">
-      <button
-        type="button"
-        disabled={busy}
-        onClick={approveAll}
-        className="btn-press rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
-      >
-        {busy ? "Approving…" : `Approve all (${count})`}
-      </button>
-      {error && <span className="text-sm text-red-600">{error}</span>}
+      <Button variant="primary" size="sm" onClick={() => setConfirming(true)}>
+        Approve all ({count})
+      </Button>
+      {error && <Toast tone="error" message={error} onDismiss={() => setError(null)} />}
+      <ConfirmDialog
+        open={confirming}
+        title={`Approve all ${count} drafts?`}
+        description="They'll send on the next send run, subject to the daily cap."
+        confirmLabel="Approve all"
+        busy={busy}
+        onConfirm={approveAll}
+        onCancel={() => setConfirming(false)}
+      />
     </div>
   );
 }

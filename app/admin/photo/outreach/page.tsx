@@ -69,9 +69,9 @@ export default async function OutreachPage({
   return (
     <section>
       <SectionHeading>Outreach log</SectionHeading>
-      <p className="mt-1 text-sm text-stone-500">
+      <p className="mt-1 text-sm text-muted">
         Touch 1, the bump, and manual sends. Drafts awaiting your decision are on{" "}
-        <a href="/admin/photo/approvals" className="font-medium text-orange-700 hover:underline">
+        <a href="/admin/photo/approvals" className="font-medium text-gold hover:underline">
           Approvals
         </a>
         .
@@ -84,8 +84,8 @@ export default async function OutreachPage({
             href={value === "all" ? "/admin/photo/outreach" : `/admin/photo/outreach?status=${value}`}
             className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
               status === value
-                ? "border-orange-300 bg-orange-50 text-orange-700"
-                : "border-stone-300 bg-white text-stone-700 hover:bg-stone-100"
+                ? "border-gold/40 bg-gold/10 text-gold"
+                : "border-line bg-surface-2 text-text hover:bg-surface-2"
             }`}
           >
             {value === "all" ? "All" : value}
@@ -102,15 +102,15 @@ export default async function OutreachPage({
               <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="font-semibold">{job.restaurantName ?? "(unknown restaurant)"}</h3>
-                  <span className="rounded bg-stone-100 px-1.5 py-0.5 text-xs font-medium text-stone-600">
+                  <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs font-medium text-muted">
                     {touchLabel(job.touchNumber, job.status, job.kind)}
                   </span>
                   <Badge value={job.status} />
                   {job.language === "es" && (
-                    <span className="rounded bg-stone-100 px-1.5 py-0.5 text-xs font-medium text-stone-600">ES</span>
+                    <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs font-medium text-muted">ES</span>
                   )}
                 </div>
-                <div className="text-xs tabular-nums text-stone-500">
+                <div className="text-xs tabular-nums text-muted">
                   {job.sentAt ? (
                     <>sent {fmtDateTime(job.sentAt)}</>
                   ) : job.approvedAt ? (
@@ -122,17 +122,17 @@ export default async function OutreachPage({
                 </div>
               </div>
 
-              <div className="mt-1 text-xs text-stone-500">
+              <div className="mt-1 text-xs text-muted">
                 {job.email ?? "no email on file"}
                 {job.city ? ` · ${job.city}` : ""}
               </div>
 
               {job.emailContent && (
                 <details className="mt-3">
-                  <summary className="cursor-pointer text-sm font-medium text-orange-700 hover:underline">
+                  <summary className="cursor-pointer text-sm font-medium text-gold hover:underline">
                     View email
                   </summary>
-                  <pre className="mt-2 whitespace-pre-wrap rounded-lg bg-stone-50 p-3 font-sans text-sm leading-relaxed text-stone-700">
+                  <pre className="mt-2 whitespace-pre-wrap rounded-lg bg-surface-2 p-3 font-sans text-sm leading-relaxed text-text">
                     {job.emailContent}
                   </pre>
                 </details>
@@ -142,13 +142,13 @@ export default async function OutreachPage({
 
               {job.replyBody && (
                 <details className="mt-2" open>
-                  <summary className="cursor-pointer text-sm font-medium text-orange-700 hover:underline">
+                  <summary className="cursor-pointer text-sm font-medium text-gold hover:underline">
                     Their reply
-                    <span className="ml-2 font-normal text-stone-500">
+                    <span className="ml-2 font-normal text-muted">
                       {job.replyFrom} · {fmtDateTime(job.repliedAt)}
                     </span>
                   </summary>
-                  <pre className="mt-2 whitespace-pre-wrap rounded-lg border border-orange-100 bg-orange-50 p-3 font-sans text-sm leading-relaxed text-stone-800">
+                  <pre className="mt-2 whitespace-pre-wrap rounded-lg border border-gold/40 bg-gold/10 p-3 font-sans text-sm leading-relaxed text-text">
                     {job.replyBody}
                   </pre>
                   {job.threadId && (
@@ -156,7 +156,7 @@ export default async function OutreachPage({
                       href={`https://mail.google.com/mail/u/0/#all/${job.threadId}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="mt-2 inline-block text-xs font-medium text-orange-700 hover:underline"
+                      className="mt-2 inline-block text-xs font-medium text-gold hover:underline"
                     >
                       Open in Gmail ↗
                     </a>

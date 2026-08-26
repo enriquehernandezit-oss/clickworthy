@@ -128,7 +128,7 @@ export default async function SamplesPage({
             <Card key={item.id}>
               <div className="flex items-baseline justify-between gap-4">
                 <h3 className="font-semibold">{item.restaurantName ?? "(unknown restaurant)"}</h3>
-                <span className="text-xs text-stone-500">{item.city}</span>
+                <span className="text-xs text-muted">{item.city}</span>
               </div>
               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <Figure label="Original (they sent)" src={item.original} />
@@ -136,7 +136,7 @@ export default async function SamplesPage({
                 <Figure label="Finished (uploaded)" src={item.enhanced} />
               </div>
               {item.revenueCopy && (
-                <p className="mt-4 rounded-lg bg-stone-50 p-3 text-sm text-stone-600">{item.revenueCopy}</p>
+                <p className="mt-4 rounded-lg bg-surface-2 p-3 text-sm text-muted">{item.revenueCopy}</p>
               )}
               <SampleActions
                 magicLinkId={item.id}
@@ -160,7 +160,7 @@ export default async function SamplesPage({
           <div className="mt-4 overflow-x-auto">
             <table className="w-full min-w-[52rem] border-collapse text-sm">
               <thead>
-                <tr className="border-b border-stone-200 text-left text-xs uppercase tracking-wide text-stone-500">
+                <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
                   <th className="px-3 py-2 font-semibold">Photo</th>
                   <th className="px-3 py-2 font-semibold">Restaurant</th>
                   <th className="px-3 py-2 font-semibold">Status</th>
@@ -173,30 +173,30 @@ export default async function SamplesPage({
               </thead>
               <tbody>
                 {history.map((row) => (
-                  <tr key={row.id} className="border-b border-stone-100 align-middle">
+                  <tr key={row.id} className="border-b border-line align-middle">
                     <td className="px-3 py-2">
                       {row.enhanced ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={row.enhanced}
                           alt=""
-                          className="h-10 w-10 rounded border border-stone-200 object-cover"
+                          className="h-10 w-10 rounded border border-line object-cover"
                         />
                       ) : (
-                        <div className="h-10 w-10 rounded border border-dashed border-stone-200" />
+                        <div className="h-10 w-10 rounded border border-dashed border-line" />
                       )}
                     </td>
                     <td className="px-3 py-2">
                       <div className="font-medium">{row.restaurantName ?? "(unknown)"}</div>
-                      <div className="text-xs text-stone-500">{row.city ?? "—"}</div>
+                      <div className="text-xs text-muted">{row.city ?? "—"}</div>
                     </td>
                     <td className="px-3 py-2">
                       <Badge value={row.reviewStatus} />
                     </td>
-                    <td className="px-3 py-2 tabular-nums text-stone-600">{fmtDate(row.createdAt)}</td>
-                    <td className="px-3 py-2 tabular-nums text-stone-600">{fmtDate(row.touch2SentAt)}</td>
-                    <td className="px-3 py-2 tabular-nums text-stone-600">{fmtDate(row.viewedAt)}</td>
-                    <td className="px-3 py-2 tabular-nums text-stone-600">{fmtDate(row.paidAt)}</td>
+                    <td className="px-3 py-2 tabular-nums text-muted">{fmtDate(row.createdAt)}</td>
+                    <td className="px-3 py-2 tabular-nums text-muted">{fmtDate(row.touch2SentAt)}</td>
+                    <td className="px-3 py-2 tabular-nums text-muted">{fmtDate(row.viewedAt)}</td>
+                    <td className="px-3 py-2 tabular-nums text-muted">{fmtDate(row.paidAt)}</td>
                     <td className="px-3 py-2">
                       {row.reviewStatus === "rejected" && <UnrejectButton magicLinkId={row.id} />}
                     </td>
@@ -227,8 +227,8 @@ function FilterTabs({ current }: { current: string }) {
           href={value === "all" ? "/admin/photo/samples" : `/admin/photo/samples?status=${value}`}
           className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
             current === value
-              ? "border-orange-300 bg-orange-50 text-orange-700"
-              : "border-stone-300 bg-white text-stone-700 hover:bg-stone-100"
+              ? "border-gold/40 bg-gold/10 text-gold"
+              : "border-line bg-surface-2 text-text hover:bg-surface-2"
           }`}
         >
           {label}

@@ -39,7 +39,7 @@ export default async function SuppressionsPage({
   return (
     <section>
       <SectionHeading>Do not contact</SectionHeading>
-      <p className="mt-2 max-w-2xl text-sm text-stone-600">
+      <p className="mt-2 max-w-2xl text-sm text-muted">
         Checked before every outreach send. STOP replies are added here automatically — add someone manually if they
         asked to be removed another way.
       </p>
@@ -52,7 +52,7 @@ export default async function SuppressionsPage({
         <div className="mt-6 overflow-x-auto">
           <table className="w-full min-w-[38rem] border-collapse text-sm">
             <thead>
-              <tr className="border-b border-stone-200 text-left text-xs uppercase tracking-wide text-stone-500">
+              <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
                 <th className="px-3 py-2 font-semibold">Email</th>
                 <th className="px-3 py-2 font-semibold">Reason</th>
                 <th className="px-3 py-2 font-semibold">Added</th>
@@ -61,12 +61,12 @@ export default async function SuppressionsPage({
             </thead>
             <tbody>
               {list.map((row) => (
-                <tr key={row.id} className="border-b border-stone-100">
+                <tr key={row.id} className="border-b border-line">
                   <td className="px-3 py-2 font-medium">{row.email}</td>
                   <td className="px-3 py-2">
                     <Badge value={row.reason} />
                   </td>
-                  <td className="px-3 py-2 tabular-nums text-stone-600">{fmtDateTime(row.createdAt)}</td>
+                  <td className="px-3 py-2 tabular-nums text-muted">{fmtDateTime(row.createdAt)}</td>
                   <td className="px-3 py-2 text-right">
                     <SuppressionActions email={row.email} />
                   </td>

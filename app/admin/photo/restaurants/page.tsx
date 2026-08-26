@@ -69,14 +69,14 @@ export default async function RestaurantsPage({
           router.refresh() after a mutation, with no client JS. */}
       <form method="GET" className="mt-3 flex flex-wrap items-end gap-3">
         <div>
-          <label htmlFor="status" className="block text-xs font-medium text-stone-500">
+          <label htmlFor="status" className="block text-xs font-medium text-muted">
             Status
           </label>
           <select
             id="status"
             name="status"
             defaultValue={status}
-            className="mt-1 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800"
+            className="mt-1 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text"
           >
             <option value="all">All</option>
             {STATUSES.map((s) => (
@@ -87,7 +87,7 @@ export default async function RestaurantsPage({
           </select>
         </div>
         <div>
-          <label htmlFor="q" className="block text-xs font-medium text-stone-500">
+          <label htmlFor="q" className="block text-xs font-medium text-muted">
             Search name
           </label>
           <input
@@ -95,17 +95,17 @@ export default async function RestaurantsPage({
             name="q"
             defaultValue={q}
             placeholder="e.g. taqueria"
-            className="mt-1 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800 placeholder:text-stone-400"
+            className="mt-1 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text placeholder:text-faint"
           />
         </div>
         <button
           type="submit"
-          className="btn-press rounded-lg bg-stone-900 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-800"
+          className="btn-press rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-[#0F1216] hover:brightness-110"
         >
           Filter
         </button>
         {(status !== "all" || q) && (
-          <Link href="/admin/photo/restaurants" className="py-2 text-sm font-medium text-stone-500 hover:text-stone-800">
+          <Link href="/admin/photo/restaurants" className="py-2 text-sm font-medium text-muted hover:text-text">
             Clear
           </Link>
         )}
@@ -117,14 +117,14 @@ export default async function RestaurantsPage({
         <div className="mt-5 overflow-x-auto">
           <table className="w-full min-w-[72rem] border-collapse text-sm">
             <thead>
-              <tr className="border-b border-stone-200 text-left text-xs uppercase tracking-wide text-stone-500">
+              <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
                 <th className="px-3 py-2 font-semibold">Restaurant</th>
                 <th className="px-3 py-2 font-semibold">Status</th>
                 <th className="px-3 py-2 font-semibold">Signature dish</th>
                 <th className="px-3 py-2 font-semibold">Contact</th>
                 <th className="px-3 py-2 font-semibold">
                   <span
-                    className="cursor-help border-b border-dotted border-stone-400"
+                    className="cursor-help border-b border-dotted border-faint"
                     title="Claude Vision photo-quality grade, 2–6. HIGHER = BETTER photos (6 = already professional, 2 = dark/blurry). Shown as x.x/6."
                   >
                     Photo score
@@ -132,7 +132,7 @@ export default async function RestaurantsPage({
                 </th>
                 <th className="px-3 py-2 font-semibold">
                   <span
-                    className="cursor-help border-b border-dotted border-stone-400"
+                    className="cursor-help border-b border-dotted border-faint"
                     title="Lead priority, ~0–100. HIGHER = contact sooner / more upside. Blends worse photos, fewer reviews, lower rating, delivery enabled, and few owner photos. Note: worse photos RAISE priority but LOWER the photo score — the two run opposite directions."
                   >
                     Priority
@@ -143,27 +143,27 @@ export default async function RestaurantsPage({
             </thead>
             <tbody>
               {list.map((r) => (
-                <tr key={r.id} className="border-b border-stone-100 align-top">
+                <tr key={r.id} className="border-b border-line align-top">
                   <td className="px-3 py-3">
-                    <Link href={`/admin/photo/restaurants/${r.id}`} className="font-medium text-stone-900 hover:text-orange-700 hover:underline">
+                    <Link href={`/admin/photo/restaurants/${r.id}`} className="font-medium text-text hover:text-gold hover:underline">
                       {r.name}
                     </Link>
-                    <div className="text-xs text-stone-500">
+                    <div className="text-xs text-muted">
                       {r.city ?? "—"}
                       {r.language === "es" && " · ES"}
-                      {r.suppressed && <span className="ml-1 font-medium text-red-600">· suppressed</span>}
-                      {r.held && <span className="ml-1 font-medium text-amber-600">· held</span>}
+                      {r.suppressed && <span className="ml-1 font-medium text-coral">· suppressed</span>}
+                      {r.held && <span className="ml-1 font-medium text-gold">· held</span>}
                     </div>
                     <div className="mt-0.5 flex items-center gap-2 text-xs">
                       {r.website ? (
-                        <a href={r.website} target="_blank" rel="noopener noreferrer" className="text-orange-700 hover:underline">
+                        <a href={r.website} target="_blank" rel="noopener noreferrer" className="text-gold hover:underline">
                           website ↗
                         </a>
                       ) : (
-                        <span className="text-stone-400">no website</span>
+                        <span className="text-faint">no website</span>
                       )}
                       {r.phone && (
-                        <a href={telHref(r.phone)} className="tabular-nums text-blue-600 hover:underline">
+                        <a href={telHref(r.phone)} className="tabular-nums text-gold hover:underline">
                           {r.phone}
                         </a>
                       )}
@@ -172,21 +172,21 @@ export default async function RestaurantsPage({
                   <td className="px-3 py-3">
                     <Badge value={r.enrichmentStatus} />
                   </td>
-                  <td className="px-3 py-3 text-stone-700">{r.signatureDish ?? <span className="text-stone-400">—</span>}</td>
-                  <td className="px-3 py-3 text-stone-700">
-                    {r.contactFirstName ?? <span className="text-stone-400">—</span>}
+                  <td className="px-3 py-3 text-text">{r.signatureDish ?? <span className="text-faint">—</span>}</td>
+                  <td className="px-3 py-3 text-text">
+                    {r.contactFirstName ?? <span className="text-faint">—</span>}
                   </td>
-                  <td className="px-3 py-3 tabular-nums text-stone-600">
+                  <td className="px-3 py-3 tabular-nums text-muted">
                     {r.avgPhotoScore == null ? (
-                      <span className="text-stone-400">—</span>
+                      <span className="text-faint">—</span>
                     ) : (
                       <span title={`${r.photosScored ?? 0} photo${r.photosScored === 1 ? "" : "s"} scored by Claude Vision`}>
                         {r.avgPhotoScore.toFixed(1)}
-                        <span className="ml-0.5 text-xs text-stone-400">/6</span>
+                        <span className="ml-0.5 text-xs text-faint">/6</span>
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-3 tabular-nums text-stone-600">
+                  <td className="px-3 py-3 tabular-nums text-muted">
                     {r.priorityScore == null ? "—" : r.priorityScore.toFixed(1)}
                   </td>
                   <td className="px-3 py-3">

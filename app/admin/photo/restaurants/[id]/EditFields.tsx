@@ -57,8 +57,8 @@ export default function EditFields({
     }
   };
 
-  const field = "mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800";
-  const label = "block text-xs font-medium text-stone-500";
+  const field = "mt-1 w-full rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text";
+  const label = "block text-xs font-medium text-muted";
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -86,12 +86,12 @@ export default function EditFields({
           type="button"
           disabled={busy}
           onClick={save}
-          className="btn-press rounded-lg bg-stone-900 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-800 disabled:opacity-50"
+          className="btn-press rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-[#0F1216] hover:brightness-110 disabled:opacity-50"
         >
           {busy ? "Saving…" : "Save fields"}
         </button>
-        {msg && <span className={`text-sm ${msg.ok ? "text-green-700" : "text-red-600"}`}>{msg.text}</span>}
-        <span className="text-xs text-stone-500">
+        {msg && <span className={`text-sm ${msg.ok ? "text-teal" : "text-coral"}`}>{msg.text}</span>}
+        <span className="text-xs text-muted">
           Fixing the dish or name? Redraft the pending Touch 1 in Approvals afterward.
         </span>
       </div>

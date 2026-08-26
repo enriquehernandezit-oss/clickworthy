@@ -88,29 +88,29 @@ export default function PackageActions({
       </div>
 
       {allFinished && (
-        <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
-          <div className="text-xs font-medium text-stone-500">
+        <div className="rounded-lg border border-line bg-surface-2 p-3">
+          <div className="text-xs font-medium text-muted">
             Delivery email — review and edit before sending. The order unlocks the moment you send.
           </div>
           <div className="mt-2 flex flex-col gap-2">
             <input
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              className="w-full rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800"
+              className="w-full rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text"
               placeholder="Subject"
             />
             <textarea
               value={body}
               onChange={(e) => setBody(e.target.value)}
               rows={6}
-              className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 font-sans text-sm leading-relaxed text-stone-800"
+              className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2 font-sans text-sm leading-relaxed text-text"
             />
           </div>
         </div>
       )}
 
       {emailFailed && (
-        <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+        <div className="rounded-lg border border-coral/40 bg-coral/10 p-3 text-sm text-coral">
           <p className="font-semibold">The order was marked delivered, but the email didn&apos;t send.</p>
           <p className="mt-1">
             The customer hasn&apos;t been told their photos are ready. Check their email on file and the
@@ -120,7 +120,7 @@ export default function PackageActions({
             type="button"
             disabled={busy !== null}
             onClick={resend}
-            className="mt-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:opacity-50"
+            className="mt-2 rounded-lg bg-coral px-4 py-2 text-sm font-semibold text-[#0F1216] transition-colors hover:brightness-110 disabled:opacity-50"
           >
             {busy === "resend_delivery:order" ? "Resending…" : "Resend delivery email"}
           </button>
@@ -134,11 +134,11 @@ export default function PackageActions({
             disabled={busy !== null || !allFinished || !subject.trim() || !body.trim()}
             title={allFinished ? "" : "Finish every photo before delivering"}
             onClick={deliver}
-            className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:text-stone-500"
+            className="rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-[#0F1216] transition-colors hover:brightness-110 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-muted"
           >
             {busy === "deliver:order" ? "Sending…" : "Send delivery email"}
           </button>
-          {error && <span className="text-sm text-red-600">{error}</span>}
+          {error && <span className="text-sm text-coral">{error}</span>}
         </div>
       )}
     </div>
@@ -158,29 +158,29 @@ function PhotoRow({
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-stone-200 p-3">
-      <div className={`aspect-square overflow-hidden rounded ${result.error ? "bg-red-50" : "bg-stone-100"}`}>
+    <div className="flex flex-col gap-2 rounded-lg border border-line p-3">
+      <div className={`aspect-square overflow-hidden rounded ${result.error ? "bg-coral/10" : "bg-surface-2"}`}>
         {result.enhancedUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={result.enhancedUrl} alt={result.name} className="h-full w-full object-cover" />
         ) : result.error ? (
           <div className="flex h-full flex-col items-center justify-center gap-1 px-2 text-center">
-            <span className="text-xs font-semibold text-red-700">Claid failed</span>
-            <span className="line-clamp-3 text-[10px] leading-tight text-red-600">{result.error}</span>
+            <span className="text-xs font-semibold text-coral">Claid failed</span>
+            <span className="line-clamp-3 text-[10px] leading-tight text-coral">{result.error}</span>
           </div>
         ) : (
-          <div className="flex h-full items-center justify-center px-2 text-center text-xs text-stone-400">
+          <div className="flex h-full items-center justify-center px-2 text-center text-xs text-faint">
             not finished
           </div>
         )}
       </div>
-      <span className="truncate text-xs text-stone-500" title={result.name}>{result.name}</span>
+      <span className="truncate text-xs text-muted" title={result.name}>{result.name}</span>
       <div className="flex gap-2">
         <button
           type="button"
           disabled={busy !== null}
           onClick={() => onPost("first_pass_one", { photoIndex: String(index) })}
-          className="rounded border border-stone-300 px-2 py-1 text-xs font-medium text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50"
+          className="rounded border border-line px-2 py-1 text-xs font-medium text-text transition-colors hover:bg-surface-2 disabled:opacity-50"
         >
           {busy === `first_pass_one:${index}` ? "…" : "Claid"}
         </button>
@@ -199,7 +199,7 @@ function PhotoRow({
           type="button"
           disabled={busy !== null}
           onClick={() => fileRef.current?.click()}
-          className="rounded border border-stone-300 px-2 py-1 text-xs font-medium text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50"
+          className="rounded border border-line px-2 py-1 text-xs font-medium text-text transition-colors hover:bg-surface-2 disabled:opacity-50"
         >
           {busy === `upload_edited:${index}` ? "…" : "Upload edited"}
         </button>

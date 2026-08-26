@@ -82,7 +82,7 @@ export default async function TemplatesPage() {
 
       <section>
         <SectionHeading>Touch 1, Touch 1.5 &amp; Touch 2</SectionHeading>
-        <p className="mt-1 max-w-2xl text-sm text-stone-600">
+        <p className="mt-1 max-w-2xl text-sm text-muted">
           Editing here changes what a new draft starts out saying — no deploy needed. Touch 1 and the
           bump still need a human to approve them before they send; Touch 2 is reviewed and
           hand-editable in the moment on the Samples page, so this only sets its starting text.

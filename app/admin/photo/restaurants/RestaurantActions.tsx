@@ -62,15 +62,15 @@ export default function RestaurantActions({
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder="no email on file"
-            className={`w-56 rounded-lg border px-2.5 py-1.5 text-sm text-stone-800 placeholder:text-stone-400 ${
-              needsEmail && !email ? "border-amber-400 bg-amber-50" : "border-stone-300 bg-white"
+            className={`w-56 rounded-lg border px-2.5 py-1.5 text-sm text-text placeholder:text-faint ${
+              needsEmail && !email ? "border-gold/40 bg-gold/10" : "border-line bg-surface-2"
             }`}
           />
           <button
             type="button"
             disabled={busy !== null || !dirty || !value.trim()}
             onClick={() => post("set_email", { email: value.trim() })}
-            className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-text transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy === "set_email" ? "Saving…" : "Save"}
           </button>
@@ -83,7 +83,7 @@ export default function RestaurantActions({
             type="button"
             disabled={busy !== null}
             onClick={() => post("unsuppress")}
-            className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50"
+            className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-text transition-colors hover:bg-surface-2 disabled:opacity-50"
           >
             {busy === "unsuppress" ? "Working…" : "Unsuppress"}
           </button>
@@ -92,7 +92,7 @@ export default function RestaurantActions({
             type="button"
             disabled={busy !== null}
             onClick={() => post("suppress")}
-            className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 disabled:opacity-50"
+            className="rounded-lg border border-coral/40 px-3 py-1.5 text-sm font-medium text-coral transition-colors hover:bg-coral/10 disabled:opacity-50"
           >
             {busy === "suppress" ? "Working…" : "Suppress"}
           </button>
@@ -102,7 +102,7 @@ export default function RestaurantActions({
             type="button"
             disabled={busy !== null}
             onClick={() => post("unhold")}
-            className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50"
+            className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-text transition-colors hover:bg-surface-2 disabled:opacity-50"
           >
             {busy === "unhold" ? "Working…" : "Unhold"}
           </button>
@@ -111,7 +111,7 @@ export default function RestaurantActions({
             type="button"
             disabled={busy !== null}
             onClick={() => post("hold")}
-            className="rounded-lg border border-amber-300 px-3 py-1.5 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-50 disabled:opacity-50"
+            className="rounded-lg border border-gold/40 px-3 py-1.5 text-sm font-medium text-gold transition-colors hover:bg-gold/10 disabled:opacity-50"
           >
             {busy === "hold" ? "Working…" : "Hold"}
           </button>
@@ -121,15 +121,15 @@ export default function RestaurantActions({
             type="button"
             disabled={busy !== null}
             onClick={() => post("requeue")}
-            className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50"
+            className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-text transition-colors hover:bg-surface-2 disabled:opacity-50"
           >
             {busy === "requeue" ? "Working…" : "Requeue"}
           </button>
         )}
-        {needsEmail && !email && <span className="text-xs text-amber-700">needs an email to send</span>}
+        {needsEmail && !email && <span className="text-xs text-gold">needs an email to send</span>}
       </div>
 
-      {error && <span className="text-sm text-red-600">{error}</span>}
+      {error && <span className="text-sm text-coral">{error}</span>}
     </div>
   );
 }

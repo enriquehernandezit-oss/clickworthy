@@ -1,7 +1,10 @@
 import Link from "next/link";
 
 // Shared presentational pieces for the admin area. Server-safe (no hooks) so
-// every admin page can render them directly.
+// every admin page can render them directly. Interactive primitives that need
+// hooks (Button/ConfirmDialog/Toast) live in ./primitives and are re-exported
+// at the bottom of this file so callers keep one import path.
+export * from "./primitives";
 
 // ---- Console design-system primitives (from the mockup) -------------------
 // Styled with the .console CSS variables. Used by the company overview + the
@@ -27,7 +30,7 @@ export function KpiCard({
       <div className="font-mono-label text-[10.5px] uppercase tracking-wider" style={{ color: "var(--c-text-muted)" }}>
         {label}
       </div>
-      <div className="mt-2.5 font-display text-[28px] font-bold tracking-tight tabular-nums" style={{ color: "var(--c-text)" }}>
+      <div className="font-mono-label mt-2.5 text-[28px] font-semibold tracking-tight tabular-nums" style={{ color: "var(--c-text)" }}>
         {value}
       </div>
       {delta && (
@@ -51,21 +54,52 @@ export function KpiCard({
   );
 }
 
-// Rounded status pill in the mockup's tone set.
+// Rounded status pill / badge — one tone map, one implementation. Two entry
+// points onto it: `tone` for an explicit tone (financials verdicts, setup
+// checklist), `value` for a status string looked up in STATUS_TONE (job/lead
+// statuses). Both render identically; `Pill` is kept as an alias so pages
+// that already pass `tone` don't need to change.
 export type PillTone = "gold" | "teal" | "rust" | "plum" | "coral" | "gray";
-const PILL_TONES: Record<PillTone, { bg: string; fg: string }> = {
-  gold: { bg: "var(--gold-soft)", fg: "#8A6112" },
+const TONE_VARS: Record<PillTone, { bg: string; fg: string }> = {
+  gold: { bg: "var(--gold-soft)", fg: "var(--gold)" },
   teal: { bg: "var(--teal-soft)", fg: "var(--teal)" },
   rust: { bg: "var(--rust-soft)", fg: "var(--rust)" },
   plum: { bg: "var(--plum-soft)", fg: "var(--plum)" },
-  coral: { bg: "#FBE7E7", fg: "var(--coral)" },
-  gray: { bg: "#EFEEEA", fg: "var(--c-text-muted)" },
+  coral: { bg: "var(--coral-soft)", fg: "var(--coral)" },
+  gray: { bg: "var(--gray-soft)", fg: "var(--c-text-muted)" },
 };
-export function Pill({ tone, children }: { tone: PillTone; children: React.ReactNode }) {
-  const t = PILL_TONES[tone];
+
+// Every enrichment/job/review status string this app writes, mapped to a
+// tone. Unrecognized values fall back to "gray" rather than throwing, since
+// this renders directly from DB columns with no enum constraint.
+const STATUS_TONE: Record<string, PillTone> = {
+  queued: "gold",
+  sourced: "gray",
+  contacted: "teal",
+  sent: "teal",
+  replied: "gold",
+  bumped: "gold",
+  draft: "gold",
+  cancelled: "gray",
+  approved: "teal",
+  completed: "teal",
+  awaiting_edit: "gold",
+  ready_for_review: "gold",
+  processing: "gold",
+  pending: "gray",
+  needs_manual_email: "gold",
+  call_list: "plum",
+  rejected: "coral",
+  failed: "coral",
+  denied: "coral",
+  unknown: "gray",
+};
+
+function ToneChip({ tone, children }: { tone: PillTone; children: React.ReactNode }) {
+  const t = TONE_VARS[tone];
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold"
+      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold"
       style={{ background: t.bg, color: t.fg }}
     >
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: "currentColor" }} />
@@ -74,30 +108,50 @@ export function Pill({ tone, children }: { tone: PillTone; children: React.React
   );
 }
 
-// The mockup's stepped funnel. Each step is a soft-accent block with an
-// uppercase label + big number; the last step is filled with the venture accent.
+export function Pill({ tone, children }: { tone: PillTone; children: React.ReactNode }) {
+  return <ToneChip tone={tone}>{children}</ToneChip>;
+}
+
+export function Badge({ value }: { value: string | null }) {
+  const v = value ?? "unknown";
+  return <ToneChip tone={STATUS_TONE[v] ?? "gray"}>{v}</ToneChip>;
+}
+
+// Stepped funnel, proportional: each step's width encodes its value against
+// the first (largest) step, so a collapsing funnel actually looks collapsed
+// instead of five equal-width blocks with different numbers in them. Values
+// and the % drop between steps stay as text — never color/width alone.
 export function Funnel({ steps }: { steps: { label: string; value: number }[] }) {
+  const max = Math.max(1, ...steps.map((s) => s.value));
   return (
-    <div className="flex items-stretch gap-0.5">
+    <div className="flex items-stretch gap-1.5">
       {steps.map((s, i) => {
         const last = i === steps.length - 1;
+        const prev = i > 0 ? steps[i - 1].value : null;
+        const dropPct = prev && prev > 0 ? Math.round(((prev - s.value) / prev) * 100) : null;
+        const widthPct = Math.max(12, Math.round((s.value / max) * 100));
         return (
-          <div key={s.label} className="flex flex-1 items-stretch gap-0.5">
-            <div
-              className="flex-1 rounded-lg px-4 py-3.5"
-              style={{
-                background: last ? "var(--accent)" : "var(--accent-soft)",
-                color: last ? "#fff" : "var(--c-text)",
-              }}
-            >
-              <div className="font-mono-label text-[10.5px] uppercase tracking-wider" style={{ opacity: last ? 0.9 : 0.75 }}>
-                {s.label}
+          <div key={s.label} className="flex flex-1 items-stretch gap-1.5">
+            <div className="flex flex-1 flex-col justify-end" style={{ minWidth: 0 }}>
+              <div
+                className="rounded-lg px-4 py-3.5"
+                style={{
+                  width: `${widthPct}%`,
+                  minWidth: "100%",
+                  background: last ? "var(--accent)" : "var(--accent-soft)",
+                  color: last ? "#0F1216" : "var(--c-text)",
+                }}
+              >
+                <div className="font-mono-label text-[10.5px] uppercase tracking-wider" style={{ opacity: last ? 0.85 : 0.75 }}>
+                  {s.label}
+                </div>
+                <div className="font-mono-label text-[20px] font-semibold tabular-nums">{s.value}</div>
               </div>
-              <div className="font-display text-[20px] font-bold tabular-nums">{s.value}</div>
             </div>
-            {i < steps.length - 1 && (
-              <div className="flex items-center px-1 text-sm" style={{ color: "var(--c-text-faint)" }}>
-                →
+            {!last && (
+              <div className="flex flex-col items-center justify-center px-1 text-xs" style={{ color: "var(--c-text-faint)" }}>
+                <span>→</span>
+                {dropPct !== null && dropPct > 0 && <span className="mt-0.5 tabular-nums">-{dropPct}%</span>}
               </div>
             )}
           </div>
@@ -143,11 +197,11 @@ export function ConsoleCard({
 }
 
 export function SectionHeading({ children }: { children: React.ReactNode }) {
-  return <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">{children}</h2>;
+  return <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">{children}</h2>;
 }
 
 export function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <div className={`rounded-xl border border-stone-200 bg-white p-5 shadow-sm ${className}`}>{children}</div>;
+  return <div className={`rounded-xl border border-line bg-surface p-5 ${className}`}>{children}</div>;
 }
 
 // A single number + label. `href` turns it into a link to the page that shows
@@ -155,49 +209,16 @@ export function Card({ children, className = "" }: { children: React.ReactNode; 
 export function StatChip({ value, label, href }: { value: number | string; label: string; href?: string }) {
   const inner = (
     <>
-      <div className="text-xl font-bold tabular-nums">{value}</div>
-      <div className="text-xs text-stone-500">{label}</div>
+      <div className="font-mono-label text-xl font-semibold tabular-nums text-text">{value}</div>
+      <div className="text-xs text-muted">{label}</div>
     </>
   );
-  const base = "rounded-lg border border-stone-200 bg-white px-4 py-3";
+  const base = "rounded-lg border border-line bg-surface px-4 py-3";
   if (!href) return <div className={base}>{inner}</div>;
   return (
-    <Link href={href} className={`${base} btn-press block transition-colors hover:border-orange-300 hover:bg-orange-50`}>
+    <Link href={href} className={`${base} btn-press block transition-colors hover:border-gold/40 hover:bg-surface-2`}>
       {inner}
     </Link>
-  );
-}
-
-const BADGE_TONES: Record<string, string> = {
-  // enrichment / job / review states, grouped by what they mean for us
-  queued: "bg-blue-50 text-blue-700 ring-blue-200",
-  sourced: "bg-stone-100 text-stone-600 ring-stone-200",
-  contacted: "bg-green-50 text-green-700 ring-green-200",
-  sent: "bg-green-50 text-green-700 ring-green-200",
-  replied: "bg-orange-50 text-orange-700 ring-orange-200",
-  bumped: "bg-amber-50 text-amber-700 ring-amber-200",
-  draft: "bg-blue-50 text-blue-700 ring-blue-200",
-  cancelled: "bg-stone-100 text-stone-500 ring-stone-200",
-  approved: "bg-green-50 text-green-700 ring-green-200",
-  completed: "bg-green-50 text-green-700 ring-green-200",
-  awaiting_edit: "bg-orange-50 text-orange-700 ring-orange-200",
-  ready_for_review: "bg-orange-50 text-orange-700 ring-orange-200",
-  processing: "bg-blue-50 text-blue-700 ring-blue-200",
-  pending: "bg-stone-100 text-stone-600 ring-stone-200",
-  needs_manual_email: "bg-amber-50 text-amber-700 ring-amber-200",
-  call_list: "bg-purple-50 text-purple-700 ring-purple-200",
-  rejected: "bg-red-50 text-red-700 ring-red-200",
-  failed: "bg-red-50 text-red-700 ring-red-200",
-  denied: "bg-red-50 text-red-700 ring-red-200",
-};
-
-export function Badge({ value }: { value: string | null }) {
-  const v = value ?? "unknown";
-  const tone = BADGE_TONES[v] ?? "bg-stone-100 text-stone-600 ring-stone-200";
-  return (
-    <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${tone}`}>
-      {v}
-    </span>
   );
 }
 
@@ -206,12 +227,12 @@ export function Badge({ value }: { value: string | null }) {
 export function Figure({ label, src }: { label: string; src: string | null }) {
   return (
     <figure className="flex flex-col gap-1">
-      <figcaption className="text-xs font-medium text-stone-500">{label}</figcaption>
+      <figcaption className="text-xs font-medium text-muted">{label}</figcaption>
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={label} className="aspect-square w-full rounded-lg border border-stone-200 object-cover" />
+        <img src={src} alt={label} className="aspect-square w-full rounded-lg border border-line object-cover" />
       ) : (
-        <div className="flex aspect-square w-full items-center justify-center rounded-lg border border-dashed border-stone-200 text-xs text-stone-400">
+        <div className="flex aspect-square w-full items-center justify-center rounded-lg border border-dashed border-line text-xs text-faint">
           —
         </div>
       )}
@@ -220,7 +241,7 @@ export function Figure({ label, src }: { label: string; src: string | null }) {
 }
 
 export function EmptyState({ children }: { children: React.ReactNode }) {
-  return <p className="mt-3 text-sm text-stone-500">{children}</p>;
+  return <p className="mt-3 text-sm text-muted">{children}</p>;
 }
 
 // These pages are Next.js Server Components — they format Dates on the
@@ -288,8 +309,8 @@ export function Pager({
   if (page === 1 && !hasNext) return null;
 
   const linkClass =
-    "btn-press rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm font-medium text-stone-700 hover:bg-stone-100";
-  const disabledClass = "rounded-lg border border-stone-200 px-3 py-1.5 text-sm font-medium text-stone-400";
+    "btn-press rounded-lg border border-line bg-surface px-3 py-1.5 text-sm font-medium text-text hover:bg-surface-2";
+  const disabledClass = "rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-faint";
 
   return (
     <div className="mt-6 flex items-center justify-between">
@@ -300,7 +321,7 @@ export function Pager({
       ) : (
         <span className={disabledClass}>← Previous</span>
       )}
-      <span className="text-sm text-stone-500">Page {page}</span>
+      <span className="text-sm text-muted">Page {page}</span>
       {hasNext ? (
         <Link href={href(page + 1)} className={linkClass}>
           Next →
@@ -320,9 +341,9 @@ export function telHref(phone: string): string {
 
 // A phone number rendered as a click-to-call link (falls back to muted text).
 export function PhoneLink({ phone, className = "" }: { phone: string | null | undefined; className?: string }) {
-  if (!phone) return <span className="text-stone-400">—</span>;
+  if (!phone) return <span className="text-faint">—</span>;
   return (
-    <a href={telHref(phone)} className={`tabular-nums text-blue-600 hover:underline ${className}`}>
+    <a href={telHref(phone)} className={`tabular-nums text-gold hover:underline ${className}`}>
       {phone}
     </a>
   );
@@ -331,10 +352,101 @@ export function PhoneLink({ phone, className = "" }: { phone: string | null | un
 // A restaurant's own website, opened in a new tab. Used on every page that
 // lists restaurants so the site is always one click away.
 export function WebsiteLink({ website, className = "" }: { website: string | null | undefined; className?: string }) {
-  if (!website) return <span className="text-stone-400">—</span>;
+  if (!website) return <span className="text-faint">—</span>;
   return (
-    <a href={website} target="_blank" rel="noopener noreferrer" className={`text-blue-600 hover:underline ${className}`}>
+    <a href={website} target="_blank" rel="noopener noreferrer" className={`text-gold hover:underline ${className}`}>
       site ↗
     </a>
   );
 }
+
+// ---- DataTable -------------------------------------------------------
+// Replaces repeated <table> + class-string boilerplate across ~9 pages.
+// Server-safe (no hooks) — sorting/filtering stay page-level via searchParams
+// links, matching the rest of the console's URL-driven filter pattern.
+// `overflow-x-auto` wraps the table, never the page, so wide tables scroll
+// in place at narrow viewports instead of blowing out the layout.
+
+export type Column<T> = {
+  key: string;
+  header: React.ReactNode;
+  cell: (row: T) => React.ReactNode;
+  align?: "left" | "right";
+  className?: string;
+};
+
+export function DataTable<T>({
+  columns,
+  rows,
+  rowKey,
+  emptyMessage = "Nothing here yet.",
+}: {
+  columns: Column<T>[];
+  rows: T[];
+  rowKey: (row: T) => React.Key;
+  emptyMessage?: string;
+}) {
+  if (rows.length === 0) return <EmptyState>{emptyMessage}</EmptyState>;
+  return (
+    <div className="overflow-x-auto rounded-xl border border-line">
+      <table className="w-full border-collapse text-sm">
+        <thead>
+          <tr className="border-b border-line bg-surface-2 text-left text-xs uppercase tracking-wide text-faint">
+            {columns.map((c) => (
+              <th key={c.key} className={`px-3 py-2.5 font-medium ${c.align === "right" ? "text-right" : "text-left"}`}>
+                {c.header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={rowKey(row)} className="border-b border-line align-top last:border-0 hover:bg-surface-2">
+              {columns.map((c) => (
+                <td key={c.key} className={`px-3 py-3 text-text ${c.align === "right" ? "text-right" : ""} ${c.className ?? ""}`}>
+                  {c.cell(row)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ---- Field -------------------------------------------------------------
+// Replaces local `inputCls`/`field` string constants scattered per-component.
+// Placeholder is never the label — label is always a real <label>.
+
+export function Field({
+  label,
+  hint,
+  error,
+  children,
+  htmlFor,
+}: {
+  label: string;
+  hint?: string;
+  error?: string;
+  children: React.ReactNode;
+  htmlFor?: string;
+}) {
+  return (
+    <div>
+      <label htmlFor={htmlFor} className="mb-1 block text-xs font-medium uppercase tracking-wide text-faint">
+        {label}
+      </label>
+      {children}
+      {hint && !error && <p className="mt-1 text-xs text-faint">{hint}</p>}
+      {error && (
+        <p role="alert" className="mt-1 text-xs text-coral">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+export const fieldInputClass =
+  "w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-text placeholder:text-faint outline-none focus:border-gold";

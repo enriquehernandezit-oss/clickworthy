@@ -124,22 +124,22 @@ export default function Touch2Editor({
   }
 
   return (
-    <div className="rounded-xl border border-stone-200 bg-white p-5">
+    <div className="rounded-xl border border-line bg-surface-2 p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <div>
-          <div className="text-base font-semibold text-stone-900">Touch 2 — the sample delivery</div>
-          <p className="mt-1 max-w-xl text-sm text-stone-600">
+          <div className="text-base font-semibold text-text">Touch 2 — the sample delivery</div>
+          <p className="mt-1 max-w-xl text-sm text-muted">
             Sent the moment you approve a finished free sample. This sets the SEED text only — every
             send is reviewed and hand-editable on the Samples page before it goes out.
           </p>
         </div>
-        <div className="flex gap-1 rounded-lg border border-stone-200 p-1">
+        <div className="flex gap-1 rounded-lg border border-line p-1">
           {(["en", "es"] as const).map((l) => (
             <button
               key={l}
               type="button"
               onClick={() => setLang(l)}
-              className={`rounded-md px-3 py-1 text-xs font-semibold ${lang === l ? "bg-stone-900 text-white" : "text-stone-600 hover:bg-stone-100"}`}
+              className={`rounded-md px-3 py-1 text-xs font-semibold ${lang === l ? "bg-gold text-[#0F1216]" : "text-muted hover:bg-surface-2"}`}
             >
               {l.toUpperCase()}
             </button>
@@ -151,29 +151,29 @@ export default function Touch2Editor({
         {/* Editor */}
         <div className="flex flex-col gap-3">
           <div>
-            <label className="text-xs font-medium text-stone-500">Subject</label>
+            <label className="text-xs font-medium text-muted">Subject</label>
             <input
               type="text"
               value={branch.subject}
               onChange={(e) => setSubject(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800"
+              className="mt-1 w-full rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text"
             />
           </div>
           <div>
-            <label className="text-xs font-medium text-stone-500">Body</label>
+            <label className="text-xs font-medium text-muted">Body</label>
             <textarea
               value={branch.body}
               onChange={(e) => setBody(e.target.value)}
               rows={12}
-              className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 font-mono text-xs text-stone-800"
+              className="mt-1 w-full rounded-lg border border-line bg-surface-2 px-3 py-2 font-mono text-xs text-text"
             />
           </div>
-          <details className="text-xs text-stone-500">
-            <summary className="cursor-pointer font-medium text-stone-600">Available variables</summary>
+          <details className="text-xs text-muted">
+            <summary className="cursor-pointer font-medium text-muted">Available variables</summary>
             <ul className="mt-2 flex flex-col gap-1">
               {VARS_HELP.map((v) => (
                 <li key={v.key}>
-                  <code className="rounded bg-stone-100 px-1 py-0.5">{`{{${v.key}}}`}</code> — {v.desc}
+                  <code className="rounded bg-surface-2 px-1 py-0.5">{`{{${v.key}}}`}</code> — {v.desc}
                 </li>
               ))}
             </ul>
@@ -182,33 +182,33 @@ export default function Touch2Editor({
 
         {/* Preview */}
         <div className="flex flex-col gap-2">
-          <label className="text-xs font-medium text-stone-500">
+          <label className="text-xs font-medium text-muted">
             Live preview — against &quot;{previewRestaurant.name}&quot;
           </label>
-          <div className="rounded-lg border border-stone-200 bg-stone-50 p-3">
+          <div className="rounded-lg border border-line bg-surface-2 p-3">
             {preview.ok ? (
               <>
-                <div className="border-b border-stone-200 pb-2 text-sm font-semibold text-stone-900">{preview.subject}</div>
-                <pre className="mt-2 whitespace-pre-wrap font-sans text-sm leading-relaxed text-stone-700">{preview.body}</pre>
+                <div className="border-b border-line pb-2 text-sm font-semibold text-text">{preview.subject}</div>
+                <pre className="mt-2 whitespace-pre-wrap font-sans text-sm leading-relaxed text-text">{preview.body}</pre>
                 {!hasComplianceFooter(preview.body) && (
-                  <p className="mt-2 text-xs font-semibold text-red-600">
+                  <p className="mt-2 text-xs font-semibold text-coral">
                     ⚠ Missing compliance footer — set the postal address above.
                   </p>
                 )}
               </>
             ) : (
-              <p className="text-sm font-semibold text-red-600">{preview.error}</p>
+              <p className="text-sm font-semibold text-coral">{preview.error}</p>
             )}
           </div>
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-stone-200 pt-4">
+      <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4">
         <button
           type="button"
           disabled={busy !== null || !dirty}
           onClick={save}
-          className="rounded-lg bg-stone-900 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-[#0F1216] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy === "save" ? "Saving…" : "Save"}
         </button>
@@ -216,12 +216,12 @@ export default function Touch2Editor({
           type="button"
           disabled={busy !== null}
           onClick={sendTest}
-          className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-100 disabled:opacity-50"
+          className="rounded-lg border border-line px-4 py-2 text-sm font-medium text-text hover:bg-surface-2 disabled:opacity-50"
         >
           {busy === "test" ? "Sending…" : "Send test to my inbox"}
         </button>
         {msg && (
-          <span className={`text-xs ${msg.ok ? "text-teal-700" : "text-red-600"}`} role="alert">
+          <span className={`text-xs ${msg.ok ? "text-teal" : "text-coral"}`} role="alert">
             {msg.text}
           </span>
         )}

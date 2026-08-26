@@ -50,9 +50,9 @@ function TextField({
   };
 
   return (
-    <div className="rounded-xl border border-stone-200 bg-white p-5">
-      <div className="text-base font-semibold text-stone-900">{label}</div>
-      <p className="mt-1 max-w-xl text-sm text-stone-600">{help}</p>
+    <div className="rounded-xl border border-line bg-surface-2 p-5">
+      <div className="text-base font-semibold text-text">{label}</div>
+      <p className="mt-1 max-w-xl text-sm text-muted">{help}</p>
       <div className={`mt-3 flex ${multiline ? "flex-col items-start" : "flex-wrap items-center"} gap-2`}>
         {multiline ? (
           <textarea
@@ -60,7 +60,7 @@ function TextField({
             onChange={(e) => setRaw(e.target.value)}
             placeholder={placeholder}
             rows={4}
-            className="w-full max-w-md rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800"
+            className="w-full max-w-md rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text"
           />
         ) : (
           <input
@@ -68,7 +68,7 @@ function TextField({
             value={raw}
             onChange={(e) => setRaw(e.target.value)}
             placeholder={placeholder}
-            className="w-full max-w-md rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800"
+            className="w-full max-w-md rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text"
           />
         )}
         <div className="flex items-center gap-2">
@@ -76,12 +76,12 @@ function TextField({
             type="button"
             disabled={busy || !dirty}
             onClick={save}
-            className="rounded-lg bg-stone-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-lg bg-gold px-3 py-1.5 text-sm font-semibold text-[#0F1216] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy ? "Saving…" : "Save"}
           </button>
           {msg && (
-            <span className={`text-xs ${msg.ok ? "text-teal-700" : "text-red-600"}`} role="alert">
+            <span className={`text-xs ${msg.ok ? "text-teal" : "text-coral"}`} role="alert">
               {msg.text}
             </span>
           )}
@@ -123,9 +123,9 @@ function ApplyIdentityToPending({ pendingDrafts }: { pendingDrafts: number }) {
   };
 
   return (
-    <div className="rounded-xl border border-stone-200 bg-white p-5">
-      <div className="text-base font-semibold text-stone-900">Apply identity to pending drafts</div>
-      <p className="mt-1 max-w-xl text-sm text-stone-600">
+    <div className="rounded-xl border border-line bg-surface-2 p-5">
+      <div className="text-base font-semibold text-text">Apply identity to pending drafts</div>
+      <p className="mt-1 max-w-xl text-sm text-muted">
         Saving above only affects new drafts. Use this to push the current sender name and postal
         address into the {pendingDrafts} draft{pendingDrafts === 1 ? "" : "s"} already waiting for approval.
       </p>
@@ -135,12 +135,12 @@ function ApplyIdentityToPending({ pendingDrafts }: { pendingDrafts: number }) {
           disabled={busy || pendingDrafts === 0}
           onClick={apply}
           title={pendingDrafts === 0 ? "No pending drafts to rewrite" : undefined}
-          className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm font-semibold text-stone-800 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm font-semibold text-text hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy ? "Applying…" : `Apply to ${pendingDrafts} pending draft${pendingDrafts === 1 ? "" : "s"}`}
         </button>
         {msg && (
-          <span className={`text-xs ${msg.ok ? "text-teal-700" : "text-red-600"}`} role="alert">
+          <span className={`text-xs ${msg.ok ? "text-teal" : "text-coral"}`} role="alert">
             {msg.text}
           </span>
         )}
@@ -163,7 +163,7 @@ export default function IdentityForm({
   return (
     <div className="flex flex-col gap-4">
       {!postalAddress.trim() && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="rounded-lg border border-coral/40 bg-coral/10 px-4 py-3 text-sm text-coral">
           <span className="font-semibold">No postal address set.</span> CAN-SPAM requires a real
           physical address in every commercial email — sending is blocked until this is filled in.
         </div>

@@ -1,80 +1,32 @@
 import Link from "next/link";
-import { and, desc, eq, gte, isNotNull, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { restaurants, outreachJobs, magicLinks, suppressions, enhancementOrders } from "@/db/schema";
-import { Badge, Funnel, KpiCard, SectionHeading, StatChip, money, relTime } from "../ui";
-import { getFunnel, getRevenue, getByCity } from "@/lib/photoStats";
+import { restaurants, outreachJobs, magicLinks, suppressions } from "@/db/schema";
+import { Badge, Funnel, SectionHeading, relTime } from "../ui";
+import { getNeedsAttention, type AttentionItem } from "@/lib/photoStats";
+import {
+  getRunHealth,
+  getEmailReadyTrend,
+  avgEmailReady,
+  getLastSourcingNight,
+  getNightFunnel,
+  getRejectionBuckets,
+  getEmailYield,
+  getAnomalies,
+  EMAIL_READY_TARGET,
+  type TrendRow,
+} from "@/lib/pipelineHealth";
 
+// The morning briefing: "did anything break overnight, and did the pipeline
+// hit its number?" Ported from scripts/nightly-analysis.ts §1/2/4/5/8 via the
+// shared lib/pipelineHealth queries, so the dashboard and the CLI can't
+// disagree. Revenue / the 30-day funnel / spend moved to Financials, which
+// owns the range picker — this page is health, not money.
+//
 // Live internal dashboard — always render fresh (never statically prerender,
 // which would try to hit the DB at build time).
 export const dynamic = "force-dynamic";
 
-async function getPipeline() {
-  const byStatus = await db
-    .select({ status: restaurants.enrichmentStatus, n: sql<number>`count(*)::int` })
-    .from(restaurants)
-    .groupBy(restaurants.enrichmentStatus);
-  const [{ total }] = await db.select({ total: sql<number>`count(*)::int` }).from(restaurants);
-  return { byStatus, total: total ?? 0 };
-}
-
-// Last-7-days numbers. Mirrors worker/jobs/weeklyStats.ts so the dashboard and
-// the weekly email never disagree. `weekAgo` is built here, not in the
-// component body, to stay clear of the react-compiler purity rule.
-async function getWeekly() {
-  const weekAgo = new Date(Date.now() - 7 * 86_400_000);
-
-  const [{ sent }] = await db
-    .select({ sent: sql<number>`count(*)::int` })
-    .from(outreachJobs)
-    .where(and(eq(outreachJobs.touchNumber, 1), gte(outreachJobs.sentAt, weekAgo)));
-
-  // Use gte() rather than interpolating the Date into a raw sql`` template —
-  // the template passes the Date object straight to the driver, which throws.
-  const [{ replied }] = await db
-    .select({ replied: sql<number>`count(*)::int` })
-    .from(outreachJobs)
-    .where(gte(outreachJobs.repliedAt, weekAgo));
-
-  const [{ supp }] = await db
-    .select({ supp: sql<number>`count(*)::int` })
-    .from(suppressions)
-    .where(gte(suppressions.createdAt, weekAgo));
-
-  const replyRate = (sent ?? 0) > 0 ? `${(((replied ?? 0) / (sent ?? 1)) * 100).toFixed(1)}%` : "n/a";
-  return { sent: sent ?? 0, replied: replied ?? 0, replyRate, supp: supp ?? 0 };
-}
-
-async function getWork() {
-  // Matches getNeedsAttention()'s scope in lib/photoStats.ts — every kind that
-  // queues a draft awaiting a human decision (touch1/bump/reply/payment_confirmation).
-  const [{ drafts }] = await db
-    .select({
-      drafts: sql<number>`count(*) filter (where ${outreachJobs.status} = 'draft' and ${outreachJobs.kind} in ('touch1','bump','reply','payment_confirmation'))::int`,
-    })
-    .from(outreachJobs);
-  const [{ awaitingEdit }] = await db
-    .select({ awaitingEdit: sql<number>`count(*) filter (where ${magicLinks.reviewStatus} = 'awaiting_edit')::int` })
-    .from(magicLinks);
-  const [{ readyForReview }] = await db
-    .select({ readyForReview: sql<number>`count(*) filter (where ${magicLinks.packageStatus} = 'ready_for_review')::int` })
-    .from(magicLinks);
-  const [{ paid }] = await db
-    .select({ paid: sql<number>`count(*) filter (where ${magicLinks.paidAt} is not null)::int` })
-    .from(magicLinks);
-  const [{ selfServe }] = await db
-    .select({ selfServe: sql<number>`count(*)::int` })
-    .from(enhancementOrders)
-    .where(isNotNull(enhancementOrders.id));
-
-  return {
-    drafts: drafts ?? 0,
-    awaitingEdit: awaitingEdit ?? 0,
-    readyForReview: readyForReview ?? 0,
-    paid: paid ?? 0,
-    selfServe: selfServe ?? 0,
-  };
-}
 
 type Activity = {
   at: Date;
@@ -179,123 +131,254 @@ async function getActivity(): Promise<{ items: Activity[]; nowMs: number }> {
   return { items: items.slice(0, FEED), nowMs };
 }
 
+// Vertical bar chart of email-ready per night against the target. CSS/flex,
+// no chart lib — the repo hand-rolls its bars (see financials MonthlyBars).
+// Value is printed on every bar (never encoded by height alone), and the
+// target shows as a dashed reference line so "are we hitting 20?" is one look.
+function NightBars({ trend, target }: { trend: TrendRow[]; target: number }) {
+  // Oldest → newest reads left-to-right like a timeline. The query returns
+  // newest-first, so reverse. Cap at the last 10 nights for width.
+  const data = [...trend].slice(0, 10).reverse();
+  const max = Math.max(target, ...data.map((r) => r.queued), 1);
+  const targetPct = (target / max) * 100;
+
+  return (
+    <div className="rounded-xl border border-line bg-surface p-5">
+      {/* items-stretch (default) so each column fills the h-44 height — the
+          bars are % of the column, so a content-sized column would collapse
+          them to nothing. */}
+      <div className="relative flex h-44 gap-2">
+        {/* target reference line */}
+        <div
+          className="pointer-events-none absolute inset-x-0 flex items-center"
+          style={{ bottom: `${targetPct}%` }}
+        >
+          <div className="h-px w-full border-t border-dashed" style={{ borderColor: "var(--gold)" }} />
+          <span className="ml-2 shrink-0 font-mono-label text-[10px] text-gold">target {target}</span>
+        </div>
+        {data.map((r) => {
+          const heightPct = Math.max(2, (r.queued / max) * 100);
+          const hit = r.queued >= target;
+          return (
+            <div key={r.night} className="flex flex-1 flex-col items-center justify-end gap-1.5" style={{ minWidth: 0 }}>
+              <span className="font-mono-label text-[11px] tabular-nums text-text">{r.queued}</span>
+              <div
+                className="w-full max-w-[38px] rounded-t"
+                style={{
+                  height: `${heightPct}%`,
+                  background: hit ? "var(--teal)" : "var(--gold)",
+                  opacity: r.sourced === 0 ? 0.25 : 1,
+                }}
+                title={`${r.night}: ${r.queued} email-ready of ${r.sourced} sourced`}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-2 flex gap-2">
+        {data.map((r) => (
+          <div key={r.night} className="flex-1 text-center font-mono-label text-[9px] text-faint" style={{ minWidth: 0 }}>
+            {/* just the MM-DD portion, dropping the (Dy) suffix */}
+            {r.night.slice(5, 10)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// One rejection bucket as a labeled proportional bar. Rust (a "died" color),
+// count + label as text so it never relies on width alone.
+function RejectionBars({ buckets }: { buckets: { bucket: string; n: number }[] }) {
+  const max = Math.max(1, ...buckets.map((b) => b.n));
+  return (
+    <div className="flex flex-col gap-2">
+      {buckets.map((b) => (
+        <div key={b.bucket} className="flex items-center gap-3">
+          <div className="w-32 shrink-0 text-xs text-muted">{b.bucket}</div>
+          <div className="h-4 flex-1 overflow-hidden rounded bg-surface-2">
+            <div className="h-full rounded" style={{ width: `${(b.n / max) * 100}%`, background: "var(--rust)" }} />
+          </div>
+          <div className="w-8 shrink-0 text-right font-mono-label text-xs tabular-nums text-text">{b.n}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const attentionToneClass: Record<AttentionItem["tone"], string> = {
+  gold: "border-gold/30 bg-gold/10",
+  coral: "border-coral/40 bg-coral/10",
+};
+
 export default async function AdminOverviewPage() {
-  const [pipeline, weekly, work, activity, funnel, revenue, byCity] = await Promise.all([
-    getPipeline(),
-    getWeekly(),
-    getWork(),
+  const night = await getLastSourcingNight();
+  const [health, trend, funnel, buckets, emailYield, activity, attention] = await Promise.all([
+    getRunHealth(Date.now()),
+    getEmailReadyTrend(10),
+    night ? getNightFunnel(night) : Promise.resolve(null),
+    night ? getRejectionBuckets(night) : Promise.resolve([]),
+    getEmailYield(7),
     getActivity(),
-    getFunnel(),
-    getRevenue(),
-    getByCity(),
+    getNeedsAttention(),
   ]);
+  const anomalies = await getAnomalies(night ?? "1970-01-01", funnel);
+
+  const { avg, runNights } = avgEmailReady(trend);
+  const latestYield = emailYield.find((r) => r.sites > 0);
+  const yieldPct = latestYield ? Math.round((latestYield.emails / latestYield.sites) * 100) : null;
+
+  // The email-ready funnel for last night, as proportional stages.
+  const funnelSteps = funnel
+    ? [
+        { label: "Sourced", value: funnel.sourced },
+        { label: "Reached enrichment", value: funnel.sourced - funnel.free_filtered },
+        { label: "Email-ready", value: funnel.queued },
+      ]
+    : [];
 
   return (
     <>
+      {/* Did anything break overnight? — the first question every morning. */}
       <section>
+        <SectionHeading>Overnight check</SectionHeading>
+        {anomalies.length === 0 ? (
+          <div className="mt-3 flex items-center gap-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
+            <span className="text-teal">✓</span>
+            <span className="text-muted">
+              Gates ran normally {night ? `on the ${night} run` : "last run"} — no outage signatures detected.
+            </span>
+          </div>
+        ) : (
+          <div className="mt-3 flex flex-col gap-2">
+            {anomalies.map((a, i) => (
+              <div
+                key={i}
+                role="alert"
+                className="flex items-start gap-2 rounded-lg border px-4 py-3 text-sm"
+                style={{ borderColor: "var(--coral)", background: "color-mix(in oklch, var(--coral) 12%, var(--card))" }}
+              >
+                <span className="text-coral">⚠</span>
+                <span className="text-text">{a}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* run-health strip */}
+        <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-xs">
+          <HealthStat label="Worker" value={health.ageHours != null ? `booted ${health.ageHours.toFixed(0)}h ago` : "no boot info"} warn={health.bootedAt == null} />
+          <HealthStat label="Nightly cap" value={health.nightlyCap != null ? String(health.nightlyCap) : "—"} />
+          <HealthStat label="Cities" value={health.cities != null ? String(health.cities) : "—"} />
+          <HealthStat label="Outreach" value={health.outreachEnabled ? "enabled" : "off"} warn={!health.outreachEnabled} />
+        </div>
+      </section>
+
+      {/* The daily work loop — the three guide steps. */}
+      <section className="mt-10">
         <SectionHeading>Needs your attention</SectionHeading>
-        <div className="mt-3 flex flex-wrap gap-3">
-          <StatChip value={work.drafts} label="awaiting approval" href="/admin/photo/approvals" />
-          <StatChip value={work.awaitingEdit} label="replies to edit" href="/admin/photo/samples" />
-          <StatChip value={work.readyForReview} label="orders to finish" href="/admin/photo/orders" />
-        </div>
-      </section>
-
-      <section className="mt-10">
-        <SectionHeading>Last 7 days</SectionHeading>
-        <div className="mt-3 flex flex-wrap gap-3">
-          <StatChip value={weekly.sent} label="touch 1 sent" href="/admin/photo/outreach" />
-          <StatChip value={weekly.replied} label="replies" href="/admin/photo/outreach?status=replied" />
-          <StatChip value={weekly.replyRate} label="reply rate" />
-          <StatChip value={weekly.supp} label="new suppressions" href="/admin/photo/suppressions" />
-        </div>
-      </section>
-
-      <section className="mt-10">
-        <SectionHeading>Pipeline ({pipeline.total} restaurants)</SectionHeading>
-        <div className="mt-3 flex flex-wrap gap-3">
-          {pipeline.byStatus.map((s) => (
-            <StatChip
-              key={s.status ?? "unknown"}
-              value={s.n}
-              label={s.status ?? "unknown"}
-              href={s.status ? `/admin/photo/restaurants?status=${encodeURIComponent(s.status)}` : "/admin/photo/restaurants"}
-            />
-          ))}
-        </div>
-      </section>
-
-      <section className="mt-10">
-        <SectionHeading>Revenue (all time)</SectionHeading>
-        <div className="mt-3 grid grid-cols-2 gap-3.5 lg:grid-cols-4">
-          <KpiCard label="Total revenue" value={money(revenue.totalCents)} />
-          <KpiCard label="Package sales" value={money(revenue.packageCents)} delta={{ text: `${revenue.packagePaid} paid`, dir: "flat" }} href="/admin/photo/orders" />
-          <KpiCard label="Self-serve" value={money(revenue.selfServeCents)} delta={{ text: `${revenue.selfServeCompleted} completed · abandoned checkouts excluded`, dir: "flat" }} href="/admin/photo/orders" />
-          <KpiCard label="Reply rate (7d)" value={weekly.replyRate} />
-        </div>
-      </section>
-
-      {/* Funnel — last 30 days */}
-      <section className="mt-10">
-        <SectionHeading>Funnel (last 30 days)</SectionHeading>
-        {funnel.sentCount === 0 ? (
-          <p className="mt-3 text-sm" style={{ color: "var(--c-text-muted)" }}>
-            No Touch 1 sent in the last 30 days — funnel shows up once real outreach starts.
-          </p>
+        {attention.length === 0 ? (
+          <p className="mt-3 text-sm text-muted">Queue&apos;s clear — nothing waiting on you right now.</p>
         ) : (
-          <div className="mt-3">
-            <Funnel steps={funnel.steps} />
+          <div className="mt-3 flex flex-col gap-2">
+            {attention.map((a, i) => (
+              <Link
+                key={i}
+                href={a.href}
+                className={`btn-press flex items-center justify-between gap-3 rounded-lg border px-4 py-3 transition-colors ${attentionToneClass[a.tone]}`}
+              >
+                <div>
+                  <div className="text-sm font-semibold text-text">{a.title}</div>
+                  <div className="text-xs text-muted">{a.sub}</div>
+                </div>
+                <span className="font-mono-label text-lg font-semibold tabular-nums text-text">{a.n}</span>
+              </Link>
+            ))}
           </div>
         )}
       </section>
 
-      {/* Per-city breakdown */}
+      {/* The priority metric. */}
       <section className="mt-10">
-        <SectionHeading>By city</SectionHeading>
-        {byCity.length === 0 ? (
-          <p className="mt-3 text-sm" style={{ color: "var(--c-text-muted)" }}>No restaurants sourced yet.</p>
-        ) : (
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full min-w-[32rem] border-collapse text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs uppercase tracking-wide" style={{ borderColor: "var(--line)", color: "var(--c-text-muted)" }}>
-                  <th scope="col" className="px-3 py-2 font-semibold">City</th>
-                  <th scope="col" className="px-3 py-2 font-semibold">Total</th>
-                  <th scope="col" className="px-3 py-2 font-semibold">Queued</th>
-                  <th scope="col" className="px-3 py-2 font-semibold">Contacted</th>
-                  <th scope="col" className="px-3 py-2 font-semibold">Needs email</th>
-                  <th scope="col" className="px-3 py-2 font-semibold">Rejected</th>
-                </tr>
-              </thead>
-              <tbody>
-                {byCity.map((c) => (
-                  <tr key={c.city ?? "unknown"} className="border-b" style={{ borderColor: "var(--line)" }}>
-                    <td className="px-3 py-2 font-medium">{c.city ?? "(no city)"}</td>
-                    <td className="px-3 py-2 tabular-nums">{c.total}</td>
-                    <td className="px-3 py-2 tabular-nums text-stone-600">{c.queued}</td>
-                    <td className="px-3 py-2 tabular-nums text-stone-600">{c.contacted}</td>
-                    <td className="px-3 py-2 tabular-nums text-stone-600">{c.needsManual}</td>
-                    <td className="px-3 py-2 tabular-nums text-stone-600">{c.rejected}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <SectionHeading>Email-ready per night</SectionHeading>
+          <span className="text-xs text-muted">
+            avg <span className="font-mono-label font-semibold text-text">{avg.toFixed(1)}</span> / run night vs target{" "}
+            <span className="font-mono-label text-gold">{EMAIL_READY_TARGET}</span>
+            <span className="text-faint"> · {runNights} run nights</span>
+          </span>
+        </div>
+        <div className="mt-3">
+          <NightBars trend={trend} target={EMAIL_READY_TARGET} />
+        </div>
+      </section>
+
+      {/* Last night's funnel + why leads died, side by side. */}
+      <section className="mt-10 grid gap-6 lg:grid-cols-2">
+        <div>
+          <SectionHeading>Last night&apos;s funnel {night && <span className="text-faint">· {night}</span>}</SectionHeading>
+          {funnelSteps.length > 0 && funnel && funnel.sourced > 0 ? (
+            <div className="mt-3">
+              <Funnel steps={funnelSteps} />
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-muted">No run recorded yet.</p>
+          )}
+        </div>
+        <div>
+          <SectionHeading>Why leads died</SectionHeading>
+          {buckets.length > 0 ? (
+            <div className="mt-3">
+              <RejectionBars buckets={buckets} />
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-muted">No rejections last night.</p>
+          )}
+        </div>
+      </section>
+
+      {/* Email discovery yield — the stated bottleneck. */}
+      <section className="mt-10">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <SectionHeading>Email-discovery yield</SectionHeading>
+          {yieldPct != null && (
+            <span className="text-xs text-muted">
+              latest <span className="font-mono-label font-semibold text-text">{yieldPct}%</span> of website-havers got a verified email
+            </span>
+          )}
+        </div>
+        <p className="mt-2 text-xs text-faint">Of leads with a website, the share that finished with a verified email. The real bottleneck — more sourcing can&apos;t fix a low number here.</p>
+        {emailYield.length > 0 ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {[...emailYield].reverse().map((r) => {
+              const rate = r.sites ? Math.round((r.emails / r.sites) * 100) : null;
+              return (
+                <div key={r.night} className="rounded-lg border border-line bg-surface px-3 py-2 text-center">
+                  <div className="font-mono-label text-[10px] text-faint">{r.night}</div>
+                  <div className="font-mono-label text-base font-semibold tabular-nums text-text">{rate != null ? `${rate}%` : "—"}</div>
+                  <div className="font-mono-label text-[10px] tabular-nums text-faint">{r.emails}/{r.sites}</div>
+                </div>
+              );
+            })}
           </div>
+        ) : (
+          <p className="mt-3 text-sm text-muted">No website-havers processed in the window.</p>
         )}
       </section>
 
+      {/* Live event stream — kept as useful context, moved to the bottom. */}
       <section className="mt-10">
         <SectionHeading>Recent activity</SectionHeading>
         {activity.items.length === 0 ? (
-          <p className="mt-3 text-sm text-stone-500">Nothing yet — activity shows up here as the pipeline runs.</p>
+          <p className="mt-3 text-sm text-muted">Nothing yet — activity shows up here as the pipeline runs.</p>
         ) : (
           <ul className="mt-4 flex flex-col gap-1">
             {activity.items.map((a, i) => {
               const inner = (
-                <div className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-stone-100">
+                <div className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-surface-2">
                   <Badge value={a.kind} />
-                  <span className="flex-1 text-sm text-stone-700">{a.text}</span>
-                  <span className="whitespace-nowrap text-xs tabular-nums text-stone-400">{relTime(a.at, activity.nowMs)}</span>
+                  <span className="flex-1 text-sm text-muted">{a.text}</span>
+                  <span className="whitespace-nowrap text-xs tabular-nums text-faint">{relTime(a.at, activity.nowMs)}</span>
                 </div>
               );
               return (
@@ -314,5 +397,14 @@ export default async function AdminOverviewPage() {
         )}
       </section>
     </>
+  );
+}
+
+function HealthStat({ label, value, warn = false }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="font-mono-label text-[10px] uppercase tracking-wider text-faint">{label}</span>
+      <span className={`font-mono-label tabular-nums ${warn ? "text-coral" : "text-text"}`}>{value}</span>
+    </div>
   );
 }

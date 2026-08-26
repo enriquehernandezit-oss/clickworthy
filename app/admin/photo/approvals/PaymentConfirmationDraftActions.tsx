@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button, ConfirmDialog, Toast, fieldInputClass } from "../../ui";
 
 // Payment-confirmation draft controls — subject + body editable, prefilled
 // from what the Stripe webhook composed. Send / Deny, no separate approve
@@ -20,9 +21,9 @@ export default function PaymentConfirmationDraftActions({
   const [error, setError] = useState<string | null>(null);
   const [draftSubject, setDraftSubject] = useState(subject);
   const [draftBody, setDraftBody] = useState(body);
+  const [confirmingDeny, setConfirmingDeny] = useState(false);
 
-  const post = async (action: string, extra: Record<string, string> = {}, confirmMsg?: string) => {
-    if (confirmMsg && !window.confirm(confirmMsg)) return;
+  const post = async (action: string, extra: Record<string, string> = {}) => {
     setBusy(action);
     setError(null);
     try {
@@ -36,6 +37,7 @@ export default function PaymentConfirmationDraftActions({
         setBusy(null);
         return;
       }
+      setConfirmingDeny(false);
       router.refresh();
     } catch {
       setError("Network error.");
@@ -46,42 +48,40 @@ export default function PaymentConfirmationDraftActions({
 
   return (
     <div className="mt-3 flex flex-col gap-2">
-      <label className="text-xs font-medium text-stone-500">
+      <label className="text-xs font-medium text-faint">
         Subject
-        <input
-          value={draftSubject}
-          onChange={(e) => setDraftSubject(e.target.value)}
-          className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-stone-800"
-        />
+        <input value={draftSubject} onChange={(e) => setDraftSubject(e.target.value)} className={`mt-1 ${fieldInputClass}`} />
       </label>
-      <label className="text-xs font-medium text-stone-500">
+      <label className="text-xs font-medium text-faint">
         Body
-        <textarea
-          value={draftBody}
-          onChange={(e) => setDraftBody(e.target.value)}
-          rows={6}
-          className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm leading-relaxed text-stone-800"
-        />
+        <textarea value={draftBody} onChange={(e) => setDraftBody(e.target.value)} rows={6} className={`mt-1 ${fieldInputClass} leading-relaxed`} />
       </label>
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
+        <Button
+          className="kbd-approve"
+          variant="primary"
+          size="sm"
+          loading={busy === "payment_confirmation_send"}
           disabled={busy !== null || !draftSubject.trim() || !draftBody.trim()}
           onClick={() => post("payment_confirmation_send", { subject: draftSubject, body: draftBody })}
-          className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:text-stone-500"
         >
-          {busy === "payment_confirmation_send" ? "Sending…" : "Send"}
-        </button>
-        <button
-          type="button"
-          disabled={busy !== null}
-          onClick={() => post("payment_confirmation_deny", {}, "Deny this confirmation email? It won't be sent — the customer already has Stripe's own redirect to their upload page.")}
-          className="rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 disabled:opacity-50"
-        >
-          {busy === "payment_confirmation_deny" ? "Denying…" : "Deny"}
-        </button>
-        {error && <span className="text-sm text-red-600" role="alert">{error}</span>}
+          Send
+        </Button>
+        <Button className="kbd-deny" variant="danger" size="sm" disabled={busy !== null} onClick={() => setConfirmingDeny(true)}>
+          Deny
+        </Button>
       </div>
+      {error && <Toast tone="error" message={error} onDismiss={() => setError(null)} />}
+      <ConfirmDialog
+        open={confirmingDeny}
+        title="Deny this confirmation email?"
+        description="It won't be sent — the customer already has Stripe's own redirect to their upload page."
+        confirmLabel="Deny"
+        danger
+        busy={busy === "payment_confirmation_deny"}
+        onConfirm={() => post("payment_confirmation_deny")}
+        onCancel={() => setConfirmingDeny(false)}
+      />
     </div>
   );
 }

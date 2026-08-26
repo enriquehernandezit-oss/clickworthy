@@ -87,7 +87,7 @@ export default async function SelfServeOrderDetail({ params }: { params: Promise
                   <Thumb label="Enhanced" src={r?.enhancedUrl ?? null} />
                 </div>
                 {r?.error && (
-                  <div className="mt-2 rounded-md bg-red-50 px-2.5 py-1.5 text-xs text-red-700" role="alert">
+                  <div className="mt-2 rounded-md bg-coral/10 px-2.5 py-1.5 text-xs text-coral" role="alert">
                     {r.error}
                   </div>
                 )}

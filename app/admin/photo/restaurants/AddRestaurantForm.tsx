@@ -42,8 +42,8 @@ export default function AddRestaurantForm() {
     }
   };
 
-  const inputCls = "mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800";
-  const labelCls = "block text-xs font-medium text-stone-500";
+  const inputCls = "mt-1 w-full rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text";
+  const labelCls = "block text-xs font-medium text-muted";
 
   if (!open) {
     return (
@@ -59,7 +59,7 @@ export default function AddRestaurantForm() {
   }
 
   return (
-    <form onSubmit={submit} className="mt-2 rounded-xl border bg-white p-4" style={{ borderColor: "var(--line)" }}>
+    <form onSubmit={submit} className="mt-2 rounded-xl border bg-surface-2 p-4" style={{ borderColor: "var(--line)" }}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <label className={labelCls} htmlFor="ar-name">Name *</label>
@@ -93,7 +93,7 @@ export default function AddRestaurantForm() {
         <button
           type="submit"
           disabled={busy}
-          className="rounded-lg bg-stone-900 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-800 disabled:opacity-50"
+          className="rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-[#0F1216] hover:brightness-110 disabled:opacity-50"
         >
           {busy ? "Adding…" : "Add lead"}
         </button>
@@ -105,8 +105,8 @@ export default function AddRestaurantForm() {
         >
           Cancel
         </button>
-        <span className="text-xs text-stone-500">Email + signature dish → enters the queue. Missing either → held for a human to complete.</span>
-        {error && <span className="text-sm text-red-600" role="alert">{error}</span>}
+        <span className="text-xs text-muted">Email + signature dish → enters the queue. Missing either → held for a human to complete.</span>
+        {error && <span className="text-sm text-coral" role="alert">{error}</span>}
       </div>
     </form>
   );

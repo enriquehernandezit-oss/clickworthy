@@ -38,11 +38,11 @@ export default function UnrejectButton({ magicLinkId }: { magicLinkId: number })
         type="button"
         disabled={busy}
         onClick={restore}
-        className="rounded-lg border border-stone-300 px-2.5 py-1 text-xs font-medium text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50"
+        className="rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-text transition-colors hover:bg-surface-2 disabled:opacity-50"
       >
         {busy ? "…" : "Restore"}
       </button>
-      {error && <span className="text-xs text-red-600" role="alert">{error}</span>}
+      {error && <span className="text-xs text-coral" role="alert">{error}</span>}
     </div>
   );
 }

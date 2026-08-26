@@ -22,64 +22,48 @@
 
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
-import { getSetting } from "@/lib/settings";
 import { classifyWebsite } from "@/worker/lib/websitePlatform";
 import { calibrationReport, type CalibrationLead, type Decision } from "@/worker/lib/calibration";
+import {
+  getRunHealth,
+  checkAnthropicReachable,
+  getEmailReadyTrend,
+  avgEmailReady,
+  getLastSourcingNight,
+  getNightFunnel,
+  getRejectionBuckets,
+  getEmailYield,
+  getAnomalies,
+  EMAIL_READY_TARGET,
+} from "@/lib/pipelineHealth";
 
 const arg = Number(process.argv[2]);
 const nights = Number.isFinite(arg) && arg > 0 ? Math.floor(arg) : 10;
 
 // created_at is a naive UTC timestamp; bucket it in AST so a night lines up with
-// the calendar day you'd call "last night" (the 02:17 UTC cron = 22:17 AST prior
-// evening). Shared by every date-bucketed query below.
+// the calendar day you'd call "last night". Shared by the §6/§7/§9 queries that
+// still live inline here (§1–5 + §8 now come from lib/pipelineHealth.ts).
 const AST_DAY = sql`date_trunc('day', (created_at at time zone 'UTC') at time zone 'America/Puerto_Rico')`;
 const rows = <T>(r: unknown) => r as T[];
 const hr = (s: string) => console.log(`\n${"─".repeat(72)}\n  ${s}\n${"─".repeat(72)}`);
 
 // ── 1. Run health ──────────────────────────────────────────────────────────
 hr("1 · RUN HEALTH");
-const boot = (await getSetting("worker_boot_info")) as
-  | { bootedAt?: string; nightlyEnrichCap?: number; cities?: string[]; outreachEnabled?: boolean }
-  | null;
-if (boot?.bootedAt) {
-  const ageH = ((Date.now() - Date.parse(boot.bootedAt)) / 3_600_000).toFixed(1);
-  console.log(`  worker booted:      ${boot.bootedAt} (${ageH}h ago)`);
-  console.log(`  nightly cap:        ${boot.nightlyEnrichCap ?? "(not recorded)"}`);
-  console.log(`  cities:             ${boot.cities?.length ?? "?"}   outreach: ${boot.outreachEnabled ? "ENABLED" : "off"}`);
+const health = await getRunHealth(Date.now());
+if (health.bootedAt) {
+  console.log(`  worker booted:      ${health.bootedAt} (${health.ageHours!.toFixed(1)}h ago)`);
+  console.log(`  nightly cap:        ${health.nightlyCap ?? "(not recorded)"}`);
+  console.log(`  cities:             ${health.cities ?? "?"}   outreach: ${health.outreachEnabled ? "ENABLED" : "off"}`);
 } else {
   console.log("  ⚠ no worker boot info — the worker may never have started.");
 }
-
-// Live API check — a depleted balance / usage cap silently disables both quality
-// gates (they fail open), which is the #1 cause of a poisoned night (see §8).
-try {
-  const { default: Anthropic } = await import("@anthropic-ai/sdk");
-  const c = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-  await c.messages.create({ model: "claude-sonnet-5", max_tokens: 8, messages: [{ role: "user", content: "ok" }] });
-  console.log("  Anthropic API:      ✓ reachable");
-} catch (e: unknown) {
-  const msg = (e as { message?: string })?.message ?? String(e);
-  console.log(`  Anthropic API:      ✗ FAILING — gates are running blind: ${msg.slice(0, 90)}`);
-}
+const reach = await checkAnthropicReachable();
+if (reach.ok) console.log("  Anthropic API:      ✓ reachable");
+else console.log(`  Anthropic API:      ✗ FAILING — gates are running blind: ${reach.message.slice(0, 90)}`);
 
 // ── 2. Email-ready trend ───────────────────────────────────────────────────
 hr(`2 · EMAIL-READY (queued) PER NIGHT — last ${nights} nights, AST`);
-type TrendRow = { night: string; sourced: number; queued: number; needs: number; call: number; rej: number };
-const trend = rows<TrendRow>(
-  await db.execute(sql`
-    select to_char(${AST_DAY}, 'YYYY-MM-DD (Dy)') as night,
-      count(*)::int as sourced,
-      -- email-ready = ever reached a verified email. A lead that got EMAILED
-      -- moves queued -> contacted, so counting only 'queued' made the number
-      -- SHRINK as leads succeeded once the send cron went live. Both count.
-      count(*) filter (where enrichment_status in ('queued','contacted'))::int as queued,
-      count(*) filter (where enrichment_status='needs_manual_email')::int as needs,
-      count(*) filter (where enrichment_status='call_list')::int as call,
-      count(*) filter (where enrichment_status='rejected')::int as rej
-    from restaurants
-    where created_at > now() - (${nights} * interval '1 day')
-    group by 1 order by 1 desc`)
-);
+const trend = await getEmailReadyTrend(nights);
 console.log("  night              sourced  EMAIL-READY  needs-email  call-list  rejected");
 for (const r of trend) {
   console.log(
@@ -87,35 +71,14 @@ for (const r of trend) {
       String(r.needs).padStart(13) + String(r.call).padStart(11) + String(r.rej).padStart(10)
   );
 }
-const runNights = trend.filter((r) => r.sourced > 0);
-const avgReady = runNights.length ? runNights.reduce((a, r) => a + r.queued, 0) / runNights.length : 0;
-console.log(`\n  avg email-ready / run night: ${avgReady.toFixed(1)}  (target 20, over ${runNights.length} run nights)`);
+const { avg: avgReady, runNights: runNightCount } = avgEmailReady(trend);
+console.log(`\n  avg email-ready / run night: ${avgReady.toFixed(1)}  (target ${EMAIL_READY_TARGET}, over ${runNightCount} run nights)`);
 
 // ── 3. Last night deep-dive ────────────────────────────────────────────────
-// The most recent AST day that actually sourced anything.
-const [lastNight] = rows<{ d: string }>(
-  await db.execute(sql`
-    select to_char(${AST_DAY}, 'YYYY-MM-DD') as d
-    from restaurants group by 1 having count(*) > 0 order by 1 desc limit 1`)
-);
-const NIGHT = lastNight?.d ?? "1970-01-01";
-const inNight = sql`(created_at at time zone 'UTC') at time zone 'America/Puerto_Rico' >= ${NIGHT}::date
-  and (created_at at time zone 'UTC') at time zone 'America/Puerto_Rico' < (${NIGHT}::date + interval '1 day')`;
+const NIGHT = (await getLastSourcingNight()) ?? "1970-01-01";
 
 hr(`3 · LAST NIGHT (${NIGHT} AST) — the funnel`);
-const [f] = rows<Record<string, number>>(
-  await db.execute(sql`
-    select
-      count(*)::int as sourced,
-      count(*) filter (where rejection_reason like 'Hard filter:%')::int as free_filtered,
-      count(*) filter (where enrichment_status='rejected' and rejection_reason not like 'Hard filter:%')::int as gate_rejected,
-      count(*) filter (where enrichment_status in ('queued','contacted'))::int as queued,
-      count(*) filter (where enrichment_status='contacted')::int as contacted,
-      count(*) filter (where enrichment_status='needs_manual_email')::int as needs_email,
-      count(*) filter (where enrichment_status='call_list')::int as call_list,
-      count(*) filter (where website is not null)::int as with_site
-    from restaurants where ${inNight}`)
-);
+const f = await getNightFunnel(NIGHT);
 if (f) {
   const reached = f.sourced - f.free_filtered;
   console.log(`  sourced                       ${f.sourced}`);
@@ -129,37 +92,13 @@ if (f) {
 
 // ── 4. Rejection reasons ───────────────────────────────────────────────────
 hr(`4 · WHY LEADS DIED — last night (${NIGHT}), bucketed`);
-const rejBuckets = rows<{ bucket: string; n: number }>(
-  await db.execute(sql`
-    select case
-      when rejection_reason like 'Hard filter: only%' or rejection_reason like 'Hard filter: no review%' then 'too few reviews'
-      when rejection_reason like '%established destination%' then 'over review ceiling'
-      when rejection_reason like 'Hard filter: price%' then 'too expensive'
-      when rejection_reason like 'Hard filter: business status%' then 'closed'
-      when rejection_reason like '%chain%' or rejection_reason like '%hospitality group%' then 'chain / group'
-      when rejection_reason like '%professional photography%' then 'already has pro photos'
-      when rejection_reason like 'Hard filter:%' then 'other hard filter'
-      else 'other' end as bucket,
-      count(*)::int as n
-    from restaurants where ${inNight} and enrichment_status='rejected'
-    group by 1 order by 2 desc`)
-);
+const rejBuckets = await getRejectionBuckets(NIGHT);
 for (const r of rejBuckets) console.log(`  ${String(r.n).padStart(4)}  ${r.bucket}`);
 if (rejBuckets.length === 0) console.log("  (no rejections last night)");
 
 // ── 5. Email-discovery yield ───────────────────────────────────────────────
 hr("5 · EMAIL YIELD — of leads WITH a website, how many got a verified email");
-const yieldRows = rows<{ night: string; sites: number; emails: number }>(
-  await db.execute(sql`
-    select to_char(${AST_DAY}, 'MM-DD') as night,
-      -- website-havers that finished as an email decision: got an email
-      -- (queued/contacted) or had a site but none found (needs_manual_email).
-      count(*) filter (where website is not null and enrichment_status in ('queued','contacted','needs_manual_email'))::int as sites,
-      count(*) filter (where enrichment_status in ('queued','contacted'))::int as emails
-    from restaurants
-    where created_at > now() - (${Math.min(nights, 7)} * interval '1 day')
-    group by 1 order by 1 desc`)
-);
+const yieldRows = await getEmailYield(nights);
 console.log("  night   website-havers  got-email  hit-rate");
 for (const r of yieldRows) {
   const rate = r.sites ? ((r.emails / r.sites) * 100).toFixed(0) + "%" : "—";
@@ -207,29 +146,7 @@ if (s) {
 
 // ── 8. Anomaly detection ───────────────────────────────────────────────────
 hr("8 · ANOMALIES — outage signatures & red flags");
-const flags: string[] = [];
-// Gate-2 failed open: a RICH band with no pro-score means the Vision call
-// didn't happen — the whole reason 24 leads went unscreened on 2026-08-24.
-// `unclear` is deliberately EXCLUDED here since 2026-08-25 (photoFit.ts): Gate
-// 2 now skips `unclear` by design (decidePhotoFit can never reject anything
-// but `rich`, so scoring unclear was pure spend with no effect on any
-// decision) — every unclear lead has a null pro-score on purpose now, and
-// counting them here would flag normal operation as an outage every single
-// night forever.
-const [g2] = rows<{ n: number }>(
-  await db.execute(sql`
-    select count(*)::int as n from restaurants
-    where ${inNight} and website_photo_band = 'rich' and website_pro_score is null`)
-);
-if (g2?.n > 0) flags.push(`Gate-2 (Vision) skipped on ${g2.n} rich-band lead(s) last night — likely an API outage; those leads were NOT photo-screened (this can't reject them into a decision, but it means they were never actually judged).`);
-// Chain check failed open: a full run with zero chain/group rejections is
-// suspicious (a normal night rejects several).
-const [cc] = rows<{ n: number }>(
-  await db.execute(sql`select count(*) filter (where rejection_reason ilike '%hospitality group%')::int as n from restaurants where ${inNight}`)
-);
-if (f && f.sourced >= 40 && cc?.n === 0) flags.push(`0 chain/group rejections on a ${f.sourced}-lead run — the chain check may have been down (a normal run rejects several).`);
-// Suspiciously high email-ready rate (gates letting everything through).
-if (f && f.sourced >= 40 && f.queued / f.sourced > 0.4) flags.push(`Email-ready rate ${((f.queued / f.sourced) * 100).toFixed(0)}% is abnormally high — gates may have failed open; verify before trusting the queue.`);
+const flags = await getAnomalies(NIGHT, f);
 if (flags.length === 0) console.log("  ✓ none detected — last night's gates appear to have run normally.");
 for (const fl of flags) console.log(`  ⚠ ${fl}`);
 

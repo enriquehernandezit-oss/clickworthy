@@ -47,7 +47,7 @@ export default function UploadOnBehalfForm({ magicLinkId }: { magicLinkId: numbe
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="text-xs font-medium text-orange-700 hover:underline"
+        className="text-xs font-medium text-gold hover:underline"
       >
         Upload photos for them ↗
       </button>
@@ -55,7 +55,7 @@ export default function UploadOnBehalfForm({ magicLinkId }: { magicLinkId: numbe
   }
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-stone-200 bg-stone-50 p-2">
+    <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface-2 p-2">
       <input
         type="file"
         multiple
@@ -67,15 +67,15 @@ export default function UploadOnBehalfForm({ magicLinkId }: { magicLinkId: numbe
         type="button"
         disabled={busy}
         onClick={upload}
-        className="rounded-md bg-stone-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-stone-800 disabled:opacity-50"
+        className="rounded-md bg-gold px-2.5 py-1 text-xs font-medium text-[#0F1216] hover:brightness-110 disabled:opacity-50"
       >
         {busy ? "Uploading…" : "Upload"}
       </button>
-      <button type="button" onClick={() => setOpen(false)} className="text-xs text-stone-500 hover:underline">
+      <button type="button" onClick={() => setOpen(false)} className="text-xs text-muted hover:underline">
         Cancel
       </button>
       {msg && (
-        <span className={`text-xs ${msg.ok ? "text-teal-700" : "text-red-600"}`} role="alert">
+        <span className={`text-xs ${msg.ok ? "text-teal" : "text-coral"}`} role="alert">
           {msg.text}
         </span>
       )}

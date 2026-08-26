@@ -65,7 +65,7 @@ function Table({ rows }: { rows: ClassifiedRow[] }) {
     <div className="mt-3 overflow-x-auto">
       <table className="w-full min-w-[60rem] border-collapse text-sm">
         <thead>
-          <tr className="border-b border-stone-200 text-left text-xs uppercase tracking-wide text-stone-500">
+          <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
             <th className="px-3 py-2 font-semibold">Restaurant</th>
             <th className="px-3 py-2 font-semibold">City</th>
             <th className="px-3 py-2 font-semibold">Phone</th>
@@ -79,28 +79,28 @@ function Table({ rows }: { rows: ClassifiedRow[] }) {
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.id} className="border-b border-stone-100">
+            <tr key={r.id} className="border-b border-line">
               <td className="px-3 py-2 font-medium">
-                <Link href={`/admin/photo/restaurants/${r.id}`} className="text-stone-800 hover:underline">{r.name}</Link>
+                <Link href={`/admin/photo/restaurants/${r.id}`} className="text-text hover:underline">{r.name}</Link>
               </td>
-              <td className="px-3 py-2 text-stone-600">{r.city ?? "—"}</td>
-              <td className="px-3 py-2 text-stone-800">{r.phone ?? "—"}</td>
-              <td className="px-3 py-2 text-stone-600">
-                {r.website ? <a href={r.website} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">site ↗</a> : "—"}
+              <td className="px-3 py-2 text-muted">{r.city ?? "—"}</td>
+              <td className="px-3 py-2 text-text">{r.phone ?? "—"}</td>
+              <td className="px-3 py-2 text-muted">
+                {r.website ? <a href={r.website} target="_blank" rel="noreferrer" className="text-gold hover:underline">site ↗</a> : "—"}
               </td>
-              <td className="px-3 py-2 text-stone-600">
+              <td className="px-3 py-2 text-muted">
                 {r.platform ? (
                   <span title={describeWebsiteTier(r.tier)}>
                     {r.platform}
-                    <span className="ml-1 text-xs text-stone-400">{describeWebsiteTier(r.tier)}</span>
+                    <span className="ml-1 text-xs text-faint">{describeWebsiteTier(r.tier)}</span>
                   </span>
                 ) : (
-                  <span className="text-stone-400">{describeWebsiteTier(r.tier)}</span>
+                  <span className="text-faint">{describeWebsiteTier(r.tier)}</span>
                 )}
               </td>
-              <td className="px-3 py-2 tabular-nums text-stone-600">{r.reviewCount ?? "—"}</td>
-              <td className="px-3 py-2 tabular-nums text-stone-600">{r.rating ?? "—"}</td>
-              <td className="px-3 py-2 tabular-nums text-stone-600">{r.richness ?? "—"}</td>
+              <td className="px-3 py-2 tabular-nums text-muted">{r.reviewCount ?? "—"}</td>
+              <td className="px-3 py-2 tabular-nums text-muted">{r.rating ?? "—"}</td>
+              <td className="px-3 py-2 tabular-nums text-muted">{r.richness ?? "—"}</td>
               <td className="px-3 py-2"><Badge value={r.status} /></td>
             </tr>
           ))}
@@ -123,22 +123,22 @@ export default async function WebsiteLeadsPage() {
   return (
     <div>
       <SectionHeading>Website leads</SectionHeading>
-      <p className="mt-2 max-w-2xl text-sm text-stone-500">
+      <p className="mt-2 max-w-2xl text-sm text-muted">
         Prospects for a future website product, collected automatically. Nothing here is contacted by the current
         pipeline — it&apos;s a call/pitch sheet that fills up on its own. Sorted busiest-first.
       </p>
 
       <div className="mt-6">
-        <h3 className="text-sm font-semibold text-stone-800">
-          No website at all <span className="font-normal text-stone-400">· {noSite.length} · phone pitch (also in the photo call list)</span>
+        <h3 className="text-sm font-semibold text-text">
+          No website at all <span className="font-normal text-faint">· {noSite.length} · phone pitch (also in the photo call list)</span>
         </h3>
         {noSite.length === 0 ? <EmptyState>None yet — populates from tonight&apos;s sourcing run onward.</EmptyState> : <Table rows={noSite} />}
       </div>
 
       <div className="mt-8">
-        <h3 className="text-sm font-semibold text-stone-800">
+        <h3 className="text-sm font-semibold text-text">
           No site of their own{" "}
-          <span className="font-normal text-stone-400">
+          <span className="font-normal text-faint">
             · {notTheirs.length} · free subdomain / ordering page / social page — never bought a domain
           </span>
         </h3>
@@ -146,8 +146,8 @@ export default async function WebsiteLeadsPage() {
       </div>
 
       <div className="mt-8">
-        <h3 className="text-sm font-semibold text-stone-800">
-          Weak website <span className="font-normal text-stone-400">· {weakSite.length} · own domain, DIY build or thin page</span>
+        <h3 className="text-sm font-semibold text-text">
+          Weak website <span className="font-normal text-faint">· {weakSite.length} · own domain, DIY build or thin page</span>
         </h3>
         {weakSite.length === 0 ? <EmptyState>None yet.</EmptyState> : <Table rows={weakSite} />}
       </div>

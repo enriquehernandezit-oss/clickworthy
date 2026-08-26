@@ -20,7 +20,8 @@ import {
   type CityRow,
   type SelfServeRow,
 } from "@/lib/financeStats";
-import { KpiCard, ConsoleCard, Pill, Pager, money, fmtDate, relTime, SectionHeading, type PillTone } from "../../ui";
+import { getFunnel } from "@/lib/photoStats";
+import { KpiCard, ConsoleCard, Funnel, Pill, Pager, money, fmtDate, relTime, SectionHeading, type PillTone } from "../../ui";
 import { NumberSetting } from "../controls/ControlToggles";
 
 // Live P&L + client economics for the Photo venture. Every cost figure is a
@@ -50,13 +51,14 @@ async function loadFinancials(sp: Record<string, string | string[] | undefined>)
   const settings = await getAllSettings();
   const a = pickAssumptions(settings.values);
 
-  const [pnl, monthly, allClients, unattributed, cities, newPayers] = await Promise.all([
+  const [pnl, monthly, allClients, unattributed, cities, newPayers, funnel] = await Promise.all([
     getPnl(range, a),
     getMonthlySeries(range, a),
     getClientEconomics(a),
     getUnattributed(range),
     getCityEconomics(a),
     getPayingClientCount(range.from, range.to),
+    getFunnel(),
   ]);
 
   const segments = rollUpSegments(allClients);
@@ -101,6 +103,7 @@ async function loadFinancials(sp: Record<string, string | string[] | undefined>)
     blendedCacCents,
     revPerClientCents,
     returnMultiple,
+    funnel,
     nowMs,
   };
 }
@@ -134,6 +137,22 @@ export default async function PhotoFinancialsPage({
         <p className="mt-2 text-xs" style={{ color: "var(--c-text-faint)" }}>
           Revenue is real (from the payments ledger). Every cost line is a modelled estimate — see “Cost assumptions” below.
         </p>
+      </section>
+
+      {/* 2.5 — Outreach → revenue funnel. Fixed 30-day window (getFunnel is not
+          range-aware), so it's labelled as such rather than following the picker
+          above — it answers "how does a sent cold email turn into a sale?". */}
+      <section>
+        <SectionHeading>Outreach conversion · last 30 days</SectionHeading>
+        {d.funnel.sentCount === 0 ? (
+          <p className="mt-3 text-sm" style={{ color: "var(--c-text-muted)" }}>
+            No Touch 1 sent in the last 30 days — this fills in once outreach is live.
+          </p>
+        ) : (
+          <div className="mt-3">
+            <Funnel steps={d.funnel.steps} />
+          </div>
+        )}
       </section>
 
       {/* 3 — Profit & loss, then what the single "Fixed opex" line is made of */}
@@ -179,7 +198,7 @@ export default async function PhotoFinancialsPage({
       {/* 9 — Assumptions editor */}
       <section>
         <details>
-          <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wide text-stone-500">
+          <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wide text-muted">
             Cost assumptions (edit)
           </summary>
           <p className="mt-3 text-xs" style={{ color: "var(--c-text-muted)" }}>
@@ -263,7 +282,7 @@ function RangeForm({ range }: { range: Range }) {
             id="range"
             name="range"
             defaultValue={isCustom ? "" : range.key}
-            className="rounded-lg border bg-white px-3 py-1.5 text-sm text-stone-800"
+            className="rounded-lg border bg-surface-2 px-3 py-1.5 text-sm text-text"
             style={{ borderColor: "var(--line)" }}
           >
             {RANGE_OPTIONS.map((o) => (
@@ -276,7 +295,7 @@ function RangeForm({ range }: { range: Range }) {
         </div>
         <button
           type="submit"
-          className="btn-press rounded-lg bg-stone-900 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-800"
+          className="btn-press rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-[#0F1216] hover:brightness-110"
         >
           Apply
         </button>
@@ -299,7 +318,7 @@ function RangeForm({ range }: { range: Range }) {
             id="from"
             name="from"
             defaultValue={range.fromInput ?? ""}
-            className="rounded-lg border bg-white px-3 py-1.5 text-sm text-stone-800"
+            className="rounded-lg border bg-surface-2 px-3 py-1.5 text-sm text-text"
             style={{ borderColor: "var(--line)" }}
           />
         </div>
@@ -312,19 +331,19 @@ function RangeForm({ range }: { range: Range }) {
             id="to"
             name="to"
             defaultValue={range.toInput ?? ""}
-            className="rounded-lg border bg-white px-3 py-1.5 text-sm text-stone-800"
+            className="rounded-lg border bg-surface-2 px-3 py-1.5 text-sm text-text"
             style={{ borderColor: "var(--line)" }}
           />
         </div>
         <button
           type="submit"
-          className="btn-press rounded-lg border px-4 py-2 text-sm font-semibold text-stone-800 hover:bg-stone-50"
+          className="btn-press rounded-lg border px-4 py-2 text-sm font-semibold text-text hover:bg-surface-2"
           style={{ borderColor: "var(--line)" }}
         >
           Apply dates
         </button>
         {isCustom && (
-          <span className="pb-1.5 text-xs font-medium" style={{ color: "var(--c-accent, #b45309)" }}>
+          <span className="pb-1.5 text-xs font-medium" style={{ color: "var(--gold)" }}>
             Custom range active
           </span>
         )}
@@ -377,20 +396,20 @@ function FixedOpexBreakdown({ items, rangeDays }: { items: OpexItem[]; rangeDays
   return (
     <ConsoleCard>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="font-semibold text-stone-900">Fixed monthly opex</h3>
-        <div className="text-sm tabular-nums text-stone-500">
-          <span className="font-semibold text-stone-900">{money(monthly)}</span> / month
-          <span className="mx-1.5 text-stone-300">·</span>
+        <h3 className="font-semibold text-text">Fixed monthly opex</h3>
+        <div className="text-sm tabular-nums text-muted">
+          <span className="font-semibold text-text">{money(monthly)}</span> / month
+          <span className="mx-1.5 text-faint">·</span>
           {money(apportioned)} over {rangeDays}d
         </div>
       </div>
-      <p className="mt-1 text-xs text-stone-500">
+      <p className="mt-1 text-xs text-muted">
         Recurring subscriptions only. Usage-based spend (Anthropic, Google Places) is priced per
         event in the assumptions above, not here.
       </p>
 
       {recurring.length === 0 ? (
-        <p className="mt-4 text-sm text-stone-500">No fixed subscriptions configured.</p>
+        <p className="mt-4 text-sm text-muted">No fixed subscriptions configured.</p>
       ) : (
         <ul className="mt-4 flex flex-col gap-3">
           {recurring.map((item) => {
@@ -398,17 +417,17 @@ function FixedOpexBreakdown({ items, rangeDays }: { items: OpexItem[]; rangeDays
             return (
               <li key={item.label}>
                 <div className="flex items-baseline justify-between gap-3 text-sm">
-                  <span className="font-medium text-stone-800">{item.label}</span>
-                  <span className="tabular-nums text-stone-600">
+                  <span className="font-medium text-text">{item.label}</span>
+                  <span className="tabular-nums text-muted">
                     {money(item.cents)}
-                    <span className="ml-1.5 text-xs text-stone-400">{pct.toFixed(0)}%</span>
+                    <span className="ml-1.5 text-xs text-faint">{pct.toFixed(0)}%</span>
                   </span>
                 </div>
                 {/* Proportional bar — width is the share of total monthly opex. */}
-                <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-stone-100">
-                  <div className="h-full rounded-full bg-orange-400" style={{ width: `${pct}%` }} />
+                <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-surface-2">
+                  <div className="h-full rounded-full bg-gold" style={{ width: `${pct}%` }} />
                 </div>
-                {item.note && <p className="mt-1 text-xs text-stone-500">{item.note}</p>}
+                {item.note && <p className="mt-1 text-xs text-muted">{item.note}</p>}
               </li>
             );
           })}
@@ -419,20 +438,20 @@ function FixedOpexBreakdown({ items, rangeDays }: { items: OpexItem[]; rangeDays
           deliberately outside the monthly run rate above so they don't read as
           recurring. They still hit the P&L, but only in that month's window. */}
       {oneTime.length > 0 && (
-        <div className="mt-5 border-t border-stone-200 pt-4">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-stone-500">
+        <div className="mt-5 border-t border-line pt-4">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-muted">
             One-time setup (not in the monthly rate)
           </h4>
           <ul className="mt-2 flex flex-col gap-2">
             {oneTime.map((item) => (
               <li key={item.label} className="flex items-baseline justify-between gap-3 text-sm">
-                <span className="text-stone-800">
+                <span className="text-text">
                   {item.label}
-                  {item.note && <span className="ml-1.5 text-xs text-stone-500">· {item.note}</span>}
+                  {item.note && <span className="ml-1.5 text-xs text-muted">· {item.note}</span>}
                 </span>
-                <span className="tabular-nums text-stone-600">
+                <span className="tabular-nums text-muted">
                   {money(item.cents)}
-                  <span className="ml-1.5 text-xs text-stone-400">{item.oneTimeOn}</span>
+                  <span className="ml-1.5 text-xs text-faint">{item.oneTimeOn}</span>
                 </span>
               </li>
             ))}
@@ -764,7 +783,7 @@ function BlindSpots() {
   return (
     <section>
       <details>
-        <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wide text-stone-500">
+        <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wide text-muted">
           What this model can’t see
         </summary>
         <ul className="mt-3 flex list-disc flex-col gap-1.5 pl-5 text-xs" style={{ color: "var(--c-text-muted)" }}>

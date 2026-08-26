@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button, ConfirmDialog, Toast, fieldInputClass } from "../../ui";
 
 // Bump draft controls — body only, no subject (it replies into the Touch 1
 // thread). Same FormData -> /api/admin/approvals -> router.refresh() pattern
@@ -12,9 +13,9 @@ export default function BumpDraftActions({ outreachJobId, body }: { outreachJobI
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [draftBody, setDraftBody] = useState(body);
+  const [confirmingDeny, setConfirmingDeny] = useState(false);
 
-  const post = async (action: string, extra: Record<string, string> = {}, confirmMsg?: string) => {
-    if (confirmMsg && !window.confirm(confirmMsg)) return;
+  const post = async (action: string, extra: Record<string, string> = {}) => {
     setBusy(action);
     setError(null);
     try {
@@ -29,6 +30,7 @@ export default function BumpDraftActions({ outreachJobId, body }: { outreachJobI
         return;
       }
       if (action === "bump_edit") setEditing(false);
+      setConfirmingDeny(false);
       router.refresh();
     } catch {
       setError("Network error.");
@@ -37,70 +39,63 @@ export default function BumpDraftActions({ outreachJobId, body }: { outreachJobI
     }
   };
 
-  const inputCls = "w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-stone-800";
-
   if (editing) {
     return (
       <div className="mt-3 flex flex-col gap-2">
-        <label className="text-xs font-medium text-stone-500">
+        <label className="text-xs font-medium text-faint">
           Body
           <textarea
             value={draftBody}
             onChange={(e) => setDraftBody(e.target.value)}
             rows={8}
-            className={`mt-1 ${inputCls} font-sans leading-relaxed`}
+            className={`mt-1 ${fieldInputClass} font-sans leading-relaxed`}
           />
         </label>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
+          <Button variant="primary" size="sm" loading={busy === "bump_edit"} disabled={busy !== null} onClick={() => post("bump_edit", { body: draftBody })}>
+            Save edit
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             disabled={busy !== null}
-            onClick={() => post("bump_edit", { body: draftBody })}
-            className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-orange-700 disabled:opacity-50"
-          >
-            {busy === "bump_edit" ? "Saving…" : "Save edit"}
-          </button>
-          <button
-            type="button"
-            disabled={busy !== null}
-            onClick={() => { setEditing(false); setDraftBody(body); }}
-            className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-100"
+            onClick={() => {
+              setEditing(false);
+              setDraftBody(body);
+            }}
           >
             Cancel
-          </button>
-          {error && <span className="text-sm text-red-600" role="alert">{error}</span>}
+          </Button>
         </div>
+        {error && <Toast tone="error" message={error} onDismiss={() => setError(null)} />}
       </div>
     );
   }
 
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-2">
-      <button
-        type="button"
-        disabled={busy !== null}
-        onClick={() => post("bump_approve")}
-        className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-orange-700 disabled:opacity-50"
-      >
-        {busy === "bump_approve" ? "Approving…" : "Approve"}
-      </button>
-      <button
-        type="button"
-        disabled={busy !== null}
-        onClick={() => setEditing(true)}
-        className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50"
-      >
-        Edit
-      </button>
-      <button
-        type="button"
-        disabled={busy !== null}
-        onClick={() => post("bump_deny", {}, "Deny this bump? It won't be drafted again for this restaurant — that's a promise the copy itself makes.")}
-        className="rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 disabled:opacity-50"
-      >
-        {busy === "bump_deny" ? "Denying…" : "Deny"}
-      </button>
-      {error && <span className="text-sm text-red-600" role="alert">{error}</span>}
+    <div className="mt-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button className="kbd-approve" variant="primary" size="sm" loading={busy === "bump_approve"} disabled={busy !== null} onClick={() => post("bump_approve")}>
+          Approve
+        </Button>
+        <Button className="kbd-edit" variant="secondary" size="sm" disabled={busy !== null} onClick={() => setEditing(true)}>
+          Edit
+        </Button>
+        <Button className="kbd-deny" variant="danger" size="sm" disabled={busy !== null} onClick={() => setConfirmingDeny(true)}>
+          Deny
+        </Button>
+      </div>
+      {error && <Toast tone="error" message={error} onDismiss={() => setError(null)} />}
+      <ConfirmDialog
+        open={confirmingDeny}
+        title="Deny this bump?"
+        description="It won't be drafted again for this restaurant — that's a promise the copy itself makes."
+        confirmLabel="Deny"
+        danger
+        busy={busy === "bump_deny"}
+        onConfirm={() => post("bump_deny")}
+        onCancel={() => setConfirmingDeny(false)}
+      />
     </div>
   );
 }

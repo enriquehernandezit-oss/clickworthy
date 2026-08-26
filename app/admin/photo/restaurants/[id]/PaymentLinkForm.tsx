@@ -67,7 +67,7 @@ export default function PaymentLinkForm({ restaurantId }: { restaurantId: number
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-end gap-3">
         <div>
-          <label className="block text-xs font-medium text-stone-500" htmlFor="pkg">
+          <label className="block text-xs font-medium text-muted" htmlFor="pkg">
             Package
           </label>
           <select
@@ -77,7 +77,7 @@ export default function PaymentLinkForm({ restaurantId }: { restaurantId: number
               setPackageId(e.target.value as PackageId);
               setResult(null);
             }}
-            className="mt-1 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800"
+            className="mt-1 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text"
           >
             {PACKAGE_ORDER.map((id) => (
               <option key={id} value={id}>
@@ -88,11 +88,11 @@ export default function PaymentLinkForm({ restaurantId }: { restaurantId: number
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-stone-500" htmlFor="override">
+          <label className="block text-xs font-medium text-muted" htmlFor="override">
             Override amount (optional)
           </label>
           <div className="mt-1 flex items-center gap-1">
-            <span className="text-sm text-stone-500">$</span>
+            <span className="text-sm text-muted">$</span>
             <input
               id="override"
               type="number"
@@ -101,7 +101,7 @@ export default function PaymentLinkForm({ restaurantId }: { restaurantId: number
               value={overrideDollars}
               onChange={(e) => setOverrideDollars(e.target.value)}
               placeholder={(listed.priceCents / 100).toFixed(2)}
-              className="w-28 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800 tabular-nums"
+              className="w-28 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text tabular-nums"
             />
           </div>
         </div>
@@ -109,28 +109,28 @@ export default function PaymentLinkForm({ restaurantId }: { restaurantId: number
           type="button"
           disabled={busy}
           onClick={generate}
-          className="rounded-lg bg-stone-900 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-[#0F1216] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy ? "Generating…" : "Generate link"}
         </button>
       </div>
 
       {listed.id === "always_fresh" && (
-        <p className="text-xs text-stone-500">
+        <p className="text-xs text-muted">
           This charges the first month only ({(listed.priceCents / 100).toFixed(0)}). Renewals are recorded with
           &quot;Mark paid&quot; on the order until recurring billing exists.
         </p>
       )}
 
       {error && (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert">
+        <p className="rounded-lg border border-coral/40 bg-coral/10 px-3 py-2 text-sm text-coral" role="alert">
           {error}
         </p>
       )}
 
       {result && (
-        <div className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2">
-          <p className="text-xs font-semibold text-teal-800">
+        <div className="rounded-lg border border-teal/40 bg-teal/10 px-3 py-2">
+          <p className="text-xs font-semibold text-teal">
             Link created for ${(result.priceCents / 100).toFixed(2)} — doesn&apos;t expire. Paste it wherever
             you&apos;re closing the deal.
           </p>
@@ -140,12 +140,12 @@ export default function PaymentLinkForm({ restaurantId }: { restaurantId: number
               readOnly
               value={result.url}
               onFocus={(e) => e.currentTarget.select()}
-              className="flex-1 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-800"
+              className="flex-1 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-xs text-text"
             />
             <button
               type="button"
               onClick={copy}
-              className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-100"
+              className="rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-xs font-medium text-text hover:bg-surface-2"
             >
               {copied ? "Copied" : "Copy"}
             </button>

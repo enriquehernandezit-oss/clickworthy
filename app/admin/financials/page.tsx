@@ -71,7 +71,7 @@ export default async function CompanyFinancialsPage({
             <label htmlFor="range" className="text-xs font-medium" style={{ color: "var(--c-text-muted)" }}>
               Period
             </label>
-            <select id="range" name="range" defaultValue={range.key === "custom" ? "" : range.key} className="rounded-lg border bg-white px-3 py-1.5 text-sm text-stone-800" style={{ borderColor: "var(--line)" }}>
+            <select id="range" name="range" defaultValue={range.key === "custom" ? "" : range.key} className="rounded-lg border bg-surface-2 px-3 py-1.5 text-sm text-text" style={{ borderColor: "var(--line)" }}>
               {RANGE_OPTIONS.map((o) => (
                 <option key={o.key} value={o.key}>
                   {o.label}
@@ -80,7 +80,7 @@ export default async function CompanyFinancialsPage({
               {range.key === "custom" && <option value="">Custom (below)</option>}
             </select>
           </div>
-          <button type="submit" className="btn-press rounded-lg bg-stone-900 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-800">
+          <button type="submit" className="btn-press rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-[#0F1216] hover:brightness-110">
             Apply
           </button>
           <span className="pb-1.5 text-xs" style={{ color: "var(--c-text-faint)" }}>
@@ -90,13 +90,13 @@ export default async function CompanyFinancialsPage({
         <form method="GET" className="flex flex-wrap items-end gap-3">
           <div className="flex flex-col gap-1">
             <label htmlFor="from" className="text-xs font-medium" style={{ color: "var(--c-text-muted)" }}>From</label>
-            <input type="date" id="from" name="from" defaultValue={range.fromInput ?? ""} className="rounded-lg border bg-white px-3 py-1.5 text-sm text-stone-800" style={{ borderColor: "var(--line)" }} />
+            <input type="date" id="from" name="from" defaultValue={range.fromInput ?? ""} className="rounded-lg border bg-surface-2 px-3 py-1.5 text-sm text-text" style={{ borderColor: "var(--line)" }} />
           </div>
           <div className="flex flex-col gap-1">
             <label htmlFor="to" className="text-xs font-medium" style={{ color: "var(--c-text-muted)" }}>To</label>
-            <input type="date" id="to" name="to" defaultValue={range.toInput ?? ""} className="rounded-lg border bg-white px-3 py-1.5 text-sm text-stone-800" style={{ borderColor: "var(--line)" }} />
+            <input type="date" id="to" name="to" defaultValue={range.toInput ?? ""} className="rounded-lg border bg-surface-2 px-3 py-1.5 text-sm text-text" style={{ borderColor: "var(--line)" }} />
           </div>
-          <button type="submit" className="btn-press rounded-lg border px-4 py-2 text-sm font-semibold text-stone-800 hover:bg-stone-50" style={{ borderColor: "var(--line)" }}>
+          <button type="submit" className="btn-press rounded-lg border px-4 py-2 text-sm font-semibold text-text hover:bg-surface-2" style={{ borderColor: "var(--line)" }}>
             Apply dates
           </button>
           {range.key === "custom" && (

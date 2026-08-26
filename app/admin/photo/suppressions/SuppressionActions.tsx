@@ -39,7 +39,7 @@ export function AddSuppressionForm() {
   return (
     <div className="mt-5 flex flex-wrap items-end gap-3">
       <div>
-        <label htmlFor="supp-email" className="block text-xs font-medium text-stone-500">
+        <label htmlFor="supp-email" className="block text-xs font-medium text-muted">
           Email
         </label>
         <input
@@ -48,18 +48,18 @@ export function AddSuppressionForm() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="owner@restaurant.com"
-          className="mt-1 w-64 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800 placeholder:text-stone-400"
+          className="mt-1 w-64 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text placeholder:text-faint"
         />
       </div>
       <div>
-        <label htmlFor="supp-reason" className="block text-xs font-medium text-stone-500">
+        <label htmlFor="supp-reason" className="block text-xs font-medium text-muted">
           Reason
         </label>
         <select
           id="supp-reason"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          className="mt-1 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800"
+          className="mt-1 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text"
         >
           {REASONS.map((r) => (
             <option key={r} value={r}>
@@ -72,11 +72,11 @@ export function AddSuppressionForm() {
         type="button"
         disabled={busy || !email.trim()}
         onClick={submit}
-        className="btn-press rounded-lg bg-stone-900 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:text-stone-500"
+        className="btn-press rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-[#0F1216] hover:brightness-110 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-muted"
       >
         {busy ? "Adding…" : "Add"}
       </button>
-      {error && <span className="pb-2 text-sm text-red-600">{error}</span>}
+      {error && <span className="pb-2 text-sm text-coral">{error}</span>}
     </div>
   );
 }
@@ -101,12 +101,12 @@ export default function SuppressionActions({ email }: { email: string }) {
 
   return (
     <div className="flex items-center justify-end gap-2">
-      {error && <span className="text-xs text-red-600">{error}</span>}
+      {error && <span className="text-xs text-coral">{error}</span>}
       <button
         type="button"
         disabled={busy}
         onClick={remove}
-        className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50"
+        className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-text transition-colors hover:bg-surface-2 disabled:opacity-50"
       >
         {busy ? "Removing…" : "Remove"}
       </button>

@@ -37,11 +37,11 @@ export default function UnapproveButton({ outreachJobId }: { outreachJobId: numb
         type="button"
         disabled={busy}
         onClick={unapprove}
-        className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50"
+        className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-text transition-colors hover:bg-surface-2 disabled:opacity-50"
       >
         {busy ? "Un-approving…" : "Un-approve (back to draft)"}
       </button>
-      {error && <span className="text-sm text-red-600" role="alert">{error}</span>}
+      {error && <span className="text-sm text-coral" role="alert">{error}</span>}
     </div>
   );
 }

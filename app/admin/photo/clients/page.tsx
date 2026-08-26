@@ -61,10 +61,10 @@ function statusOf(r: Row, nowMs: number): Status {
 const RANK: Record<Status, number> = { lapsed_sub: 0, active_sub: 1, repeat: 2, one_time: 3 };
 const LABEL: Record<Status, string> = { lapsed_sub: "⚠ Lapsed subscriber", active_sub: "Active subscriber", repeat: "Repeat", one_time: "One-time" };
 const TONE: Record<Status, string> = {
-  lapsed_sub: "bg-red-50 text-red-700 ring-red-200",
-  active_sub: "bg-green-50 text-green-700 ring-green-200",
-  repeat: "bg-blue-50 text-blue-700 ring-blue-200",
-  one_time: "bg-stone-100 text-stone-600 ring-stone-200",
+  lapsed_sub: "bg-coral/10 text-coral ring-coral/30",
+  active_sub: "bg-teal/10 text-teal ring-teal/30",
+  repeat: "bg-gold/10 text-gold ring-gold/30",
+  one_time: "bg-surface-2 text-muted ring-line",
 };
 
 function fmt(d: string): string {
@@ -86,7 +86,7 @@ export default async function ClientsPage() {
   return (
     <div>
       <SectionHeading>Clients</SectionHeading>
-      <p className="mt-2 max-w-2xl text-sm text-stone-500">
+      <p className="mt-2 max-w-2xl text-sm text-muted">
         Everyone who has paid, most-urgent first. Lapsed subscribers are at the top — a client link opens their profile,
         where you can send a one-off follow-up.
       </p>
@@ -94,7 +94,7 @@ export default async function ClientsPage() {
       <div className="mt-4 flex flex-wrap gap-4 text-sm">
         <span><b>{clients.length}</b> clients</span>
         <span><b>{activeSubs}</b> active subs</span>
-        <span className={lapsedSubs ? "text-red-600" : ""}><b>{lapsedSubs}</b> lapsed</span>
+        <span className={lapsedSubs ? "text-coral" : ""}><b>{lapsedSubs}</b> lapsed</span>
         <span><b>{money(totalRevenue)}</b> lifetime revenue</span>
         <span><b>{repeatRate}%</b> repeat rate</span>
       </div>
@@ -105,7 +105,7 @@ export default async function ClientsPage() {
         <div className="mt-5 overflow-x-auto">
           <table className="w-full min-w-[64rem] border-collapse text-sm">
             <thead>
-              <tr className="border-b border-stone-200 text-left text-xs uppercase tracking-wide text-stone-500">
+              <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
                 <th className="px-3 py-2 font-semibold">Client</th>
                 <th className="px-3 py-2 font-semibold">Status</th>
                 <th className="px-3 py-2 font-semibold">Lifetime</th>
@@ -118,16 +118,16 @@ export default async function ClientsPage() {
             </thead>
             <tbody>
               {clients.map((c) => (
-                <tr key={c.clientKey} className="border-b border-stone-100">
+                <tr key={c.clientKey} className="border-b border-line">
                   <td className="px-3 py-2 font-medium">
                     {c.restaurantId ? (
-                      <Link href={`/admin/photo/restaurants/${c.restaurantId}`} className="text-stone-800 hover:underline">{c.name ?? "Restaurant"}</Link>
+                      <Link href={`/admin/photo/restaurants/${c.restaurantId}`} className="text-text hover:underline">{c.name ?? "Restaurant"}</Link>
                     ) : (
-                      <span className="text-stone-800">{c.contact ?? "Self-serve"}</span>
+                      <span className="text-text">{c.contact ?? "Self-serve"}</span>
                     )}
-                    {c.city ? <span className="text-stone-400"> · {c.city}</span> : null}
+                    {c.city ? <span className="text-faint"> · {c.city}</span> : null}
                     {c.website && (
-                      <a href={c.website} target="_blank" rel="noopener noreferrer" className="ml-2 text-xs text-blue-600 hover:underline">
+                      <a href={c.website} target="_blank" rel="noopener noreferrer" className="ml-2 text-xs text-gold hover:underline">
                         site ↗
                       </a>
                     )}
@@ -136,13 +136,13 @@ export default async function ClientsPage() {
                     <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${TONE[c.status]}`}>{LABEL[c.status]}</span>
                   </td>
                   <td className="px-3 py-2 tabular-nums font-semibold">{money(c.lifetimeCents)}</td>
-                  <td className="px-3 py-2 tabular-nums text-stone-600">{c.orders}</td>
-                  <td className="px-3 py-2 text-stone-600">{fmt(c.lastPaid)}</td>
-                  <td className={`px-3 py-2 tabular-nums ${c.status === "lapsed_sub" ? "text-red-600 font-semibold" : "text-stone-600"}`}>{c.daysSince}</td>
-                  <td className="px-3 py-2 text-stone-500">{c.products.join(", ")}</td>
-                  <td className="px-3 py-2 text-stone-600">
+                  <td className="px-3 py-2 tabular-nums text-muted">{c.orders}</td>
+                  <td className="px-3 py-2 text-muted">{fmt(c.lastPaid)}</td>
+                  <td className={`px-3 py-2 tabular-nums ${c.status === "lapsed_sub" ? "text-coral font-semibold" : "text-muted"}`}>{c.daysSince}</td>
+                  <td className="px-3 py-2 text-muted">{c.products.join(", ")}</td>
+                  <td className="px-3 py-2 text-muted">
                     {c.contact && /^[\d ()+-]+$/.test(c.contact) ? (
-                      <a href={telHref(c.contact)} className="tabular-nums text-blue-600 hover:underline">{c.contact}</a>
+                      <a href={telHref(c.contact)} className="tabular-nums text-gold hover:underline">{c.contact}</a>
                     ) : (
                       c.contact ?? "—"
                     )}

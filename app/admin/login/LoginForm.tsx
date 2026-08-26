@@ -78,7 +78,7 @@ export default function LoginForm() {
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3.5 py-2.5 text-sm focus:border-[#E3A83B] focus:outline-none"
+            className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3.5 py-2.5 text-sm text-stone-900 focus:border-[#E3A83B] focus:outline-none"
           />
         </div>
         <div className="mb-3.5">
@@ -91,7 +91,7 @@ export default function LoginForm() {
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3.5 py-2.5 text-sm focus:border-[#E3A83B] focus:outline-none"
+            className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3.5 py-2.5 text-sm text-stone-900 focus:border-[#E3A83B] focus:outline-none"
           />
         </div>
         {error && (

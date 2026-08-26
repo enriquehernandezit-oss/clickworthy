@@ -26,28 +26,46 @@
   --font-mono: var(--font-geist-mono);
 }
 
-/* ---- Admin console design system (from the dashboard mockup) ----
-   Scoped to `.console` so the public site keeps its stone/orange look. The
-   fonts (--font-display/body/mono-label) are defined by next/font in the root
-   layout and only take effect where referenced, i.e. inside .console. */
+/* ---- Admin console design system ----
+   Scoped to `.console` so the public site keeps its stone/orange look.
+   Dark ground, chosen for a task reason, not a stylistic one: the operator's
+   primary job is spotting what's WRONG in an overnight batch, and the old
+   light palette (--gold-soft #fbf0da on --paper #f6f5f2, a 1.06:1 difference)
+   made status color nearly invisible. Same five brand hues, inverted ground —
+   see /Users/enriquehernandez/.claude/plans/try-again-witty-coral.md.
+   Variable NAMES are unchanged from the old light system (--card, --paper,
+   --line, --c-text, --gold, etc.) so every existing inline `style={{ color:
+   "var(--x)" }}` usage repaints automatically; only the VALUES moved. New
+   names below (--surface-2, --line-strong) are additive.
+   The fonts (--font-display/body/mono-label) are defined by next/font in the
+   root layout and only take effect where referenced, i.e. inside .console. */
 .console {
-  --ink: #14171c;
-  --ink-soft: #1e2229;
-  --paper: #f6f5f2;
-  --card: #ffffff;
-  --line: #e4e2db;
-  --c-text: #1c1e22;
-  --c-text-muted: #6b7280;
-  --c-text-faint: #9a9ea6;
-  --gold: #e3a83b;
-  --gold-soft: #fbf0da;
-  --teal: #2f7a6f;
-  --teal-soft: #e1eeeb;
-  --plum: #6b5ca5;
-  --plum-soft: #eae6f5;
-  --rust: #c1583f;
-  --rust-soft: #f6e4df;
-  --coral: #d65f5f;
+  --paper: #0f1216; /* page ground */
+  --card: #14171c; /* surface — the same value the sidebar always used */
+  --surface-2: #1a1e25; /* raised: table header, input, hover row */
+  --line: #262b33;
+  --line-strong: #333944;
+
+  --c-text: #e8eaed; /* 14.6:1 on --card */
+  --c-text-muted: #9ba1ab; /* 6.8:1 — AA body */
+  --c-text-faint: #7c838f; /* 4.6:1 — AA body */
+
+  --gold: #e3a83b; /* 8.6:1 on --card — unchanged, was already this hue */
+  --teal: #4fbfae;
+  --plum: #a99be0;
+  --rust: #e07a5f;
+  --coral: #e87070;
+
+  /* Tinted chip backgrounds: one formula instead of five hand-picked hexes.
+     Kept as named vars (not inlined at every call site) so Pill/Badge's tone
+     map stays a one-line-per-tone table. */
+  --gold-soft: color-mix(in oklch, var(--gold) 16%, var(--card));
+  --teal-soft: color-mix(in oklch, var(--teal) 16%, var(--card));
+  --plum-soft: color-mix(in oklch, var(--plum) 16%, var(--card));
+  --rust-soft: color-mix(in oklch, var(--rust) 16%, var(--card));
+  --coral-soft: color-mix(in oklch, var(--coral) 16%, var(--card));
+  --gray-soft: var(--surface-2);
+
   /* default accent = gold (Photo venture); each venture page overrides these */
   --accent: var(--gold);
   --accent-soft: var(--gold-soft);
@@ -55,26 +73,60 @@
   background: var(--paper);
   color: var(--c-text);
   font-family: var(--font-body), "Inter", system-ui, sans-serif;
+  color-scheme: dark;
 }
 
+/* Registers the .console tokens as real Tailwind utilities (bg-surface,
+   text-muted, border-line, bg-gold, ...) so the stone/orange-dialect pages
+   can migrate onto the same source of truth as the inline-style pages,
+   instead of a second hand-maintained palette. `inline` keeps these as
+   var() references rather than resolving at build time, which is required
+   since the real values live inside `.console`, not at the Tailwind
+   `@theme`/`:root` scope. */
+@theme inline {
+  --color-canvas: var(--paper);
+  --color-surface: var(--card);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-text: var(--c-text);
+  --color-muted: var(--c-text-muted);
+  --color-faint: var(--c-text-faint);
+  --color-gold: var(--gold);
+  --color-teal: var(--teal);
+  --color-plum: var(--plum);
+  --color-rust: var(--rust);
+  --color-coral: var(--coral);
+  --color-accent: var(--accent);
+}
+
+/* Product register: one family carries UI, numerals get the tabular face.
+   Space Grotesk (a display font) used to set .font-display, including every
+   KPI number — dropped from the console entirely; it stays on the public
+   site. .font-display now aliases the body face at heading weight. */
 .console .font-display {
-  font-family: var(--font-display), "Space Grotesk", system-ui, sans-serif;
+  font-family: var(--font-body), "Inter", system-ui, sans-serif;
 }
 .console .font-mono-label {
   font-family: var(--font-mono-label), "IBM Plex Mono", ui-monospace, monospace;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+/* When the dark console is mounted, paint the page canvas itself dark so an
+   overscroll rubber-band (dragging past the top/bottom) doesn't flash the
+   white body background behind it. Scoped via :has() so the public marketing
+   site — which never renders `.console` — keeps its white canvas. The
+   overscroll glow is painted from the root element's background, so both html
+   and body are set. The login overlay (fixed, dark) already covers this, so
+   it's unaffected. */
+html:has(.console),
+body:has(.console) {
+  background: #0f1216;
 }
 
 /* Shared press feedback for pressable elements (buttons, chips, toggles).
@@ -101,6 +153,15 @@ body {
 }
 .animate-fade-scale-in {
   animation: fade-scale-in 240ms var(--ease-snappy) both;
+}
+
+/* Keyboard-triage focus ring for the Approvals queue (QueueKeyboard.tsx) —
+   a plain outline, not a layout-affecting border, so j/k navigation never
+   reflows the list. */
+.kbd-focused {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: 0.75rem;
 }
 
 @media (prefers-reduced-motion: reduce) {

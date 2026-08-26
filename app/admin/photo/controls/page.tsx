@@ -1,11 +1,27 @@
-import { sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { outreachJobs } from "@/db/schema";
 import { getAllSettings } from "@/lib/settings";
 import { getDeliverability } from "@/lib/photoStats";
+import { dailyCap, sentToday } from "@/worker/jobs/sendOutreach";
+import { describeSendWindow } from "@/worker/lib/sendWindow";
 import { ALL_QUEUES, SOURCE_QUEUE, SEND_QUEUE, REPLY_QUEUE, STATS_QUEUE, PACKAGE_QUEUE, SOURCING_REPORT_QUEUE } from "@/lib/queues";
 import { Card, EmptyState, SectionHeading, fmtDateTime } from "../../ui";
 import { PauseControl, AutosendControl, NumberSetting } from "./ControlToggles";
 import RunNow from "./RunNow";
+
+// Approved-but-unsent Touch 1 + bump rows — the pile actually waiting on the
+// send window (not drafts, which still need approval first).
+async function getSendState() {
+  const [{ pending }] = await db
+    .select({
+      pending: sql<number>`count(*) filter (where ${outreachJobs.status} = 'approved' and ${outreachJobs.kind} in ('touch1','bump'))::int`,
+    })
+    .from(outreachJobs)
+    .where(isNull(outreachJobs.sentAt));
+  const [cap, sent] = await Promise.all([dailyCap(), sentToday()]);
+  return { pending: pending ?? 0, cap, sent, remaining: Math.max(0, cap - sent) };
+}
 
 export const dynamic = "force-dynamic";
 
@@ -109,10 +125,11 @@ function staleness(nowMs: number, iso: string | undefined): string {
 }
 
 export default async function ControlsPage() {
-  const [{ values, updatedAt }, health, deliverability] = await Promise.all([
+  const [{ values, updatedAt }, health, deliverability, sendState] = await Promise.all([
     getAllSettings(),
     getWorkerHealth(),
     getDeliverability(),
+    getSendState(),
   ]);
   const boot = values.worker_boot_info;
 
@@ -121,7 +138,7 @@ export default async function ControlsPage() {
       {/* Toggles */}
       <section className="flex flex-col gap-4">
         <SectionHeading>Controls</SectionHeading>
-        <p className="-mt-2 max-w-2xl text-sm text-stone-600">
+        <p className="-mt-2 max-w-2xl text-sm text-muted">
           Two separate gates, in this order: <strong>Approval mode</strong> decides whether a new draft needs your
           click before it&apos;s approved at all. <strong>Pause/Resume</strong> decides whether something
           already approved is allowed to actually leave. Pausing never approves or skips your review — it only
@@ -162,7 +179,7 @@ export default async function ControlsPage() {
         <div
           className="mt-3 rounded-xl border p-4"
           style={{
-            background: deliverability.healthy ? "var(--card)" : "#FBE7E7",
+            background: deliverability.healthy ? "var(--card)" : "var(--coral-soft)",
             borderColor: deliverability.healthy ? "var(--line)" : "var(--coral)",
           }}
         >
@@ -196,6 +213,32 @@ export default async function ControlsPage() {
         </div>
       </section>
 
+      {/* Send window — why an approved email might be waiting */}
+      <section>
+        <SectionHeading>Send window</SectionHeading>
+        <div className="mt-3 rounded-xl border p-4" style={{ background: "var(--card)", borderColor: "var(--line)" }}>
+          <div className="font-display text-sm font-semibold" style={{ color: "var(--c-text)" }}>
+            {describeSendWindow()}
+          </div>
+          <p className="mt-1 text-xs" style={{ color: "var(--c-text-muted)" }}>
+            Approved emails only leave during the recipient&apos;s local business hours — a Miami lead sends on Eastern
+            time, a Los Angeles lead on Pacific. Outside the window an approved draft simply waits; it isn&apos;t lost.
+            Weekends are skipped.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-6 text-sm" style={{ color: "var(--c-text-muted)" }}>
+            <span>
+              <span className="font-semibold tabular-nums text-[var(--c-text)]">{sendState.pending}</span> approved, waiting to send
+            </span>
+            <span>
+              <span className="font-semibold tabular-nums text-[var(--c-text)]">{sendState.sent}</span> sent today
+            </span>
+            <span>
+              <span className="font-semibold tabular-nums text-[var(--c-text)]">{sendState.remaining}</span> of {sendState.cap} daily cap remaining
+            </span>
+          </div>
+        </div>
+      </section>
+
       {/* Worker health */}
       <section>
         <SectionHeading>Worker health</SectionHeading>
@@ -204,7 +247,7 @@ export default async function ControlsPage() {
         ) : (
           <>
             {(health.replyStaleMinutes === null || health.replyStaleMinutes > 10) && (
-              <div className="mt-3 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+              <div className="mt-3 rounded-lg border px-4 py-3 text-sm font-medium text-coral" style={{ borderColor: "var(--coral)", background: "var(--coral-soft)" }}>
                 Worker may be down — the reply cycle (every ~4 min) last completed{" "}
                 {health.replyStaleMinutes === null ? "never" : `${health.replyStaleMinutes} min ago`}.
               </div>
@@ -212,7 +255,7 @@ export default async function ControlsPage() {
             <div className="mt-4 overflow-x-auto">
               <table className="w-full min-w-[40rem] border-collapse text-sm">
                 <thead>
-                  <tr className="border-b border-stone-200 text-left text-xs uppercase tracking-wide text-stone-500">
+                  <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-faint">
                     <th scope="col" className="px-3 py-2 font-semibold">Queue</th>
                     <th scope="col" className="px-3 py-2 font-semibold">Last completed</th>
                     <th scope="col" className="px-3 py-2 font-semibold">Depth (waiting · running · retry)</th>
@@ -223,21 +266,21 @@ export default async function ControlsPage() {
                     const d = health.depth[q];
                     const backed = d ? d.created + d.active + d.retry : 0;
                     return (
-                    <tr key={q} className="border-b border-stone-100">
+                    <tr key={q} className="border-b border-line">
                       <td className="px-3 py-2 font-medium">{QUEUE_LABELS[q] ?? q}</td>
-                      <td className="px-3 py-2 tabular-nums text-stone-600">
+                      <td className="px-3 py-2 tabular-nums text-muted">
                         {health.lastRuns[q] ? staleness(health.nowMs, health.lastRuns[q]!) : "—"}
                       </td>
-                      <td className="px-3 py-2 tabular-nums text-stone-600">
+                      <td className="px-3 py-2 tabular-nums text-muted">
                         {backed === 0 ? (
                           <span style={{ color: "var(--c-text-faint)" }}>—</span>
                         ) : (
                           <>
-                            <span className={d && d.created > 0 ? "font-semibold text-amber-700" : ""}>{d?.created ?? 0}</span>
+                            <span className={d && d.created > 0 ? "font-semibold text-gold" : ""}>{d?.created ?? 0}</span>
                             {" · "}
                             <span>{d?.active ?? 0}</span>
                             {" · "}
-                            <span className={d && d.retry > 0 ? "font-semibold text-red-700" : ""}>{d?.retry ?? 0}</span>
+                            <span className={d && d.retry > 0 ? "font-semibold text-coral" : ""}>{d?.retry ?? 0}</span>
                           </>
                         )}
                       </td>
@@ -248,16 +291,16 @@ export default async function ControlsPage() {
               </table>
             </div>
 
-            <h3 className="mt-6 text-sm font-semibold text-stone-700">Recent failures (7 days)</h3>
+            <h3 className="mt-6 text-sm font-semibold text-text">Recent failures (7 days)</h3>
             {health.failures.length === 0 ? (
-              <p className="mt-2 text-sm text-stone-500">None — everything has run clean.</p>
+              <p className="mt-2 text-sm text-faint">None — everything has run clean.</p>
             ) : (
               <div className="mt-2 flex flex-col gap-2">
                 {health.failures.map((f, i) => (
-                  <div key={i} className="rounded-lg border border-red-100 bg-red-50 p-3 text-sm">
-                    <span className="font-medium text-red-800">{QUEUE_LABELS[f.name] ?? f.name}</span>
-                    <span className="ml-2 text-xs text-stone-500">{fmtDateTime(new Date(f.created_on))}</span>
-                    <div className="mt-1 text-stone-700">{f.error ?? "(no error message)"}</div>
+                  <div key={i} className="rounded-lg border p-3 text-sm" style={{ borderColor: "var(--coral)", background: "var(--coral-soft)" }}>
+                    <span className="font-medium text-coral">{QUEUE_LABELS[f.name] ?? f.name}</span>
+                    <span className="ml-2 text-xs text-faint">{fmtDateTime(new Date(f.created_on))}</span>
+                    <div className="mt-1 text-text">{f.error ?? "(no error message)"}</div>
                   </div>
                 ))}
               </div>
@@ -281,7 +324,7 @@ export default async function ControlsPage() {
               <Row label="Send cron" value={boot.crons.send} />
               <Row label="Reply-poll cron" value={boot.crons.replyPoll} />
             </dl>
-            <p className="mt-3 text-xs text-stone-500">
+            <p className="mt-3 text-xs text-faint">
               This is the WORKER service&apos;s env as of its last boot ({staleness(health.nowMs, updatedAt.worker_boot_info?.toISOString())}). Restart the worker after changing its Railway env to refresh.
             </p>
           </Card>
@@ -301,9 +344,9 @@ export default async function ControlsPage() {
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between gap-4 border-b border-stone-100 py-1">
-      <dt className="text-stone-500">{label}</dt>
-      <dd className="text-right font-medium text-stone-900">{value}</dd>
+    <div className="flex justify-between gap-4 border-b border-line py-1">
+      <dt className="text-faint">{label}</dt>
+      <dd className="text-right font-medium text-text">{value}</dd>
     </div>
   );
 }

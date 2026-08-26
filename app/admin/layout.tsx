@@ -1,22 +1,40 @@
 import type { Metadata } from "next";
-import Sidebar from "./Sidebar";
+import Sidebar, { type WorkCounts } from "./Sidebar";
 import LogoutButton from "./LogoutButton";
 import { getCurrentUser } from "@/lib/currentUser";
+import { getNeedsAttention } from "@/lib/photoStats";
 
 export const metadata: Metadata = {
   title: "ClickWorthy Console",
   robots: { index: false, follow: false },
 };
 
-// The console shell: dark sidebar (venture switcher) + a light main column with
-// a sticky topbar. `.console` scopes the design system so the public site is
-// untouched. The login page renders its own fixed overlay on top of this.
+// getNeedsAttention() items can share an href (e.g. 4 distinct order
+// problems all point at /admin/photo/orders) — sum by href so the sidebar
+// badge reflects the page's total work, not just its first cause.
+function sumByHref(items: Awaited<ReturnType<typeof getNeedsAttention>>, href: string): number {
+  return items.filter((i) => i.href === href).reduce((sum, i) => sum + i.n, 0);
+}
+
+// The console shell: dark sidebar (venture-aware nav) + a dark main column
+// with a sticky topbar. `.console` scopes the design system so the public
+// site is untouched. The login page renders its own fixed overlay on top.
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const user = await getCurrentUser();
+  const [user, attention] = await Promise.all([getCurrentUser(), getNeedsAttention()]);
+
+  const workCounts: WorkCounts = {
+    approvals: sumByHref(attention, "/admin/photo/approvals"),
+    samples: sumByHref(attention, "/admin/photo/samples"),
+    orders: sumByHref(attention, "/admin/photo/orders"),
+  };
 
   return (
     <div className="console flex min-h-screen">
-      <Sidebar userName={user?.name ?? "—"} userRole={user?.role === "owner" ? "Founder · Owner" : "Admin"} />
+      <Sidebar
+        userName={user?.name ?? "—"}
+        userRole={user?.role === "owner" ? "Founder · Owner" : "Admin"}
+        workCounts={workCounts}
+      />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header

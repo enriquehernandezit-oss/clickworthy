@@ -44,14 +44,14 @@ export default function RunNow({ queues, autosendOn }: { queues: Queue[]; autose
   return (
     <div className="flex flex-col gap-3">
       {queues.map((q) => (
-        <div key={q.queue} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-stone-200 bg-white px-4 py-3">
+        <div key={q.queue} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface px-4 py-3">
           <div>
-            <div className="text-sm font-semibold text-stone-900">{q.label}</div>
-            <div className="text-xs text-stone-500">{q.hint}</div>
+            <div className="text-sm font-semibold text-text">{q.label}</div>
+            <div className="text-xs text-faint">{q.hint}</div>
             {msg?.queue === q.queue && (
               <div
                 className={`mt-1 text-xs ${
-                  msg.kind === "error" ? "text-red-600" : msg.kind === "ok" ? "text-green-700" : "text-stone-500"
+                  msg.kind === "error" ? "text-coral" : msg.kind === "ok" ? "text-teal" : "text-faint"
                 }`}
               >
                 {msg.text}
@@ -62,13 +62,13 @@ export default function RunNow({ queues, autosendOn }: { queues: Queue[]; autose
             type="button"
             disabled={busy !== null}
             onClick={() => run(q)}
-            className="btn-press rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-100 disabled:opacity-50"
+            className="btn-press rounded-lg border border-line px-4 py-2 text-sm font-medium text-text hover:bg-surface-2 disabled:opacity-50"
           >
             {busy === q.queue ? "Queuing…" : "Run now"}
           </button>
         </div>
       ))}
-      <p className="text-xs text-stone-500">Run now only enqueues; the worker executes. If the worker is down, the job waits until it&apos;s back.</p>
+      <p className="text-xs text-faint">Run now only enqueues; the worker executes. If the worker is down, the job waits until it&apos;s back.</p>
     </div>
   );
 }

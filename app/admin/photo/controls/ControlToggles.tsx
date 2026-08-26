@@ -33,17 +33,17 @@ export function PauseControl({ paused }: { paused: boolean }) {
   return (
     <div
       className={`rounded-xl border p-5 ${
-        paused ? "border-red-300 bg-red-50" : "border-stone-200 bg-white"
+        paused ? "border-coral/50 bg-coral/10" : "border-line bg-surface"
       }`}
     >
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className={`text-base font-semibold ${paused ? "text-red-700" : "text-stone-900"}`}>
+            <span className={`text-base font-semibold ${paused ? "text-coral" : "text-text"}`}>
               {paused ? "OUTREACH PAUSED" : "Outreach sending is live"}
             </span>
           </div>
-          <p className="mt-1 text-sm text-stone-600">
+          <p className="mt-1 text-sm text-muted">
             {paused
               ? "No Touch 1, bumps, or Touch 2 will send — including ones you've already approved. Reply reading + drafting still run."
               : "The panic button — stops all Gmail sending immediately. Only holds back already-approved sends; it never approves or skips anything on its own."}
@@ -54,7 +54,7 @@ export function PauseControl({ paused }: { paused: boolean }) {
             type="button"
             disabled={busy}
             onClick={() => flip(false)}
-            className="btn-press rounded-lg bg-green-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50"
+            className="btn-press rounded-lg bg-teal px-5 py-2.5 text-sm font-semibold text-[#0F1216] hover:brightness-110 disabled:opacity-50"
           >
             {busy ? "Resuming…" : "Resume sending"}
           </button>
@@ -63,13 +63,13 @@ export function PauseControl({ paused }: { paused: boolean }) {
             type="button"
             disabled={busy}
             onClick={() => flip(true)}
-            className="btn-press rounded-lg bg-red-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+            className="btn-press rounded-lg bg-coral px-5 py-2.5 text-sm font-semibold text-[#0F1216] hover:brightness-110 disabled:opacity-50"
           >
             {busy ? "Pausing…" : "Pause all sending"}
           </button>
         )}
       </div>
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-2 text-sm text-coral">{error}</p>}
     </div>
   );
 }
@@ -97,18 +97,18 @@ export function AutosendControl({ autosend }: { autosend: boolean }) {
   };
 
   return (
-    <div className="rounded-xl border border-stone-200 bg-white p-5">
+    <div className="rounded-xl border border-line bg-surface p-5">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <div className="text-base font-semibold text-stone-900">
+          <div className="text-base font-semibold text-text">
             {autosend ? "Autosend is ON" : "Approval mode"}
           </div>
-          <p className="mt-1 max-w-xl text-sm text-stone-600">
+          <p className="mt-1 max-w-xl text-sm text-muted">
             {autosend
               ? "The nightly job drafts AND approves itself automatically, up to the daily cap. No human review."
               : "The nightly job only drafts — you approve each one in Approvals before it can ever send."}
           </p>
-          <p className="mt-1 text-xs text-stone-500">
+          <p className="mt-1 text-xs text-faint">
             Flipping this on does not approve drafts already waiting — use “Approve all” in Approvals for those.
             {" "}This decides whether a draft gets approved at all — it&apos;s separate from Pause/Resume above, which
             only holds back sends that are already approved.
@@ -120,14 +120,14 @@ export function AutosendControl({ autosend }: { autosend: boolean }) {
           onClick={() => flip(!autosend)}
           className={`btn-press rounded-lg px-5 py-2.5 text-sm font-semibold disabled:opacity-50 ${
             autosend
-              ? "border border-stone-300 bg-white text-stone-800 hover:bg-stone-100"
-              : "bg-orange-600 text-white hover:bg-orange-700"
+              ? "border border-line bg-surface-2 text-text hover:border-line-strong"
+              : "bg-gold text-[#0F1216] hover:brightness-110"
           }`}
         >
           {busy ? "Saving…" : autosend ? "Switch to approval mode" : "Turn on autosend"}
         </button>
       </div>
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-2 text-sm text-coral">{error}</p>}
     </div>
   );
 }
@@ -188,13 +188,13 @@ export function NumberSetting({
   const dirty = (raw === "" ? null : Number(raw)) !== value;
 
   return (
-    <div className="rounded-xl border border-stone-200 bg-white p-5">
+    <div className="rounded-xl border border-line bg-surface p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <div>
-          <div className="text-base font-semibold text-stone-900">{label}</div>
-          <p className="mt-1 max-w-xl text-sm text-stone-600">{help}</p>
+          <div className="text-base font-semibold text-text">{label}</div>
+          <p className="mt-1 max-w-xl text-sm text-muted">{help}</p>
           {formulaHint && value == null && (
-            <p className="mt-1 text-xs text-stone-500">Currently: {formulaHint}</p>
+            <p className="mt-1 text-xs text-faint">Currently: {formulaHint}</p>
           )}
         </div>
       </div>
@@ -206,14 +206,14 @@ export function NumberSetting({
           value={raw}
           onChange={(e) => setRaw(e.target.value)}
           placeholder={nullable ? "(auto)" : ""}
-          className="w-28 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-800 tabular-nums"
+          className="w-28 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text tabular-nums"
         />
-        {suffix && <span className="text-sm text-stone-500">{suffix}</span>}
+        {suffix && <span className="text-sm text-muted">{suffix}</span>}
         <button
           type="button"
           disabled={busy !== null || !dirty}
           onClick={() => write(raw, "save")}
-          className="rounded-lg bg-stone-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
+          className="btn-press rounded-lg bg-gold px-3 py-1.5 text-sm font-semibold text-[#0F1216] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy === "save" ? "Saving…" : "Save"}
         </button>
@@ -222,13 +222,13 @@ export function NumberSetting({
             type="button"
             disabled={busy !== null}
             onClick={() => { setRaw(""); write("", "reset"); }}
-            className="rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 hover:bg-stone-100 disabled:opacity-50"
+            className="btn-press rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-text hover:bg-surface-2 disabled:opacity-50"
           >
             {busy === "reset" ? "…" : "Reset"}
           </button>
         )}
         {msg && (
-          <span className={`text-xs ${msg.ok ? "text-teal-700" : "text-red-600"}`} role="alert">
+          <span className={`text-xs ${msg.ok ? "text-teal" : "text-coral"}`} role="alert">
             {msg.text}
           </span>
         )}

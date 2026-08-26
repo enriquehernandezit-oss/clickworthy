@@ -8,6 +8,7 @@ import BumpDraftActions from "./BumpDraftActions";
 import ReplyDraftActions from "./ReplyDraftActions";
 import PaymentConfirmationDraftActions from "./PaymentConfirmationDraftActions";
 import SortSelect from "./SortSelect";
+import QueueKeyboard from "./QueueKeyboard";
 import { parseSort, type SortValue } from "./sortOptions";
 
 // The single "approve or deny" surface for every email kind that needs a
@@ -114,6 +115,7 @@ export default async function ApprovalsPage({
 
   return (
     <>
+      <QueueKeyboard count={queue.length} />
       <section>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <SectionHeading>Awaiting your approval ({queue.length})</SectionHeading>
@@ -121,11 +123,11 @@ export default async function ApprovalsPage({
             {touch1DraftCount > 0 && (
               <div className="flex items-center gap-2">
                 <ApproveAllButton count={touch1DraftCount} />
-                <span className="text-xs text-stone-500">Touch 1 only — everything else still needs individual review.</span>
+                <span className="text-xs text-faint">Touch 1 only — everything else still needs individual review.</span>
               </div>
             )}
             <div className="flex items-center gap-2">
-              <label htmlFor="sort" className="text-xs font-medium text-stone-500">
+              <label htmlFor="sort" className="text-xs font-medium text-faint">
                 Sort by
               </label>
               <SortSelect value={sort} />
@@ -135,82 +137,91 @@ export default async function ApprovalsPage({
         {queue.length === 0 ? (
           <EmptyState>Nothing waiting right now.</EmptyState>
         ) : (
-          <div className="mt-4 flex flex-col gap-4">
-            {queue.map((d) => (
-              <Card key={d.id} className="border-orange-200">
-                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-semibold">
+          <>
+            <div className="mt-3 flex items-center gap-3 text-xs text-faint">
+              <span className="font-mono-label">j/k</span> move
+              <span className="font-mono-label">a</span> approve
+              <span className="font-mono-label">e</span> edit
+              <span className="font-mono-label">x</span> deny
+            </div>
+            <div className="mt-3 flex flex-col gap-4">
+              {queue.map((d, i) => (
+                <div key={d.id} data-queue-index={i} className="transition-[outline]">
+                  <Card className="border-gold/25">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-semibold">
+                          <Link
+                            href={`/admin/photo/restaurants/${d.restaurantId}`}
+                            target="_blank"
+                            className="text-text hover:text-gold hover:underline"
+                          >
+                            {d.restaurantName} ↗
+                          </Link>
+                        </h3>
+                        <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs font-medium text-muted">{kindLabel(d.kind)}</span>
+                        {d.language === "es" && (
+                          <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs font-medium text-muted">ES</span>
+                        )}
+                        {d.kind === "touch1" && !d.signatureDish && (
+                          <span
+                            className="rounded px-1.5 py-0.5 text-xs font-medium"
+                            style={{ background: "var(--gold-soft)", color: "var(--gold)" }}
+                            title="No signature dish on file — this draft uses generic wording. Open the profile to add one."
+                          >
+                            generic — no dish
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs tabular-nums text-faint">drafted {fmtDateTime(d.draftedAt)}</div>
+                    </div>
+                    {d.city && <div className="mt-1 text-xs text-faint">{d.city}</div>}
+                    {/* Quick jumps for reviewing a draft: the restaurant's own site
+                        (to sanity-check the offer) and its full profile in the tool. */}
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
                       <Link
                         href={`/admin/photo/restaurants/${d.restaurantId}`}
                         target="_blank"
-                        className="text-stone-900 hover:text-orange-700 hover:underline"
+                        className="rounded-md border border-line bg-surface-2 px-2 py-1 text-xs font-medium text-text hover:border-line-strong"
                       >
-                        {d.restaurantName} ↗
+                        Restaurant profile ↗
                       </Link>
-                    </h3>
-                    <span className="rounded bg-stone-100 px-1.5 py-0.5 text-xs font-medium text-stone-600">
-                      {kindLabel(d.kind)}
-                    </span>
-                    {d.language === "es" && (
-                      <span className="rounded bg-stone-100 px-1.5 py-0.5 text-xs font-medium text-stone-600">ES</span>
-                    )}
-                    {d.kind === "touch1" && !d.signatureDish && (
-                      <span
-                        className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700"
-                        title="No signature dish on file — this draft uses generic wording. Open the profile to add one."
-                      >
-                        generic — no dish
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs tabular-nums text-stone-500">drafted {fmtDateTime(d.draftedAt)}</div>
-                </div>
-                {d.city && <div className="mt-1 text-xs text-stone-500">{d.city}</div>}
-                {/* Quick jumps for reviewing a draft: the restaurant's own site
-                    (to sanity-check the offer) and its full profile in the tool. */}
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <Link
-                    href={`/admin/photo/restaurants/${d.restaurantId}`}
-                    target="_blank"
-                    className="rounded-md border border-stone-300 bg-white px-2 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50"
-                  >
-                    Restaurant profile ↗
-                  </Link>
-                  {d.website ? (
-                    <a
-                      href={d.website}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="rounded-md border border-stone-300 bg-white px-2 py-1 text-xs font-medium text-stone-700 hover:bg-stone-50"
-                    >
-                      Website ↗
-                    </a>
-                  ) : (
-                    <span className="rounded-md border border-stone-200 bg-stone-50 px-2 py-1 text-xs text-stone-400">No website</span>
-                  )}
-                </div>
+                      {d.website ? (
+                        <a
+                          href={d.website}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-md border border-line bg-surface-2 px-2 py-1 text-xs font-medium text-text hover:border-line-strong"
+                        >
+                          Website ↗
+                        </a>
+                      ) : (
+                        <span className="rounded-md border border-line px-2 py-1 text-xs text-faint">No website</span>
+                      )}
+                    </div>
 
-                {d.kind === "touch1" && (
-                  <>
-                    <p className="mt-3 text-sm font-semibold text-stone-900">{d.subject}</p>
-                    <DraftActions outreachJobId={d.id} subject={d.subject ?? ""} body={d.emailContent ?? ""} />
-                  </>
-                )}
-                {d.kind === "bump" && <BumpDraftActions outreachJobId={d.id} body={d.emailContent ?? ""} />}
-                {d.kind === "reply" && (
-                  <ReplyDraftActions outreachJobId={d.id} quotedMessage={d.replyBody ?? ""} quotedFrom={d.replyFrom} />
-                )}
-                {d.kind === "payment_confirmation" && (
-                  <PaymentConfirmationDraftActions
-                    outreachJobId={d.id}
-                    subject={d.subject ?? ""}
-                    body={d.emailContent ?? ""}
-                  />
-                )}
-              </Card>
-            ))}
-          </div>
+                    {d.kind === "touch1" && (
+                      <>
+                        <p className="mt-3 text-sm font-semibold text-text">{d.subject}</p>
+                        <DraftActions outreachJobId={d.id} subject={d.subject ?? ""} body={d.emailContent ?? ""} />
+                      </>
+                    )}
+                    {d.kind === "bump" && <BumpDraftActions outreachJobId={d.id} body={d.emailContent ?? ""} />}
+                    {d.kind === "reply" && (
+                      <ReplyDraftActions outreachJobId={d.id} quotedMessage={d.replyBody ?? ""} quotedFrom={d.replyFrom} />
+                    )}
+                    {d.kind === "payment_confirmation" && (
+                      <PaymentConfirmationDraftActions
+                        outreachJobId={d.id}
+                        subject={d.subject ?? ""}
+                        body={d.emailContent ?? ""}
+                      />
+                    )}
+                  </Card>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </section>
 
@@ -224,13 +235,11 @@ export default async function ApprovalsPage({
               <Card key={row.id}>
                 <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-semibold">{row.restaurantName ?? "(unknown restaurant)"}</h3>
-                    <span className="rounded bg-stone-100 px-1.5 py-0.5 text-xs font-medium text-stone-600">
-                      {kindLabel(row.kind)}
-                    </span>
+                    <h3 className="font-semibold text-text">{row.restaurantName ?? "(unknown restaurant)"}</h3>
+                    <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs font-medium text-muted">{kindLabel(row.kind)}</span>
                     <Badge value={row.status} />
                   </div>
-                  <div className="text-xs tabular-nums text-stone-500">
+                  <div className="text-xs tabular-nums text-faint">
                     {row.sentAt ? (
                       <>sent {fmtDateTime(row.sentAt)}</>
                     ) : row.approvedAt ? (
@@ -240,14 +249,12 @@ export default async function ApprovalsPage({
                     )}
                   </div>
                 </div>
-                {row.city && <div className="mt-1 text-xs text-stone-500">{row.city}</div>}
-                {row.subject && <p className="mt-2 text-sm font-semibold text-stone-900">{row.subject}</p>}
+                {row.city && <div className="mt-1 text-xs text-faint">{row.city}</div>}
+                {row.subject && <p className="mt-2 text-sm font-semibold text-text">{row.subject}</p>}
                 {row.emailContent && (
                   <details className="mt-2">
-                    <summary className="cursor-pointer text-sm font-medium text-orange-700 hover:underline">
-                      View email
-                    </summary>
-                    <pre className="mt-2 whitespace-pre-wrap rounded-lg bg-stone-50 p-3 font-sans text-sm leading-relaxed text-stone-700">
+                    <summary className="cursor-pointer text-sm font-medium text-gold hover:underline">View email</summary>
+                    <pre className="mt-2 whitespace-pre-wrap rounded-lg bg-surface-2 p-3 font-sans text-sm leading-relaxed text-muted">
                       {row.emailContent}
                     </pre>
                   </details>
