@@ -62,15 +62,19 @@ function greeting(firstName: string | null, language: Language): string {
 // blocks the send outright regardless.
 export function complianceFooter(language: Language, postalAddress: string): string {
   const address = postalAddress.trim() || "[set your postal address on the Templates page]";
+  // Wording rewritten 2026-08-26 — the old "Prefer not to hear from us? Reply
+  // STOP and we won't email you again." read as boilerplate. Keeps the literal
+  // word STOP (matched by hasComplianceFooter below and isOptOut()), just in a
+  // first-person voice that matches a single sender signing their own name.
   if (language === "es") {
     return (
       `\n\n—\nClickworthy · ${address}\n` +
-      `Si prefiere no recibir más mensajes, responda con STOP y no volveremos a escribirle.`
+      `¿No quiere más correos? Responda STOP y lo quito de la lista al momento.`
     );
   }
   return (
     `\n\n—\nClickworthy · ${address}\n` +
-    `Prefer not to hear from us? Reply STOP and we won't email you again.`
+    `Don't want more emails from me? Just reply STOP and I'll take you off the list.`
   );
 }
 
