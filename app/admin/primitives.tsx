@@ -6,7 +6,7 @@
 // path; Next treats each named export's client-ness independently, so this
 // doesn't force ui.tsx's other exports to become client components.
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 // ---- Button -----------------------------------------------------------
 // Replaces ~29 files' worth of ad-hoc button classes. `.btn-press` (global,
@@ -172,6 +172,61 @@ export function ConfirmDialog({
       </div>
     </dialog>
   );
+}
+
+// ---- useConfirm ---------------------------------------------------------
+// Promise-based wrapper so ConfirmDialog is a near drop-in for window.confirm:
+//
+//   const { confirm, confirmDialog } = useConfirm();
+//   ...
+//   if (!(await confirm({ title, description, danger, requireText }))) return;
+//   ...
+//   return (<>{confirmDialog}...</>)
+//
+// `requireText` gives irreversible actions the typed-confirmation fence (the
+// operator must type e.g. the restaurant name), which browser confirm() can't
+// do. Only one confirm is in flight at a time (the action awaits it), so a
+// single piece of state is enough.
+
+type ConfirmOpts = {
+  title: string;
+  description?: React.ReactNode;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  danger?: boolean;
+  requireText?: string;
+};
+
+export function useConfirm() {
+  const [pending, setPending] = useState<{ opts: ConfirmOpts; resolve: (ok: boolean) => void } | null>(null);
+
+  const confirm = useCallback(
+    (opts: ConfirmOpts) => new Promise<boolean>((resolve) => setPending({ opts, resolve })),
+    []
+  );
+
+  const settle = (ok: boolean) => {
+    setPending((p) => {
+      p?.resolve(ok);
+      return null;
+    });
+  };
+
+  const confirmDialog = (
+    <ConfirmDialog
+      open={pending !== null}
+      title={pending?.opts.title ?? ""}
+      description={pending?.opts.description}
+      confirmLabel={pending?.opts.confirmLabel}
+      cancelLabel={pending?.opts.cancelLabel}
+      danger={pending?.opts.danger}
+      requireText={pending?.opts.requireText}
+      onConfirm={() => settle(true)}
+      onCancel={() => settle(false)}
+    />
+  );
+
+  return { confirm, confirmDialog };
 }
 
 // ---- Toast ---------------------------------------------------------------
