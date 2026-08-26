@@ -20,6 +20,16 @@ import { sendEmail } from "../lib/gmail";
 import { composeTouch1, hasComplianceFooter, normalizeLanguage, type ComposeIdentity } from "../lib/outreachEmail";
 import { isSuppressed } from "../lib/suppression";
 import { withRetry } from "../lib/retry";
+import { isInLocalWindow } from "../lib/sendWindow";
+
+// Max real sends per send-cron tick, per send function. The daily total is
+// still bounded by dailyCap()/sentToday(); this just spreads that total across
+// the business-hours window instead of emptying the whole approved pile in the
+// first in-window tick (a burst from one Gmail account hurts deliverability).
+// With the send cron at */20 and a ~3h window (~9 ticks), 6/tick drains a
+// 50-cap day comfortably inside the window. Exported so the bump sender shares
+// the exact same per-tick ceiling.
+export const SEND_BATCH_PER_TICK = 6;
 
 // Domain has been warming on Lemwarm ~1 month, so we start at 30/day rather
 // than the cautious 20, still ramping toward the cap.
@@ -61,10 +71,14 @@ async function draftedToday(): Promise<number> {
 }
 
 function startOfToday(): Date {
-  // Note: Date.now()/new Date() are fine at runtime in the worker (this is not a
-  // workflow script); only the Workflow tool forbids them.
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // Midnight AST, the day boundary the whole admin UI displays against — NOT
+  // server-local (Railway runs UTC, so `new Date(y,m,d)` used to roll the
+  // daily cap over at 8pm AST, mid-evening). AST is UTC-4 year-round (Puerto
+  // Rico, no DST), so shift the wall clock back 4h to find "today" in AST,
+  // then 00:00 AST of that date is 04:00 UTC. Note: Date.now()/new Date() are
+  // fine at runtime in the worker (only the Workflow tool forbids them).
+  const ast = new Date(Date.now() - 4 * 3_600_000);
+  return new Date(Date.UTC(ast.getUTCFullYear(), ast.getUTCMonth(), ast.getUTCDate(), 4, 0, 0));
 }
 
 // Daily cap ramps 20 -> 50 over a week+ of sending, protecting deliverability.
@@ -333,17 +347,30 @@ async function sendApproved(): Promise<void> {
   // would let an approved bump get picked up here and sent via sendEmail() with
   // no threadId: a brand-new, unthreaded cold email duplicating what the
   // recipient already got. Bumps send from sendApprovedBumps() only.
-  const ready = await db
+  //
+  // Fetch WITHOUT the tight cap limit (a generous 500 guard) so the
+  // business-hours filter below has the full approved pile to choose from — if
+  // the oldest-approved rows are all out-of-window (e.g. LA leads at 10am AST),
+  // limiting to `remaining` first could starve the in-window ones behind them.
+  const approved = await db
     .select({ job: outreachJobs, r: restaurants })
     .from(outreachJobs)
     .innerJoin(restaurants, eq(outreachJobs.restaurantId, restaurants.id))
     .where(and(eq(outreachJobs.status, "approved"), eq(outreachJobs.kind, "touch1"), isNull(outreachJobs.sentAt)))
     .orderBy(asc(outreachJobs.approvedAt))
-    .limit(remaining);
+    .limit(500);
+
+  // Business-hours gate: only send to recipients whose LOCAL time is inside
+  // the 9am–12pm Mon–Fri window right now. Out-of-window rows aren't cancelled
+  // — they simply wait for a later tick when their city's window opens.
+  const now = Date.now();
+  const inWindow = approved.filter(({ r }) => isInLocalWindow(r.city, now));
+  // Then the two volume ceilings: the daily cap headroom and the per-tick cap.
+  const ready = inWindow.slice(0, Math.min(remaining, SEND_BATCH_PER_TICK));
 
   console.log(
-    `[send] ${ready.length} approved ready, remaining cap ${remaining} ` +
-      `(sending ${enabled ? "ENABLED" : "DISABLED — log only"})`
+    `[send] ${approved.length} approved, ${inWindow.length} in send-window, sending ${ready.length} this tick ` +
+      `(remaining cap ${remaining} (sending ${enabled ? "ENABLED" : "DISABLED — log only"}))`
   );
   if (ready.length === 0) return;
 

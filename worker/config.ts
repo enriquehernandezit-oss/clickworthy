@@ -128,6 +128,16 @@ export const config = {
   // of drafting more. The frequent tick did require throttling the
   // deliverability alert, which trips on every run while it holds — see
   // DELIVERABILITY_ALERT_COOLDOWN_MS in worker/jobs/sendOutreach.ts.
+  //
+  // The cron stays 24/7 on PURPOSE even though sends are now confined to
+  // business hours (2026-08-26): the business-hours window is enforced
+  // per-recipient at SEND time (worker/lib/sendWindow.ts — 9am–12pm local,
+  // Mon–Fri, in the recipient's own timezone, since the target cities span
+  // ET→PT), NOT by the cron. Gating the cron instead would (a) also freeze
+  // draftBatch(), so the review pile would go stale overnight/weekends, and
+  // (b) miss bumps entirely, which fire on the reply-poll cron, not this one.
+  // Keeping the cron frequent lets drafting stay fresh while the send gate
+  // handles timing; a tick outside every recipient's window is a cheap no-op.
   sendCron: process.env.WORKER_SEND_CRON ?? "*/20 * * * *",
 
   // How often to poll Gmail for replies.

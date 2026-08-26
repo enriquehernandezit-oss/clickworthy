@@ -18,10 +18,11 @@ import { getSetting } from "@/lib/settings";
 import { sendAlert } from "@/lib/alerts";
 import { sendEmail } from "../lib/gmail";
 import { threadToReplyInto } from "./sendTouch2";
-import { deliverabilityHealthy, dailyCap, sentToday } from "./sendOutreach";
+import { deliverabilityHealthy, dailyCap, sentToday, SEND_BATCH_PER_TICK } from "./sendOutreach";
 import { composeBump, hasComplianceFooter, normalizeLanguage, type ComposeIdentity } from "../lib/outreachEmail";
 import { isSuppressed } from "../lib/suppression";
 import { withRetry } from "../lib/retry";
+import { isInLocalWindow } from "../lib/sendWindow";
 
 const BUMP_AFTER_DAYS_DEFAULT = 3;
 
@@ -138,15 +139,26 @@ async function sendApprovedBumps(): Promise<void> {
     return;
   }
 
-  const ready = await db
+  // Fetch generous, then apply the same business-hours gate + per-tick cap as
+  // Touch 1 (see sendApproved). Bumps run on the reply-poll cron (every 4 min,
+  // 24/7), so this gate — not a cron window — is what keeps a bump from firing
+  // at 6am the recipient's time.
+  const approved = await db
     .select({ job: outreachJobs, r: restaurants })
     .from(outreachJobs)
     .innerJoin(restaurants, eq(outreachJobs.restaurantId, restaurants.id))
     .where(and(eq(outreachJobs.status, "approved"), eq(outreachJobs.kind, "bump"), isNull(outreachJobs.sentAt)))
     .orderBy(asc(outreachJobs.approvedAt))
-    .limit(remaining);
+    .limit(500);
 
-  console.log(`[bump] ${ready.length} approved ready, remaining cap ${remaining} (sending ${enabled ? "ENABLED" : "DISABLED — log only"})`);
+  const now = Date.now();
+  const inWindow = approved.filter(({ r }) => isInLocalWindow(r.city, now));
+  const ready = inWindow.slice(0, Math.min(remaining, SEND_BATCH_PER_TICK));
+
+  console.log(
+    `[bump] ${approved.length} approved, ${inWindow.length} in send-window, sending ${ready.length} this tick ` +
+      `(remaining cap ${remaining} (sending ${enabled ? "ENABLED" : "DISABLED — log only"}))`
+  );
   if (ready.length === 0) return;
 
   if (!enabled) {
