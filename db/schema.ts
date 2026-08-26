@@ -273,3 +273,29 @@ export const suppressions = pgTable('suppressions', {
   reason: text('reason'), // 'opt_out' | 'bounce' | 'complaint' | 'manual'
   createdAt: timestamp('created_at').defaultNow(),
 });
+
+// Frozen per-night pipeline snapshot — the source of truth for the Insights
+// tab. Written the morning AFTER a sourcing run (worker/jobs/snapshotNight.ts),
+// once enrichment has settled, so the numbers are immutable even if a lead's
+// status later changes. `night` is the AST calendar day ('YYYY-MM-DD'), unique,
+// so the snapshot job is idempotent (insert-if-absent). Findings + cross-night
+// patterns are DERIVED on read from these frozen numbers (lib/pipelineHealth),
+// not stored — so their logic can improve without re-snapshotting.
+export const pipelineNightSnapshots = pgTable('pipeline_night_snapshots', {
+  id: serial('id').primaryKey(),
+  night: text('night').notNull().unique(), // 'YYYY-MM-DD' (America/Puerto_Rico)
+  sourced: integer('sourced').notNull(),
+  freeFiltered: integer('free_filtered').notNull(), // killed by $0 hard filters
+  reachedEnrichment: integer('reached_enrichment').notNull(),
+  gateRejected: integer('gate_rejected').notNull(), // photo-fit / chain check
+  emailReady: integer('email_ready').notNull(), // queued + contacted
+  contacted: integer('contacted').notNull(), // already emailed subset
+  needsManualEmail: integer('needs_manual_email').notNull(),
+  callList: integer('call_list').notNull(),
+  siteHavers: integer('site_havers').notNull(), // website-havers that reached an email decision
+  siteGotEmail: integer('site_got_email').notNull(), // of those, got a verified email
+  nightlyCap: integer('nightly_cap'), // enrich cap in effect (from worker boot info), if known
+  rejectionBuckets: jsonb('rejection_buckets').notNull(), // { bucket: string; n: number }[]
+  anomalies: jsonb('anomalies').notNull(), // string[] — outage-signature flags for the night
+  createdAt: timestamp('created_at').defaultNow(), // when the snapshot was frozen
+});

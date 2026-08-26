@@ -5,7 +5,7 @@ import { getAllSettings } from "@/lib/settings";
 import { getDeliverability } from "@/lib/photoStats";
 import { dailyCap, sentToday } from "@/worker/jobs/sendOutreach";
 import { describeSendWindow } from "@/worker/lib/sendWindow";
-import { ALL_QUEUES, SOURCE_QUEUE, SEND_QUEUE, REPLY_QUEUE, STATS_QUEUE, PACKAGE_QUEUE, SOURCING_REPORT_QUEUE } from "@/lib/queues";
+import { ALL_QUEUES, SOURCE_QUEUE, SEND_QUEUE, REPLY_QUEUE, STATS_QUEUE, PACKAGE_QUEUE, SOURCING_REPORT_QUEUE, SNAPSHOT_QUEUE } from "@/lib/queues";
 import { Card, EmptyState, SectionHeading, fmtDateTime } from "../../ui";
 import { PauseControl, AutosendControl, NumberSetting } from "./ControlToggles";
 import RunNow from "./RunNow";
@@ -104,6 +104,7 @@ const QUEUE_LABELS: Record<string, string> = {
   "process-package": "Process orders",
   [STATS_QUEUE]: "Weekly stats",
   [SOURCING_REPORT_QUEUE]: "Nightly sourcing report",
+  [SNAPSHOT_QUEUE]: "Nightly Insights snapshot",
 };
 
 const RUN_QUEUES = [
@@ -113,6 +114,7 @@ const RUN_QUEUES = [
   { queue: PACKAGE_QUEUE, label: "Process paid orders", hint: "Run the Claid first pass on paid packages + retry failed self-serve orders." },
   { queue: STATS_QUEUE, label: "Weekly report", hint: "Email the pipeline summary now." },
   { queue: SOURCING_REPORT_QUEUE, label: "Nightly sourcing report", hint: "Email the sourcing/enrichment health summary now." },
+  { queue: SNAPSHOT_QUEUE, label: "Snapshot last night", hint: "Freeze any completed nights not yet recorded into the Insights history." },
 ];
 
 function staleness(nowMs: number, iso: string | undefined): string {

@@ -219,3 +219,151 @@ export async function getAnomalies(night: string, funnel: NightFunnel | null): P
 
   return flags;
 }
+
+// ── Per-night session (for the Insights snapshot) ────────────────────────────
+// The complete frozen picture of one night, assembled from the queries above
+// plus a per-night yield count. Written to pipeline_night_snapshots the morning
+// after (worker/jobs/snapshotNight.ts) and read back by the Insights tab.
+export type NightSession = {
+  night: string;
+  sourced: number;
+  freeFiltered: number;
+  reachedEnrichment: number;
+  gateRejected: number;
+  emailReady: number;
+  contacted: number;
+  needsManualEmail: number;
+  callList: number;
+  siteHavers: number;
+  siteGotEmail: number;
+  nightlyCap: number | null;
+  rejectionBuckets: RejectionBucket[];
+  anomalies: string[];
+};
+
+export async function computeNightSession(night: string): Promise<NightSession> {
+  const funnel = await getNightFunnel(night);
+  const [buckets, anomalies, yieldRow] = await Promise.all([
+    getRejectionBuckets(night),
+    getAnomalies(night, funnel),
+    (async () => {
+      const [y] = asRows<{ havers: number; got: number }>(
+        await db.execute(sql`
+          select
+            count(*) filter (where website is not null and enrichment_status in ('queued','contacted','needs_manual_email'))::int as havers,
+            count(*) filter (where website is not null and enrichment_status in ('queued','contacted'))::int as got
+          from restaurants where ${inNight(night)}`)
+      );
+      return y ?? { havers: 0, got: 0 };
+    })(),
+  ]);
+  const cap = (await getRunHealth()).nightlyCap;
+
+  return {
+    night,
+    sourced: funnel?.sourced ?? 0,
+    freeFiltered: funnel?.free_filtered ?? 0,
+    reachedEnrichment: funnel ? funnel.sourced - funnel.free_filtered : 0,
+    gateRejected: funnel?.gate_rejected ?? 0,
+    emailReady: funnel?.queued ?? 0,
+    contacted: funnel?.contacted ?? 0,
+    needsManualEmail: funnel?.needs_email ?? 0,
+    callList: funnel?.call_list ?? 0,
+    siteHavers: yieldRow.havers,
+    siteGotEmail: yieldRow.got,
+    nightlyCap: cap,
+    rejectionBuckets: buckets,
+    anomalies,
+  };
+}
+
+// ── Findings + patterns (derived on read from frozen snapshots) ──────────────
+// Deterministic, rule-based — no LLM, no API cost, no measurement-bug risk.
+// `finding` = something true about THIS night; `pattern` = something true
+// across the recent series. Each carries a tone so the UI can color it.
+export type Insight = { tone: "good" | "warn" | "bad" | "neutral"; text: string };
+
+export function yieldPct(s: { siteHavers: number; siteGotEmail: number }): number | null {
+  return s.siteHavers > 0 ? Math.round((s.siteGotEmail / s.siteHavers) * 100) : null;
+}
+
+// Baseline yield from the corrected Aug-2026 measurement (pipeline-baseline
+// memory): ~29% was the historical hit rate; the fetcher hardening lifted it
+// into the mid-30s. Above this reads as "healthy".
+const YIELD_BASELINE_PCT = 30;
+
+export function deriveNightFindings(s: NightSession): Insight[] {
+  const out: Insight[] = [];
+
+  // The headline metric.
+  if (s.emailReady >= EMAIL_READY_TARGET)
+    out.push({ tone: "good", text: `Hit the target: ${s.emailReady} email-ready (≥ ${EMAIL_READY_TARGET}).` });
+  else
+    out.push({ tone: s.emailReady === 0 ? "bad" : "warn", text: `${s.emailReady} email-ready, below the ${EMAIL_READY_TARGET} target.` });
+
+  // Where the funnel leaked most.
+  if (s.sourced > 0) {
+    const filteredPct = Math.round((s.freeFiltered / s.sourced) * 100);
+    if (filteredPct >= 40)
+      out.push({ tone: "neutral", text: `${filteredPct}% (${s.freeFiltered}/${s.sourced}) died at the free filters — a thin sourcing night.` });
+  }
+
+  // Email yield vs baseline — the stated bottleneck.
+  const y = yieldPct(s);
+  if (y !== null) {
+    if (y >= YIELD_BASELINE_PCT + 5) out.push({ tone: "good", text: `Email yield ${y}% (${s.siteGotEmail}/${s.siteHavers}) — above the ~${YIELD_BASELINE_PCT}% baseline.` });
+    else if (y < YIELD_BASELINE_PCT - 5) out.push({ tone: "warn", text: `Email yield ${y}% (${s.siteGotEmail}/${s.siteHavers}) — below the ~${YIELD_BASELINE_PCT}% baseline; the discovery bottleneck bit last night.` });
+  }
+
+  // Top reason leads died.
+  if (s.rejectionBuckets.length > 0) {
+    const top = s.rejectionBuckets[0];
+    out.push({ tone: "neutral", text: `Top killer: ${top.bucket} (${top.n}).` });
+  }
+
+  // Anomalies are always a finding (they mean the numbers may not be trustworthy).
+  for (const a of s.anomalies) out.push({ tone: "bad", text: a });
+
+  return out;
+}
+
+// Cross-night patterns from the recent snapshot series (newest first).
+export function derivePatterns(series: NightSession[]): Insight[] {
+  const out: Insight[] = [];
+  if (series.length < 3) return out;
+  const recent = series.slice(0, 7); // up to a week
+
+  // Streak below target.
+  let belowStreak = 0;
+  for (const s of series) {
+    if (s.emailReady < EMAIL_READY_TARGET) belowStreak++;
+    else break;
+  }
+  if (belowStreak >= 3) out.push({ tone: "warn", text: `Email-ready has been below target ${belowStreak} nights running.` });
+
+  // Yield trend over the recent window.
+  const ys = recent.map(yieldPct).filter((v): v is number => v !== null);
+  if (ys.length >= 3) {
+    const avg = Math.round(ys.reduce((a, b) => a + b, 0) / ys.length);
+    const first = ys[ys.length - 1];
+    const last = ys[0];
+    if (last - first >= 8) out.push({ tone: "good", text: `Email yield trending up (${first}% → ${last}%, avg ${avg}% over ${ys.length} nights).` });
+    else if (first - last >= 8) out.push({ tone: "warn", text: `Email yield trending down (${first}% → ${last}%, avg ${avg}%).` });
+    else out.push({ tone: "neutral", text: `Email yield holding around ${avg}% over the last ${ys.length} nights.` });
+  }
+
+  // Recurring top killer.
+  const topKillers = recent.map((s) => s.rejectionBuckets[0]?.bucket).filter(Boolean) as string[];
+  if (topKillers.length >= 3) {
+    const counts = new Map<string, number>();
+    for (const k of topKillers) counts.set(k, (counts.get(k) ?? 0) + 1);
+    const [name, n] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (n >= 3) out.push({ tone: "neutral", text: `"${name}" has been the top rejection reason ${n} of the last ${recent.length} nights.` });
+  }
+
+  // Recurring anomalies (an outage that keeps happening isn't a blip).
+  const anomalyNights = recent.filter((s) => s.anomalies.length > 0).length;
+  if (anomalyNights >= 2) out.push({ tone: "bad", text: `Anomaly flags on ${anomalyNights} of the last ${recent.length} nights — a recurring outage, not a one-off. Worth investigating the gate/API health.` });
+
+  return out;
+}

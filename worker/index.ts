@@ -11,7 +11,7 @@
 
 import { PgBoss } from "pg-boss";
 import { config, requireKey } from "./config";
-import { SOURCE_QUEUE, ENRICH_QUEUE, SEND_QUEUE, REPLY_QUEUE, PACKAGE_QUEUE, STATS_QUEUE, SOURCING_REPORT_QUEUE } from "@/lib/queues";
+import { SOURCE_QUEUE, ENRICH_QUEUE, SEND_QUEUE, REPLY_QUEUE, PACKAGE_QUEUE, STATS_QUEUE, SOURCING_REPORT_QUEUE, SNAPSHOT_QUEUE } from "@/lib/queues";
 import { runSourcing, type SourceJobData } from "./jobs/sourceLeads";
 import { runEnrichment, type EnrichJobData } from "./jobs/enrichRestaurant";
 import { runSendOutreach, RAMP } from "./jobs/sendOutreach";
@@ -21,6 +21,7 @@ import { runProcessPackages } from "./jobs/processPackage";
 import { runProcessEnhancementOrders, recoverStuckPendingOrders } from "./jobs/processEnhancementOrders";
 import { runWeeklyStats } from "./jobs/weeklyStats";
 import { runSourcingReport } from "./jobs/sourcingReport";
+import { runSnapshotNight } from "./jobs/snapshotNight";
 import { setSetting } from "@/lib/settings";
 import { WORKER_ENV_KEYS, envPresence } from "@/lib/envKeys";
 import { uncoveredCities, SENDER_TIME_ZONE } from "./lib/sendWindow";
@@ -105,6 +106,11 @@ async function main() {
     for (let i = 0; i < jobs.length; i++) await runSourcingReport();
   });
 
+  // Freeze the previous night's metrics into pipeline_night_snapshots (Insights).
+  await boss.work(SNAPSHOT_QUEUE, async (jobs) => {
+    for (let i = 0; i < jobs.length; i++) await runSnapshotNight();
+  });
+
   // Crons (idempotent across restarts — pg-boss dedupes the schedule by queue).
   await boss.schedule(SOURCE_QUEUE, config.sourcingCron, {});
   await boss.schedule(SEND_QUEUE, config.sendCron, {});
@@ -112,6 +118,7 @@ async function main() {
   await boss.schedule(PACKAGE_QUEUE, config.packageCron, {});
   await boss.schedule(STATS_QUEUE, config.statsCron, {});
   await boss.schedule(SOURCING_REPORT_QUEUE, config.sourcingReportCron, {});
+  await boss.schedule(SNAPSHOT_QUEUE, config.snapshotCron, {});
 
   // Business-hours send window depends on a city->timezone map. A target city
   // with no mapping falls back to the sender's AST, which can fire outreach

@@ -159,6 +159,12 @@ export const config = {
   // 4:09am, so 6h is ample) without bleeding into the previous night's run.
   sourcingReportLookbackHours: intEnv("WORKER_SOURCING_REPORT_LOOKBACK_HOURS", 6),
 
+  // Freezes the previous night's pipeline metrics into pipeline_night_snapshots
+  // for the Insights tab. Runs AFTER enrichment + the sourcing report have
+  // settled (~5:27am local), and only ever snapshots COMPLETED AST days, so a
+  // night's numbers are frozen once and never rewritten by later status changes.
+  snapshotCron: process.env.WORKER_SNAPSHOT_CRON ?? "27 5 * * *",
+
   // Public origin of the web app, used to build magic-link URLs and (for the
   // Postgres-blob storage fallback) absolute photo URLs.
   appOrigin: process.env.APP_ORIGIN ?? "https://clickworthytool.com",
