@@ -42,7 +42,7 @@ export default function AddRestaurantForm() {
     }
   };
 
-  const inputCls = "mt-1 w-full rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text";
+  const inputCls = "mt-1 w-full rounded-lg border border-line-input bg-surface-2 px-3 py-1.5 text-sm text-text";
   const labelCls = "block text-xs font-medium text-muted";
 
   if (!open) {

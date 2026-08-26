@@ -18,13 +18,21 @@ import { getSetting } from "@/lib/settings";
 import { sendAlert } from "@/lib/alerts";
 import { sendEmail } from "../lib/gmail";
 import { threadToReplyInto } from "./sendTouch2";
-import { deliverabilityHealthy, dailyCap, sentToday, SEND_BATCH_PER_TICK } from "./sendOutreach";
+import { deliverabilityHealthy, dailyCap, sentToday, approvedTouch1Pending } from "./sendOutreach";
 import { composeBump, hasComplianceFooter, normalizeLanguage, type ComposeIdentity } from "../lib/outreachEmail";
 import { isSuppressed } from "../lib/suppression";
 import { withRetry } from "../lib/retry";
 import { isInLocalWindow } from "../lib/sendWindow";
 
 const BUMP_AFTER_DAYS_DEFAULT = 3;
+
+// Per-tick send cap for bumps — SEPARATE from Touch 1's (do NOT reuse
+// SEND_BATCH_PER_TICK=6, which is sized for the 20-min send cron). Bumps run
+// on the reply-poll cron every 4 minutes (5x faster), so 6/tick there would
+// empty a 50/day cap in ~36 min — a burst the per-tick cap exists to prevent.
+// 2/tick on a */4 cron = at most 1 send/2min, ~30/hour, well-paced across the
+// business-hours window while the shared daily cap still bounds the total.
+const BUMP_BATCH_PER_TICK = 2;
 
 export async function runSendBumps(): Promise<void> {
   await draftBumps();
@@ -126,16 +134,21 @@ async function sendApprovedBumps(): Promise<void> {
   const enabled = process.env.OUTREACH_ENABLED === "true" && !config.dryRun;
 
   // Bumps share Touch 1's daily cap — same domain, same reputation track, and
-  // sentToday() already counts both (both are touchNumber 1). WITHOUT this limit
-  // an operator who approves a pile of bumps ships them all in one 4-minute tick,
-  // blowing far past the configured cap on a warming domain. This runs every 4
-  // min, so it drains the approved queue a capful at a time across the day.
+  // sentToday() already counts both (both are touchNumber 1). But Touch 1 is
+  // the priority path (new email-ready leads), and bumps tick 5x faster (reply
+  // cron */4 vs send cron */20), so without reserving headroom a bump backlog
+  // could consume the whole cap before Touch 1's tick even fires — zero Touch 1
+  // sent that day. So bumps only draw from what's left AFTER every
+  // already-approved Touch 1 has a slot. If Touch 1 fills the cap, bumps wait.
   const cap = await dailyCap();
   const already = await sentToday();
-  const remaining = Math.max(0, cap - already);
+  const touch1Reserved = await approvedTouch1Pending();
+  const remaining = Math.max(0, cap - already - touch1Reserved);
 
   if (remaining === 0) {
-    console.log(`[bump] daily cap reached (${already}/${cap}) — no bumps this run.`);
+    console.log(
+      `[bump] no bump budget this run — ${already}/${cap} sent today, ${touch1Reserved} approved Touch 1 reserved ahead of bumps.`
+    );
     return;
   }
 
@@ -153,11 +166,11 @@ async function sendApprovedBumps(): Promise<void> {
 
   const now = Date.now();
   const inWindow = approved.filter(({ r }) => isInLocalWindow(r.city, now));
-  const ready = inWindow.slice(0, Math.min(remaining, SEND_BATCH_PER_TICK));
+  const ready = inWindow.slice(0, Math.min(remaining, BUMP_BATCH_PER_TICK));
 
   console.log(
     `[bump] ${approved.length} approved, ${inWindow.length} in send-window, sending ${ready.length} this tick ` +
-      `(remaining cap ${remaining} (sending ${enabled ? "ENABLED" : "DISABLED — log only"}))`
+      `(bump budget ${remaining} after ${touch1Reserved} Touch 1 reserved; sending ${enabled ? "ENABLED" : "DISABLED — log only"})`
   );
   if (ready.length === 0) return;
 

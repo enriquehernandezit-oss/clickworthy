@@ -58,14 +58,21 @@ export function Button({
 }
 
 // ---- ConfirmDialog ------------------------------------------------------
-// Replaces window.confirm() at ~12 call sites, including "send delivery
-// email" and the RunNow queue triggers. Native <dialog> for a real focus
-// trap + Escape-to-close for free. Modals are the one place transform-origin
-// stays centered (they aren't anchored to a trigger).
+// A real in-page confirm, replacing window.confirm(). Native <dialog> for a
+// focus trap + Escape-to-close for free. Modals are the one place
+// transform-origin stays centered (they aren't anchored to a trigger).
+//
+// Adoption note (2026-08-26): currently wired into the approval-queue deny/
+// skip actions. Several genuinely irreversible sends (delivery email,
+// compose-send, sample reject, RunNow triggers) still use window.confirm()
+// and have NOT been migrated yet — they remain guarded, just by the browser
+// dialog. Migrating those and giving the destructive ones the `requireText`
+// fence below is the intended follow-up.
 //
 // `requireText`: when set, Confirm stays disabled until the operator types
-// this exact string — the real fence for a second operator on an
-// irreversible send, replacing "click OK" with "type the restaurant name".
+// this exact string — a stronger fence for a second operator on an
+// irreversible action ("type the restaurant name" instead of "click OK").
+// Built and ready; no caller passes it yet.
 
 export function ConfirmDialog({
   open,
@@ -149,7 +156,7 @@ export function ConfirmDialog({
               autoFocus
               value={typed}
               onChange={(e) => setTyped(e.target.value)}
-              className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-text outline-none focus:border-gold"
+              className="w-full rounded-lg border border-line-input bg-surface-2 px-3 py-2 text-sm text-text outline-none focus:border-gold"
             />
           </div>
         )}

@@ -57,7 +57,7 @@ export default function EditFields({
     }
   };
 
-  const field = "mt-1 w-full rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text";
+  const field = "mt-1 w-full rounded-lg border border-line-input bg-surface-2 px-3 py-1.5 text-sm text-text";
   const label = "block text-xs font-medium text-muted";
 
   return (

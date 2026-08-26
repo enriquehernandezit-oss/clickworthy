@@ -66,7 +66,7 @@ export default function Touch1Editor({
     } catch (err) {
       return { ok: false as const, error: err instanceof TemplateRenderError ? err.message : "Preview error." };
     }
-  }, [template, lang, subjectIdx, previewRestaurant, identity]);
+  }, [template, lang, subjectIdx, previewRestaurant, identity, variant]);
 
   function setBody(text: string) {
     setTemplate((t) => ({ ...t, [lang]: { ...t[lang], body: text } }));
@@ -201,7 +201,7 @@ export default function Touch1Editor({
                   type="text"
                   value={s}
                   onChange={(e) => setSubject(i, e.target.value)}
-                  className="w-full rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text"
+                  className="w-full rounded-lg border border-line-input bg-surface-2 px-3 py-1.5 text-sm text-text"
                   placeholder={`Subject variant ${i + 1}`}
                 />
               ))}
@@ -213,7 +213,7 @@ export default function Touch1Editor({
               value={branch.body}
               onChange={(e) => setBody(e.target.value)}
               rows={12}
-              className="mt-1 w-full rounded-lg border border-line bg-surface-2 px-3 py-2 font-mono text-xs text-text"
+              className="mt-1 w-full rounded-lg border border-line-input bg-surface-2 px-3 py-2 font-mono text-xs text-text"
             />
           </div>
           <details className="text-xs text-muted">

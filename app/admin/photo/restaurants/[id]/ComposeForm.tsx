@@ -67,7 +67,7 @@ export default function ComposeForm({ restaurantId, hasEmail }: { restaurantId: 
     );
   }
 
-  const inputCls = "mt-1 w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-text";
+  const inputCls = "mt-1 w-full rounded-lg border border-line-input bg-surface-2 px-3 py-2 text-sm text-text";
 
   return (
     <form onSubmit={submit} className="rounded-xl border bg-surface-2 p-4" style={{ borderColor: "var(--line)" }}>

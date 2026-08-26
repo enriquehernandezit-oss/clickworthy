@@ -109,6 +109,18 @@ export async function sentToday(): Promise<number> {
   return n ?? 0;
 }
 
+// Approved-but-unsent Touch 1 rows — the pile that still has first claim on
+// today's cap. The bump sender subtracts this so it can never spend a slot an
+// already-approved Touch 1 needs (Touch 1 = the priority metric). kind, not
+// touchNumber, so an approved bump isn't miscounted as reserved Touch 1.
+export async function approvedTouch1Pending(): Promise<number> {
+  const [{ n }] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(outreachJobs)
+    .where(and(eq(outreachJobs.kind, "touch1"), eq(outreachJobs.status, "approved"), isNull(outreachJobs.sentAt)));
+  return n ?? 0;
+}
+
 // Deliverability guard: if too many recent recipients opted out or bounced,
 // something is off (bad list, spammy copy) — auto-pause sending and alert
 // rather than keep burning the domain's reputation. Only kicks in once there's

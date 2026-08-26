@@ -27,7 +27,7 @@ type Row = {
   products: string[];
 };
 
-async function getClients(): Promise<Row[]> {
+async function getClients() {
   const rows = await db.execute(sql`
     select
       coalesce('r:' || p.restaurant_id::text, 'e:' || p.customer_email) as "clientKey",
@@ -47,7 +47,14 @@ async function getClients(): Promise<Row[]> {
     left join restaurants r on r.id = p.restaurant_id
     group by coalesce('r:' || p.restaurant_id::text, 'e:' || p.customer_email)
   `);
-  return rows as unknown as Row[];
+  const raw = rows as unknown as Row[];
+  // Capture the clock HERE, inside the async data helper, not in the component
+  // render body — keeps Date.now() out of render (react-hooks/purity), matching
+  // the getActivity() pattern used elsewhere in the console.
+  const nowMs = Date.now();
+  return raw
+    .map((r) => ({ ...r, status: statusOf(r, nowMs), daysSince: Math.floor((nowMs - new Date(r.lastPaid).getTime()) / 86_400_000) }))
+    .sort((a, b) => RANK[a.status] - RANK[b.status] || b.lifetimeCents - a.lifetimeCents);
 }
 
 type Status = "active_sub" | "lapsed_sub" | "repeat" | "one_time";
@@ -72,11 +79,7 @@ function fmt(d: string): string {
 }
 
 export default async function ClientsPage() {
-  const raw = await getClients();
-  const nowMs = Date.now();
-  const clients = raw
-    .map((r) => ({ ...r, status: statusOf(r, nowMs), daysSince: Math.floor((nowMs - new Date(r.lastPaid).getTime()) / 86_400_000) }))
-    .sort((a, b) => RANK[a.status] - RANK[b.status] || b.lifetimeCents - a.lifetimeCents);
+  const clients = await getClients();
 
   const totalRevenue = clients.reduce((s, c) => s + c.lifetimeCents, 0);
   const activeSubs = clients.filter((c) => c.status === "active_sub").length;

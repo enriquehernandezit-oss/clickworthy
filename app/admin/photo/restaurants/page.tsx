@@ -76,7 +76,7 @@ export default async function RestaurantsPage({
             id="status"
             name="status"
             defaultValue={status}
-            className="mt-1 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text"
+            className="mt-1 rounded-lg border border-line-input bg-surface-2 px-3 py-1.5 text-sm text-text"
           >
             <option value="all">All</option>
             {STATUSES.map((s) => (
@@ -95,7 +95,7 @@ export default async function RestaurantsPage({
             name="q"
             defaultValue={q}
             placeholder="e.g. taqueria"
-            className="mt-1 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text placeholder:text-faint"
+            className="mt-1 rounded-lg border border-line-input bg-surface-2 px-3 py-1.5 text-sm text-text placeholder:text-faint"
           />
         </div>
         <button

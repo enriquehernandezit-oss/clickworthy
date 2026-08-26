@@ -77,7 +77,7 @@ export default function PaymentLinkForm({ restaurantId }: { restaurantId: number
               setPackageId(e.target.value as PackageId);
               setResult(null);
             }}
-            className="mt-1 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text"
+            className="mt-1 rounded-lg border border-line-input bg-surface-2 px-3 py-1.5 text-sm text-text"
           >
             {PACKAGE_ORDER.map((id) => (
               <option key={id} value={id}>
@@ -101,7 +101,7 @@ export default function PaymentLinkForm({ restaurantId }: { restaurantId: number
               value={overrideDollars}
               onChange={(e) => setOverrideDollars(e.target.value)}
               placeholder={(listed.priceCents / 100).toFixed(2)}
-              className="w-28 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text tabular-nums"
+              className="w-28 rounded-lg border border-line-input bg-surface-2 px-3 py-1.5 text-sm text-text tabular-nums"
             />
           </div>
         </div>
@@ -140,7 +140,7 @@ export default function PaymentLinkForm({ restaurantId }: { restaurantId: number
               readOnly
               value={result.url}
               onFocus={(e) => e.currentTarget.select()}
-              className="flex-1 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-xs text-text"
+              className="flex-1 rounded-lg border border-line-input bg-surface-2 px-3 py-1.5 text-xs text-text"
             />
             <button
               type="button"

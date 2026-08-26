@@ -187,7 +187,7 @@ export default function Sidebar({
           <Link
             href="/admin"
             onClick={() => setOpen(false)}
-            className="mt-3.5 flex items-center gap-1.5 px-3 py-1 text-xs text-white/45 transition-colors hover:text-white/75"
+            className="mt-3.5 flex items-center gap-1.5 px-3 py-1 text-xs text-white/55 transition-colors hover:text-white/75"
           >
             <span aria-hidden="true">←</span> Ventures
           </Link>
@@ -248,7 +248,7 @@ export default function Sidebar({
           </div>
           <div className="min-w-0 leading-tight">
             <div className="truncate text-[12.5px] font-semibold text-white">{userName}</div>
-            <div className="truncate text-[11px] text-white/45">{userRole}</div>
+            <div className="truncate text-[11px] text-white/55">{userRole}</div>
           </div>
         </div>
       </div>

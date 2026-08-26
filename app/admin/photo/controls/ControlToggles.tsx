@@ -206,7 +206,7 @@ export function NumberSetting({
           value={raw}
           onChange={(e) => setRaw(e.target.value)}
           placeholder={nullable ? "(auto)" : ""}
-          className="w-28 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text tabular-nums"
+          className="w-28 rounded-lg border border-line-input bg-surface-2 px-3 py-1.5 text-sm text-text tabular-nums"
         />
         {suffix && <span className="text-sm text-muted">{suffix}</span>}
         <button

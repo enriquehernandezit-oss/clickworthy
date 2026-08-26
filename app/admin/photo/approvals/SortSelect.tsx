@@ -14,7 +14,7 @@ export default function SortSelect({ value }: { value: SortValue }) {
       id="sort"
       value={value}
       onChange={(e) => router.push(`/admin/photo/approvals?sort=${e.target.value}`)}
-      className="rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text outline-none focus:border-gold"
+      className="rounded-lg border border-line-input bg-surface-2 px-3 py-1.5 text-sm text-text outline-none focus:border-gold"
     >
       {SORT_OPTIONS.map((o) => (
         <option key={o.value} value={o.value}>

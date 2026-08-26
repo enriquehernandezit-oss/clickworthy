@@ -214,7 +214,7 @@ const attentionToneClass: Record<AttentionItem["tone"], string> = {
 export default async function AdminOverviewPage() {
   const night = await getLastSourcingNight();
   const [health, trend, funnel, buckets, emailYield, activity, attention] = await Promise.all([
-    getRunHealth(Date.now()),
+    getRunHealth(),
     getEmailReadyTrend(10),
     night ? getNightFunnel(night) : Promise.resolve(null),
     night ? getRejectionBuckets(night) : Promise.resolve([]),

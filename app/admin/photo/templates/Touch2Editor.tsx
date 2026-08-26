@@ -156,7 +156,7 @@ export default function Touch2Editor({
               type="text"
               value={branch.subject}
               onChange={(e) => setSubject(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text"
+              className="mt-1 w-full rounded-lg border border-line-input bg-surface-2 px-3 py-1.5 text-sm text-text"
             />
           </div>
           <div>
@@ -165,7 +165,7 @@ export default function Touch2Editor({
               value={branch.body}
               onChange={(e) => setBody(e.target.value)}
               rows={12}
-              className="mt-1 w-full rounded-lg border border-line bg-surface-2 px-3 py-2 font-mono text-xs text-text"
+              className="mt-1 w-full rounded-lg border border-line-input bg-surface-2 px-3 py-2 font-mono text-xs text-text"
             />
           </div>
           <details className="text-xs text-muted">

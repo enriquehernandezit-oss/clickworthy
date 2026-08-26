@@ -60,7 +60,7 @@ function TextField({
             onChange={(e) => setRaw(e.target.value)}
             placeholder={placeholder}
             rows={4}
-            className="w-full max-w-md rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text"
+            className="w-full max-w-md rounded-lg border border-line-input bg-surface-2 px-3 py-1.5 text-sm text-text"
           />
         ) : (
           <input
@@ -68,7 +68,7 @@ function TextField({
             value={raw}
             onChange={(e) => setRaw(e.target.value)}
             placeholder={placeholder}
-            className="w-full max-w-md rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text"
+            className="w-full max-w-md rounded-lg border border-line-input bg-surface-2 px-3 py-1.5 text-sm text-text"
           />
         )}
         <div className="flex items-center gap-2">

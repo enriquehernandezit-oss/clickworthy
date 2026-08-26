@@ -23,6 +23,7 @@ import { runWeeklyStats } from "./jobs/weeklyStats";
 import { runSourcingReport } from "./jobs/sourcingReport";
 import { setSetting } from "@/lib/settings";
 import { WORKER_ENV_KEYS, envPresence } from "@/lib/envKeys";
+import { uncoveredCities, SENDER_TIME_ZONE } from "./lib/sendWindow";
 
 async function main() {
   const connectionString = requireKey("databaseUrl", "DATABASE_URL");
@@ -111,6 +112,20 @@ async function main() {
   await boss.schedule(PACKAGE_QUEUE, config.packageCron, {});
   await boss.schedule(STATS_QUEUE, config.statsCron, {});
   await boss.schedule(SOURCING_REPORT_QUEUE, config.sourcingReportCron, {});
+
+  // Business-hours send window depends on a city->timezone map. A target city
+  // with no mapping falls back to the sender's AST, which can fire outreach
+  // hours off the recipient's local business hours (e.g. Phoenix at ~6am). Warn
+  // loudly at boot rather than let it happen silently — the map and the city
+  // list live in different files (sendWindow.ts vs config/env) and can drift.
+  const uncovered = uncoveredCities(config.targetCities);
+  if (uncovered.length > 0) {
+    console.warn(
+      `[worker] ⚠ ${uncovered.length} target city/cities have NO timezone mapping and will ` +
+        `fall back to ${SENDER_TIME_ZONE} for the send window (may send outside local business ` +
+        `hours): ${uncovered.join("; ")}. Add them to CITY_TIME_ZONES in worker/lib/sendWindow.ts.`
+    );
+  }
 
   console.log(
     `[worker] up.\n` +

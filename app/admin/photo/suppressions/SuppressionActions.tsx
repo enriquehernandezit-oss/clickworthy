@@ -48,7 +48,7 @@ export function AddSuppressionForm() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="owner@restaurant.com"
-          className="mt-1 w-64 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text placeholder:text-faint"
+          className="mt-1 w-64 rounded-lg border border-line-input bg-surface-2 px-3 py-1.5 text-sm text-text placeholder:text-faint"
         />
       </div>
       <div>
@@ -59,7 +59,7 @@ export function AddSuppressionForm() {
           id="supp-reason"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          className="mt-1 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text"
+          className="mt-1 rounded-lg border border-line-input bg-surface-2 px-3 py-1.5 text-sm text-text"
         >
           {REASONS.map((r) => (
             <option key={r} value={r}>

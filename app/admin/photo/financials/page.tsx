@@ -283,7 +283,7 @@ function RangeForm({ range }: { range: Range }) {
             name="range"
             defaultValue={isCustom ? "" : range.key}
             className="rounded-lg border bg-surface-2 px-3 py-1.5 text-sm text-text"
-            style={{ borderColor: "var(--line)" }}
+            style={{ borderColor: "var(--line-input)" }}
           >
             {RANGE_OPTIONS.map((o) => (
               <option key={o.key} value={o.key}>
@@ -319,7 +319,7 @@ function RangeForm({ range }: { range: Range }) {
             name="from"
             defaultValue={range.fromInput ?? ""}
             className="rounded-lg border bg-surface-2 px-3 py-1.5 text-sm text-text"
-            style={{ borderColor: "var(--line)" }}
+            style={{ borderColor: "var(--line-input)" }}
           />
         </div>
         <div className="flex flex-col gap-1">
@@ -332,7 +332,7 @@ function RangeForm({ range }: { range: Range }) {
             name="to"
             defaultValue={range.toInput ?? ""}
             className="rounded-lg border bg-surface-2 px-3 py-1.5 text-sm text-text"
-            style={{ borderColor: "var(--line)" }}
+            style={{ borderColor: "var(--line-input)" }}
           />
         </div>
         <button

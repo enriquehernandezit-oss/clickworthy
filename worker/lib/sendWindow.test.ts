@@ -4,7 +4,8 @@
 // shifts the UTC offset without shifting the local window.
 
 import { expect, test, describe } from "bun:test";
-import { isInLocalWindow, resolveTimeZone, describeSendWindow, SENDER_TIME_ZONE } from "./sendWindow";
+import { isInLocalWindow, resolveTimeZone, describeSendWindow, uncoveredCities, hasExplicitTimeZone, SENDER_TIME_ZONE } from "./sendWindow";
+import { config } from "../config";
 
 // A weekday during US Daylight Saving Time (summer): Wed 2026-08-26.
 // ET = UTC-4, CT = UTC-5, MT = UTC-6, PT = UTC-7.
@@ -87,5 +88,33 @@ describe("isInLocalWindow — weekends are skipped", () => {
 describe("describeSendWindow", () => {
   test("reads as a business-hours sentence", () => {
     expect(describeSendWindow()).toBe("9am–12pm local time, Mon–Fri (per recipient's city)");
+  });
+});
+
+describe("timezone coverage — every target city must map, none silently fall back", () => {
+  // Guards the drift hazard: CITY_TIME_ZONES (sendWindow.ts) and the target
+  // city list (config) live in different files. This fails at CI if someone
+  // adds a target city without a timezone, before it can send at ~6am local.
+  test("the shipped default targetCities are all explicitly mapped", () => {
+    const DEFAULT_CITIES = "Miami, FL; New York, NY; Chicago, IL; Los Angeles, CA; Nashville, TN; Denver, CO; San Diego, CA"
+      .split(";")
+      .map((c) => c.trim());
+    expect(uncoveredCities(DEFAULT_CITIES)).toEqual([]);
+  });
+
+  test("the live config.targetCities are all mapped (catches an env override too)", () => {
+    expect(uncoveredCities(config.targetCities)).toEqual([]);
+  });
+
+  test("an unmapped city is reported as uncovered", () => {
+    expect(hasExplicitTimeZone("Phoenix, AZ")).toBe(false);
+    expect(uncoveredCities(["Miami, FL", "Phoenix, AZ"])).toEqual(["Phoenix, AZ"]);
+  });
+
+  test("AST fallback actually gates a window for an unmapped city", () => {
+    // 15:00 UTC = 11am AST (UTC-4) -> inside 9-12 for the fallback zone.
+    expect(isInLocalWindow("Reykjavik", Date.UTC(2026, 7, 26, 15))).toBe(true);
+    // 18:00 UTC = 2pm AST -> outside.
+    expect(isInLocalWindow("Reykjavik", Date.UTC(2026, 7, 26, 18))).toBe(false);
   });
 });

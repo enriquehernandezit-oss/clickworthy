@@ -71,7 +71,7 @@ export default async function CompanyFinancialsPage({
             <label htmlFor="range" className="text-xs font-medium" style={{ color: "var(--c-text-muted)" }}>
               Period
             </label>
-            <select id="range" name="range" defaultValue={range.key === "custom" ? "" : range.key} className="rounded-lg border bg-surface-2 px-3 py-1.5 text-sm text-text" style={{ borderColor: "var(--line)" }}>
+            <select id="range" name="range" defaultValue={range.key === "custom" ? "" : range.key} className="rounded-lg border bg-surface-2 px-3 py-1.5 text-sm text-text" style={{ borderColor: "var(--line-input))" }}>
               {RANGE_OPTIONS.map((o) => (
                 <option key={o.key} value={o.key}>
                   {o.label}
@@ -90,11 +90,11 @@ export default async function CompanyFinancialsPage({
         <form method="GET" className="flex flex-wrap items-end gap-3">
           <div className="flex flex-col gap-1">
             <label htmlFor="from" className="text-xs font-medium" style={{ color: "var(--c-text-muted)" }}>From</label>
-            <input type="date" id="from" name="from" defaultValue={range.fromInput ?? ""} className="rounded-lg border bg-surface-2 px-3 py-1.5 text-sm text-text" style={{ borderColor: "var(--line)" }} />
+            <input type="date" id="from" name="from" defaultValue={range.fromInput ?? ""} className="rounded-lg border bg-surface-2 px-3 py-1.5 text-sm text-text" style={{ borderColor: "var(--line-input))" }} />
           </div>
           <div className="flex flex-col gap-1">
             <label htmlFor="to" className="text-xs font-medium" style={{ color: "var(--c-text-muted)" }}>To</label>
-            <input type="date" id="to" name="to" defaultValue={range.toInput ?? ""} className="rounded-lg border bg-surface-2 px-3 py-1.5 text-sm text-text" style={{ borderColor: "var(--line)" }} />
+            <input type="date" id="to" name="to" defaultValue={range.toInput ?? ""} className="rounded-lg border bg-surface-2 px-3 py-1.5 text-sm text-text" style={{ borderColor: "var(--line-input))" }} />
           </div>
           <button type="submit" className="btn-press rounded-lg border px-4 py-2 text-sm font-semibold text-text hover:bg-surface-2" style={{ borderColor: "var(--line)" }}>
             Apply dates
@@ -133,7 +133,7 @@ export default async function CompanyFinancialsPage({
                 <tr key={v.slug} className="border-b" style={{ borderColor: "var(--line)" }}>
                   <td className="px-5 py-2">
                     <span className="inline-flex items-center gap-2">
-                      <span className="h-2 w-2 rounded-full" style={{ background: v.live ? v.accent : "rgba(0,0,0,0.15)" }} />
+                      <span className="h-2 w-2 rounded-full" style={{ background: v.live ? v.accent : "var(--line-strong)" }} />
                       {v.live ? (
                         <Link href={`/admin/${v.slug}/financials`} className="font-medium hover:underline" style={{ color: "var(--c-text)" }}>
                           {v.name}

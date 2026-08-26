@@ -49,6 +49,24 @@ export function resolveTimeZone(city: string | null | undefined): string {
   return SENDER_TIME_ZONE;
 }
 
+// Does an explicit CITY_TIME_ZONES entry exist for this city (i.e. NOT the
+// silent AST fallback)? Used by the boot coverage check below.
+export function hasExplicitTimeZone(city: string): boolean {
+  const key = city.split(",")[0]!.trim().toLowerCase().replace(/\s+/g, " ");
+  if (CITY_TIME_ZONES[key]) return true;
+  return Object.keys(CITY_TIME_ZONES).some((name) => key.includes(name));
+}
+
+// Returns the target cities that have NO timezone mapping and would fall back
+// to the sender's AST — meaning outreach to them could fire hours off local
+// business time (e.g. Phoenix, UTC-7, gated on a UTC-4 clock → ~6am sends).
+// The worker logs a loud warning at boot for any of these (worker/index.ts),
+// and a test asserts the shipped default list is fully covered so this can't
+// regress silently when someone edits targetCities + CITY_TIME_ZONES apart.
+export function uncoveredCities(cities: string[]): string[] {
+  return cities.filter((c) => !hasExplicitTimeZone(c));
+}
+
 // The hour (0–23) and ISO weekday (1=Mon … 7=Sun) at `nowMs` in `tz`.
 // Intl is the only DST-correct way to read a wall clock in another zone;
 // AST has no DST but ET/CT/MT/PT do, so this must not hardcode offsets.

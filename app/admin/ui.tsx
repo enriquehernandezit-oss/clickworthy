@@ -449,4 +449,4 @@ export function Field({
 }
 
 export const fieldInputClass =
-  "w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-text placeholder:text-faint outline-none focus:border-gold";
+  "w-full rounded-lg border border-line-input bg-surface-2 px-3 py-2 text-sm text-text placeholder:text-faint outline-none focus:border-gold";

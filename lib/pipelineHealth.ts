@@ -33,7 +33,11 @@ export type RunHealth = {
   outreachEnabled: boolean;
 };
 
-export async function getRunHealth(nowMs: number): Promise<RunHealth> {
+// nowMs defaults to call time. Optional so a React Server Component can call
+// getRunHealth() without a Date.now() in its render body (react-hooks/purity);
+// the CLI script still passes an explicit value. This function is already
+// impure (it hits the DB), so reading the clock here is fine.
+export async function getRunHealth(nowMs: number = Date.now()): Promise<RunHealth> {
   const boot = (await getSetting("worker_boot_info")) as
     | { bootedAt?: string; nightlyEnrichCap?: number; cities?: string[]; outreachEnabled?: boolean }
     | null;

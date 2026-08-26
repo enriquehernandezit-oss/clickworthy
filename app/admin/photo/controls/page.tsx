@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { outreachJobs } from "@/db/schema";
 import { getAllSettings } from "@/lib/settings";

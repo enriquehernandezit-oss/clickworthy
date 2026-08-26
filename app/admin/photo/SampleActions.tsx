@@ -105,14 +105,14 @@ export default function SampleActions({
               <input
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
-                className="w-full rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm text-text"
+                className="w-full rounded-lg border border-line-input bg-surface-2 px-3 py-1.5 text-sm text-text"
                 placeholder="Subject"
               />
               <textarea
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
                 rows={10}
-                className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2 font-sans text-sm leading-relaxed text-text"
+                className="w-full rounded-lg border border-line-input bg-surface-2 px-3 py-2 font-sans text-sm leading-relaxed text-text"
               />
             </div>
           )}
