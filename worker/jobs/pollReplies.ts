@@ -15,12 +15,20 @@
 // is skipped. The pipeline still only auto-processes the FIRST reply (photo ->
 // sample, or alert-for-a-human) — anything after that always surfaces as an
 // "existing thread" alert rather than trying to auto-create a second sample.
+//
+// Staleness: this is the ONLY thing that sees a "STOP" reply, and CAN-SPAM
+// requires an opt-out be honored within 10 business days. runReplyPoll() self
+// -checks on every tick and pages if Gmail hasn't been successfully read in
+// over an hour — see checkReplyPollStaleness() below and getReplyPollHealth()
+// in lib/pipelineHealth.ts for the dashboard/script-facing read side.
 
 import { randomBytes } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants, outreachJobs, magicLinks } from "@/db/schema";
 import { sendAlert } from "@/lib/alerts";
+import { getSetting, setSetting } from "@/lib/settings";
+import { getReplyPollHealth } from "@/lib/pipelineHealth";
 import { config } from "../config";
 import { listInboxMessages, getMessage, getAttachmentBytes } from "../lib/gmail";
 import { isOptOut, isBounceNotification } from "../lib/outreachEmail";
@@ -37,7 +45,39 @@ function token(): string {
   return randomBytes(24).toString("hex");
 }
 
+// Re-page every 4h a stale spell continues, instead of every ~4-minute tick —
+// this runs at the top of EVERY poll, so without a cooldown a broken Gmail
+// token would fire hundreds of identical alert emails a day.
+const REPLY_POLL_ALERT_COOLDOWN_MINUTES = 240;
+
+// Own try/catch so a hiccup in the alert path itself (a DB blip reading the
+// heartbeat, Resend down) can never block the actual reply poll below — the
+// thing this is supposed to be protecting shouldn't depend on it.
+async function checkReplyPollStaleness(): Promise<void> {
+  try {
+    const [health, lastAlertAt] = await Promise.all([getReplyPollHealth(), getSetting("reply_poll_last_alert")]);
+    if (!health.stale) return;
+
+    const minutesSinceAlert = lastAlertAt ? (Date.now() - Date.parse(lastAlertAt)) / 60_000 : Infinity;
+    if (minutesSinceAlert < REPLY_POLL_ALERT_COOLDOWN_MINUTES) return;
+
+    await sendAlert(
+      "Reply poller hasn't succeeded in over an hour",
+      `The last successful Gmail check-in was ${Math.round(health.minutesSinceRun!)} minutes ago (${health.lastRunAt}). ` +
+        `Nothing is detecting "STOP" opt-outs or new photo replies while this is down — and Gmail's own ` +
+        `search only covers the last 7 days, so a long enough gap loses a reply for good, not just delays ` +
+        `it. Check the worker logs and the Gmail service-account auth (GOOGLE_SERVICE_ACCOUNT_JSON / ` +
+        `GMAIL_SENDER).`
+    );
+    await setSetting("reply_poll_last_alert", new Date().toISOString());
+  } catch (err) {
+    console.warn("[poll] staleness check failed:", err instanceof Error ? err.message : err);
+  }
+}
+
 export async function runReplyPoll(): Promise<void> {
+  await checkReplyPollStaleness();
+
   let messages: { id: string; threadId: string }[];
   try {
     messages = await listInboxMessages();
@@ -45,6 +85,13 @@ export async function runReplyPoll(): Promise<void> {
     console.warn("[poll] Gmail list failed (is Gmail configured?):", err instanceof Error ? err.message : err);
     return;
   }
+
+  // Proof the poller is actually alive, not just that the worker booted (see
+  // getReplyPollHealth in lib/pipelineHealth.ts). Clears any pending alert
+  // cooldown too, so a LATER outage pages again instead of staying silent
+  // because of a stale lastAlert from an episode that already recovered.
+  await setSetting("reply_poll_last_run", new Date().toISOString());
+  await setSetting("reply_poll_last_alert", null);
 
   for (const { id: messageId, threadId } of messages) {
     // ANY Touch-1 row for this thread — not just unreplied ones (see header

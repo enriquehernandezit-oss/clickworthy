@@ -51,6 +51,43 @@ export async function getRunHealth(nowMs: number = Date.now()): Promise<RunHealt
   };
 }
 
+// ── Reply poller staleness ───────────────────────────────────────────────────
+// Nothing detects a "STOP" opt-out or a new photo reply while the reply
+// poller is down, and Gmail's own inbox search only covers the last 7 days
+// (newer_than:7d in worker/lib/gmail.ts) — a long enough gap doesn't just
+// delay a reply, it loses it. CAN-SPAM requires an opt-out be honored within
+// 10 business days, so this threshold is set to catch trouble within about an
+// hour, nowhere near either deadline. reply_poll_last_run is written by
+// runReplyPoll() (worker/jobs/pollReplies.ts) only when listInboxMessages()
+// actually succeeds — not merely when the job ran, since a caught Gmail error
+// there is swallowed so one bad tick can't crash-loop the worker, which means
+// pg-boss would otherwise call that tick a "success" too.
+export const REPLY_POLL_STALE_MINUTES = 60;
+
+export type ReplyPollHealth = {
+  lastRunAt: string | null;
+  minutesSinceRun: number | null;
+  stale: boolean;
+};
+
+// Pure — split out from getReplyPollHealth() so the threshold math is
+// unit-testable without a DB, and so pollReplies.ts's own alert-cooldown
+// check can call the SAME decision this file reports, instead of a second
+// inline copy that could quietly drift from it.
+export function isReplyPollStale(lastRunAt: string | null, nowMs: number, staleMinutes: number = REPLY_POLL_STALE_MINUTES): boolean {
+  if (!lastRunAt) return false; // never run yet — nothing to judge staleness against
+  return (nowMs - Date.parse(lastRunAt)) / 60_000 >= staleMinutes;
+}
+
+export async function getReplyPollHealth(nowMs: number = Date.now()): Promise<ReplyPollHealth> {
+  const lastRunAt = await getSetting("reply_poll_last_run");
+  return {
+    lastRunAt,
+    minutesSinceRun: lastRunAt ? (nowMs - Date.parse(lastRunAt)) / 60_000 : null,
+    stale: isReplyPollStale(lastRunAt, nowMs),
+  };
+}
+
 // Live Anthropic reachability probe — a depleted balance / usage cap silently
 // disables both quality gates (they fail open), the #1 cause of a poisoned
 // night. Isolated in its own function (NOT part of getRunHealth) precisely so

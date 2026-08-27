@@ -26,6 +26,7 @@ import { classifyWebsite } from "@/worker/lib/websitePlatform";
 import { calibrationReport, type CalibrationLead, type Decision } from "@/worker/lib/calibration";
 import {
   getRunHealth,
+  getReplyPollHealth,
   checkAnthropicReachable,
   getEmailReadyTrend,
   avgEmailReady,
@@ -60,6 +61,18 @@ if (health.bootedAt) {
 const reach = await checkAnthropicReachable();
 if (reach.ok) console.log("  Anthropic API:      ✓ reachable");
 else console.log(`  Anthropic API:      ✗ FAILING — gates are running blind: ${reach.message.slice(0, 90)}`);
+
+const replyHealth = await getReplyPollHealth(Date.now());
+if (replyHealth.lastRunAt) {
+  const mins = replyHealth.minutesSinceRun!;
+  const age = mins < 120 ? `${mins.toFixed(0)}m ago` : `${(mins / 60).toFixed(1)}h ago`;
+  console.log(
+    `  reply poller:       ${replyHealth.stale ? "✗ STALE" : "✓ alive"} — last Gmail check-in ${age}` +
+      (replyHealth.stale ? "  (STOP opt-outs are not being caught right now)" : "")
+  );
+} else {
+  console.log("  reply poller:       ⚠ no heartbeat recorded yet — has the worker been redeployed since this shipped?");
+}
 
 // ── 2. Email-ready trend ───────────────────────────────────────────────────
 hr(`2 · EMAIL-READY (queued) PER NIGHT — last ${nights} nights, AST`);

@@ -93,6 +93,16 @@ export type SettingsMap = {
   // each run by worker/jobs/sendOutreach.ts.
   outreach_daily_draft_target: number;
   worker_boot_info: WorkerBootInfo | null;
+  // ISO timestamp, written by runReplyPoll() (worker/jobs/pollReplies.ts) the
+  // moment it successfully lists the Gmail inbox — i.e. proof the poller that
+  // detects "STOP" replies is actually alive, not just that the worker process
+  // booted. See getReplyPollHealth() in lib/pipelineHealth.ts.
+  reply_poll_last_run: string | null;
+  // ISO timestamp of the last staleness alert runReplyPoll() sent (see
+  // sendAlert in pollReplies.ts). Debounces the alert so an outage lasting
+  // hours pages once every REPLY_POLL_ALERT_COOLDOWN_MINUTES, not every
+  // 4-minute tick; cleared back to null the moment the poller succeeds again.
+  reply_poll_last_alert: string | null;
 
   // --- Outreach identity + copy (editable on /admin/photo/templates) ---------
   // Previously read from OUTREACH_SENDER_NAME/OUTREACH_POSTAL_ADDRESS, which were
@@ -154,6 +164,8 @@ const DEFAULTS: SettingsMap = {
   bump_after_days: 3,
   outreach_daily_draft_target: 20,
   worker_boot_info: null,
+  reply_poll_last_run: null,
+  reply_poll_last_alert: null,
 
   // Calibrated 2026-08-18 against measured API usage and the real subscription
   // list (was: provisional order-of-magnitude guesses). Every line says where
