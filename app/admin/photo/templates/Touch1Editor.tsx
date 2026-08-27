@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "../../primitives";
 import type { Touch1Template } from "@/lib/settings";
 import { composeTouch1, hasComplianceFooter } from "@/worker/lib/outreachEmail";
 import { TemplateRenderError } from "@/worker/lib/renderTemplate";
@@ -41,6 +42,7 @@ export default function Touch1Editor({
   variant?: "dish" | "nodish";
 }) {
   const router = useRouter();
+  const { confirm, confirmDialog } = useConfirm();
   const [template, setTemplate] = useState<Touch1Template>(initialTemplate);
   const [lang, setLang] = useState<"en" | "es">("en");
   const [subjectIdx, setSubjectIdx] = useState<0 | 1 | 2>(0);
@@ -104,12 +106,12 @@ export default function Touch1Editor({
   }
 
   async function applyToPending() {
-    if (
-      !window.confirm(
-        `Rewrite all ${pendingDrafts} pending draft${pendingDrafts === 1 ? "" : "s"} with this template? Drafts already approved are left alone.`
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: `Rewrite ${pendingDrafts} pending draft${pendingDrafts === 1 ? "" : "s"}?`,
+      description: "They'll be recomposed with this template. Drafts you've already approved are left alone.",
+      confirmLabel: "Rewrite drafts",
+    });
+    if (!ok) return;
     setBusy("apply");
     setMsg(null);
     const saved = dirty ? await save() : true;
@@ -167,6 +169,7 @@ export default function Touch1Editor({
 
   return (
     <div className="rounded-xl border border-line bg-surface-2 p-5">
+      {confirmDialog}
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <div>
           <div className="text-base font-semibold text-text">{title}</div>

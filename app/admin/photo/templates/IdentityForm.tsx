@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "../../primitives";
 
 // Sender name + postal address, both app_settings-backed (see lib/settings.ts).
 // Same save-loop shape as NumberSetting in ../controls/ControlToggles.tsx —
@@ -98,11 +99,17 @@ function TextField({
 // reaches the review pile. Approved drafts are left alone.
 function ApplyIdentityToPending({ pendingDrafts }: { pendingDrafts: number }) {
   const router = useRouter();
+  const { confirm, confirmDialog } = useConfirm();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   const apply = async () => {
-    if (!window.confirm(`Rewrite all ${pendingDrafts} pending draft${pendingDrafts === 1 ? "" : "s"} with the current sender name and postal address? Approved drafts are left alone.`)) return;
+    const ok = await confirm({
+      title: `Rewrite ${pendingDrafts} pending draft${pendingDrafts === 1 ? "" : "s"}?`,
+      description: "They'll be recomposed with the current sender name and postal address. Drafts you've already approved are left alone.",
+      confirmLabel: "Rewrite drafts",
+    });
+    if (!ok) return;
     setBusy(true);
     setMsg(null);
     try {
@@ -124,6 +131,7 @@ function ApplyIdentityToPending({ pendingDrafts }: { pendingDrafts: number }) {
 
   return (
     <div className="rounded-xl border border-line bg-surface-2 p-5">
+      {confirmDialog}
       <div className="text-base font-semibold text-text">Apply identity to pending drafts</div>
       <p className="mt-1 max-w-xl text-sm text-muted">
         Saving above only affects new drafts. Use this to push the current sender name and postal

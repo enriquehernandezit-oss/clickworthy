@@ -133,10 +133,11 @@ export function ConfirmDialog({
       aria-labelledby={titleId}
       className="m-auto rounded-xl border border-line bg-surface p-0 text-text shadow-2xl backdrop:bg-black/60"
       style={{ width: "min(420px, calc(100vw - 2rem))" }}
-      onCancel={(e) => {
-        e.preventDefault();
-        onCancel();
-      }}
+      // Deliberately NOT preventDefault()-ing the native `cancel` event: letting
+      // the browser close the dialog itself is what makes Escape work reliably.
+      // Preventing it made Escape depend on a React state round-trip to call
+      // el.close(), and the dialog just stayed open. The `close` listener below
+      // still fires either way, so parent state stays in sync.
     >
       <div
         className="animate-fade-scale-in p-5"

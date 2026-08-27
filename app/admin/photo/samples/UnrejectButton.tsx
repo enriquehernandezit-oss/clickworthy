@@ -2,16 +2,23 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "../../primitives";
 
 // Restore a rejected sample back to the edit queue. Rejecting used to be a
 // permanent one-click loss of a lead that had replied with a photo.
 export default function UnrejectButton({ magicLinkId }: { magicLinkId: number }) {
   const router = useRouter();
+  const { confirm, confirmDialog } = useConfirm();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const restore = async () => {
-    if (!window.confirm("Restore this rejected sample to the edit queue?")) return;
+    const ok = await confirm({
+      title: "Restore this sample?",
+      description: "It goes back to the edit queue so you can finish and send it.",
+      confirmLabel: "Restore",
+    });
+    if (!ok) return;
     setBusy(true);
     setError(null);
     try {
@@ -34,6 +41,7 @@ export default function UnrejectButton({ magicLinkId }: { magicLinkId: number })
 
   return (
     <div className="flex items-center gap-2">
+      {confirmDialog}
       <button
         type="button"
         disabled={busy}

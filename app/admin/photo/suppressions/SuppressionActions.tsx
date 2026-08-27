@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "../../primitives";
 
 const REASONS = ["manual", "opt_out", "bounce", "complaint"] as const;
 
@@ -83,11 +84,22 @@ export function AddSuppressionForm() {
 
 export default function SuppressionActions({ email }: { email: string }) {
   const router = useRouter();
+  const { confirm, confirmDialog } = useConfirm();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const remove = async () => {
-    if (!window.confirm(`Remove ${email} from the do-not-contact list? They will become eligible for cold email again — someone who opted out could get contacted.`)) return;
+    // requireText: undoing an opt-out is the one action here that can put us
+    // back in front of someone who explicitly asked us to stop — a compliance
+    // risk, not just a data edit. Make it deliberate.
+    const ok = await confirm({
+      title: "Remove from do-not-contact?",
+      description: `${email} becomes eligible for cold email again. If they opted out, this could contact them against their wishes.`,
+      confirmLabel: "Remove",
+      danger: true,
+      requireText: "REMOVE",
+    });
+    if (!ok) return;
     setBusy(true);
     setError(null);
     const err = await postAction("remove", { email }).catch(() => "Network error.");
@@ -101,6 +113,7 @@ export default function SuppressionActions({ email }: { email: string }) {
 
   return (
     <div className="flex items-center justify-end gap-2">
+      {confirmDialog}
       {error && <span className="text-xs text-coral">{error}</span>}
       <button
         type="button"

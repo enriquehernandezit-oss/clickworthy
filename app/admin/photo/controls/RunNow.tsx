@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "../../primitives";
 
 type Queue = { queue: string; label: string; hint: string };
 
@@ -9,16 +10,20 @@ type Queue = { queue: string; label: string; hint: string };
 // response is informational ("already queued"), not an error.
 export default function RunNow({ queues, autosendOn }: { queues: Queue[]; autosendOn: boolean }) {
   const router = useRouter();
+  const { confirm, confirmDialog } = useConfirm();
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ queue: string; text: string; kind: "info" | "ok" | "error" } | null>(null);
 
   const run = async (q: Queue) => {
-    if (
-      q.queue === "send-outreach" &&
-      autosendOn &&
-      !window.confirm("Autosend is ON — this run drafts AND sends up to the daily cap. Continue?")
-    )
-      return;
+    if (q.queue === "send-outreach" && autosendOn) {
+      const ok = await confirm({
+        title: "Autosend is ON",
+        description: "This run drafts AND sends up to the daily cap, with no review step. Continue?",
+        confirmLabel: "Run it",
+        danger: true,
+      });
+      if (!ok) return;
+    }
     setBusy(q.queue);
     setMsg(null);
     try {
@@ -43,6 +48,7 @@ export default function RunNow({ queues, autosendOn }: { queues: Queue[]; autose
 
   return (
     <div className="flex flex-col gap-3">
+      {confirmDialog}
       {queues.map((q) => (
         <div key={q.queue} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface px-4 py-3">
           <div>

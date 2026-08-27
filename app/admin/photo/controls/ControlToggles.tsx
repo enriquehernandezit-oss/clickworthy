@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CostKey } from "@/lib/costs";
+import { useConfirm } from "../../primitives";
 
 async function postSetting(key: string, value: boolean): Promise<string | null> {
   const fd = new FormData();
@@ -17,11 +18,21 @@ async function postSetting(key: string, value: boolean): Promise<string | null> 
 // quiet red Pause.
 export function PauseControl({ paused }: { paused: boolean }) {
   const router = useRouter();
+  const { confirm, confirmDialog } = useConfirm();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const flip = async (to: boolean) => {
-    if (to && !window.confirm("Pause ALL outreach sending (Touch 1, bumps, Touch 2)? Drafting and reply-reading continue.")) return;
+    // Only pausing asks; resuming is the recovery path and shouldn't be fenced.
+    if (to) {
+      const ok = await confirm({
+        title: "Pause all outreach sending?",
+        description: "Touch 1, bumps, and Touch 2 all stop going out. Drafting and reply-reading continue as normal.",
+        confirmLabel: "Pause sending",
+        danger: true,
+      });
+      if (!ok) return;
+    }
     setBusy(true);
     setError(null);
     const err = await postSetting("outreach_paused", to).catch(() => "Network error.");
@@ -36,6 +47,7 @@ export function PauseControl({ paused }: { paused: boolean }) {
         paused ? "border-coral/50 bg-coral/10" : "border-line bg-surface"
       }`}
     >
+      {confirmDialog}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
@@ -77,17 +89,25 @@ export function PauseControl({ paused }: { paused: boolean }) {
 // Approval-mode vs autosend.
 export function AutosendControl({ autosend }: { autosend: boolean }) {
   const router = useRouter();
+  const { confirm, confirmDialog } = useConfirm();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const flip = async (to: boolean) => {
-    if (
-      to &&
-      !window.confirm(
-        "Turn ON autosend? New Touch-1 drafts will approve and send themselves, up to the daily cap, with no review. (Drafts already waiting are NOT auto-approved.)"
-      )
-    )
-      return;
+    // requireText: this removes the human approval step entirely — /admin/guide
+    // lists turning it on as a "check in first" decision, so it gets the
+    // strongest fence of any toggle here. Turning it OFF is never fenced.
+    if (to) {
+      const ok = await confirm({
+        title: "Turn ON autosend?",
+        description:
+          "New Touch-1 drafts will approve and send themselves, up to the daily cap, with no review. (Drafts already waiting are NOT auto-approved.)",
+        confirmLabel: "Enable autosend",
+        danger: true,
+        requireText: "AUTOSEND",
+      });
+      if (!ok) return;
+    }
     setBusy(true);
     setError(null);
     const err = await postSetting("outreach_autosend", to).catch(() => "Network error.");
@@ -98,6 +118,7 @@ export function AutosendControl({ autosend }: { autosend: boolean }) {
 
   return (
     <div className="rounded-xl border border-line bg-surface p-5">
+      {confirmDialog}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="text-base font-semibold text-text">

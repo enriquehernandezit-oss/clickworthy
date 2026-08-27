@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "../primitives";
 
 // Free-sample production controls. Optional Claid first pass → download rough →
 // edit locally → upload finished → review + edit the Touch 2 email → Approve &
@@ -18,6 +19,7 @@ export default function SampleActions({
   seedError?: string;
 }) {
   const router = useRouter();
+  const { confirm, confirmDialog } = useConfirm();
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +51,7 @@ export default function SampleActions({
 
   return (
     <div className="mt-4 flex flex-col gap-3">
+      {confirmDialog}
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
@@ -82,9 +85,14 @@ export default function SampleActions({
         <button
           type="button"
           disabled={busy !== null}
-          onClick={() => {
-            if (!window.confirm("Reject this sample? The customer gets no reply and the lead is closed — this cannot be undone from the queue.")) return;
-            post("reject");
+          onClick={async () => {
+            const ok = await confirm({
+              title: "Reject this sample?",
+              description: "The customer gets no reply and the lead is closed. This can't be undone from the queue.",
+              confirmLabel: "Reject",
+              danger: true,
+            });
+            if (ok) post("reject");
           }}
           className="rounded-lg border border-coral/40 px-4 py-2 text-sm font-semibold text-coral transition-colors hover:bg-coral/10 disabled:opacity-50"
         >

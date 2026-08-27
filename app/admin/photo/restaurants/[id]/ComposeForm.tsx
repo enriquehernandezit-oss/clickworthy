@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "../../../primitives";
 
 // One-off manual email to this restaurant. Goes through the same warmed
 // mail@ mailbox as cold outreach, but is logged as touchNumber:0 so it's
 // excluded from the daily ramp / bump / Touch-2 flow.
 export default function ComposeForm({ restaurantId, hasEmail }: { restaurantId: number; hasEmail: boolean }) {
   const router = useRouter();
+  const { confirm, confirmDialog } = useConfirm();
   const [open, setOpen] = useState(false);
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
@@ -16,7 +18,12 @@ export default function ComposeForm({ restaurantId, hasEmail }: { restaurantId: 
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!window.confirm(`Send this email now from mail@clickworthytool.com?`)) return;
+    const ok = await confirm({
+      title: "Send this email now?",
+      description: "It goes out immediately from mail@clickworthytool.com. There's no undo.",
+      confirmLabel: "Send now",
+    });
+    if (!ok) return;
     setBusy(true);
     setMsg(null);
     try {
@@ -71,6 +78,7 @@ export default function ComposeForm({ restaurantId, hasEmail }: { restaurantId: 
 
   return (
     <form onSubmit={submit} className="rounded-xl border bg-surface-2 p-4" style={{ borderColor: "var(--line)" }}>
+      {confirmDialog}
       <label className="block text-xs font-medium text-muted">
         Subject
         <input required value={subject} onChange={(e) => setSubject(e.target.value)} className={inputCls} />

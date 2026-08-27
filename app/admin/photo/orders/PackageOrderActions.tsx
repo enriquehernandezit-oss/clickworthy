@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "../../primitives";
 
 // Row actions for a package order in the "all package orders" table:
 //   - Mark paid   (package paid off-Stripe, e.g. check/Zelle → enters pipeline)
@@ -22,11 +23,12 @@ export default function PackageOrderActions({
   hasPackage: boolean;
 }) {
   const router = useRouter();
+  const { confirm, confirmDialog } = useConfirm();
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
-  const post = async (action: string, confirmMsg?: string) => {
-    if (confirmMsg && !window.confirm(confirmMsg)) return;
+  const post = async (action: string, confirmOpts?: { title: string; description?: string; confirmLabel?: string }) => {
+    if (confirmOpts && !(await confirm(confirmOpts))) return;
     setBusy(action);
     setMsg(null);
     try {
@@ -54,11 +56,18 @@ export default function PackageOrderActions({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {confirmDialog}
       {!isPaid && hasPackage && (
         <button
           type="button"
           disabled={busy !== null}
-          onClick={() => post("mark_paid", "Mark this package as paid (off-Stripe, e.g. check/Zelle)? It will enter the production pipeline.")}
+          onClick={() =>
+            post("mark_paid", {
+              title: "Mark this package as paid?",
+              description: "For a payment taken off-Stripe (check, Zelle, cash). It enters the production pipeline immediately.",
+              confirmLabel: "Mark paid",
+            })
+          }
           className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-black/[0.03] disabled:opacity-50"
           style={{ borderColor: "var(--line)", color: "var(--c-text)" }}
         >

@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "../primitives";
 
 type PackageResult = { name: string; originalUrl: string; enhancedUrl: string | null; error: string | null };
 
@@ -18,6 +19,7 @@ export default function PackageActions({
   seed: { subject: string; body: string } | null;
 }) {
   const router = useRouter();
+  const { confirm, confirmDialog } = useConfirm();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [emailFailed, setEmailFailed] = useState(false);
@@ -58,7 +60,16 @@ export default function PackageActions({
   // (A Needs-Attention bucket for kind='delivery'/status='cancelled' is the
   // durable backstop if they navigate away — see lib/photoStats.ts.)
   const deliver = async () => {
-    if (!window.confirm("Send this delivery email? The delivery page unlocks the moment it sends. No further edits after this.")) return;
+    // requireText: this is the irreversible one — it unlocks the customer's
+    // delivery page and can't be edited afterwards. Typing SEND is the fence a
+    // browser confirm() couldn't provide, and matters most for a second operator.
+    const ok = await confirm({
+      title: "Send the delivery email?",
+      description: "The customer's delivery page unlocks the moment this sends, and the email can't be edited afterwards.",
+      confirmLabel: "Send delivery email",
+      requireText: "SEND",
+    });
+    if (!ok) return;
     const res = await post("deliver", { subject, body });
     if (!res) return;
     if (res.emailSent === false) {
@@ -81,6 +92,7 @@ export default function PackageActions({
 
   return (
     <div className="mt-4 flex flex-col gap-4">
+      {confirmDialog}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {results.map((r, i) => (
           <PhotoRow key={i} index={i} result={r} busy={busy} onPost={post} />
