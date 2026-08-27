@@ -300,6 +300,10 @@ export default async function AdminOverviewPage() {
 
       {/* The priority metric. */}
       <section className="mt-10">
+        {/* Spelled out because this is easily confused with the Approvals
+            count: this counts NEW leads that got a verified email on the night
+            they were sourced. The approvals queue is drafts composed today
+            from the whole accumulated queued pool, so the two rarely match. */}
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <SectionHeading>Email-ready per night</SectionHeading>
           <span className="text-xs text-muted">
@@ -308,6 +312,10 @@ export default async function AdminOverviewPage() {
             <span className="text-faint"> · {runNights} run nights</span>
           </span>
         </div>
+        <p className="mt-2 text-xs text-faint">
+          New leads that got a verified email on the night they were sourced. Not the same as the Approvals count —
+          drafts are composed from the whole queued pool, which builds up across nights.
+        </p>
         <div className="mt-3">
           <NightBars trend={trend} target={EMAIL_READY_TARGET} />
         </div>
@@ -317,6 +325,10 @@ export default async function AdminOverviewPage() {
       <section className="mt-10 grid gap-6 lg:grid-cols-2">
         <div>
           <SectionHeading>Last night&apos;s funnel {night && <span className="text-faint">· {night}</span>}</SectionHeading>
+          <p className="mt-2 text-xs text-faint">
+            Candidates found → those that survived the free filters and cost money to enrich → those that ended with a
+            verified email. Each arrow shows the share lost at that step.
+          </p>
           {funnelSteps.length > 0 && funnel && funnel.sourced > 0 ? (
             <div className="mt-3">
               <Funnel steps={funnelSteps} />
@@ -327,6 +339,7 @@ export default async function AdminOverviewPage() {
         </div>
         <div>
           <SectionHeading>Why leads died</SectionHeading>
+          <p className="mt-2 text-xs text-faint">Reason each rejected lead was dropped, last night.</p>
           {buckets.length > 0 ? (
             <div className="mt-3">
               <RejectionBars buckets={buckets} />
@@ -353,10 +366,18 @@ export default async function AdminOverviewPage() {
             {[...emailYield].reverse().map((r) => {
               const rate = r.sites ? Math.round((r.emails / r.sites) * 100) : null;
               return (
-                <div key={r.night} className="rounded-lg border border-line bg-surface px-3 py-2 text-center">
+                <div
+                  key={r.night}
+                  className="rounded-lg border border-line bg-surface px-3 py-2 text-center"
+                  title={`${r.night}: ${r.emails} of ${r.sites} leads that had a website finished with a verified email`}
+                >
                   <div className="font-mono-label text-[10px] text-faint">{r.night}</div>
                   <div className="font-mono-label text-base font-semibold tabular-nums text-text">{rate != null ? `${rate}%` : "—"}</div>
-                  <div className="font-mono-label text-[10px] tabular-nums text-faint">{r.emails}/{r.sites}</div>
+                  {/* Spell out the fraction — a bare "9/25" reads ambiguously. */}
+                  <div className="font-mono-label text-[10px] tabular-nums text-faint">
+                    {r.emails} of {r.sites}
+                  </div>
+                  <div className="text-[9px] leading-tight text-faint">w/ site</div>
                 </div>
               );
             })}

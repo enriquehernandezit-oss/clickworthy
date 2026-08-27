@@ -127,8 +127,13 @@ export function Funnel({ steps }: { steps: { label: string; value: number }[] })
     <div className="flex items-stretch gap-1.5">
       {steps.map((s, i) => {
         const last = i === steps.length - 1;
-        const prev = i > 0 ? steps[i - 1].value : null;
-        const dropPct = prev && prev > 0 ? Math.round(((prev - s.value) / prev) * 100) : null;
+        // The % belongs to the arrow LEAVING this step, so it must measure
+        // this step -> the next one. (It previously measured the incoming
+        // transition while being drawn on the outgoing arrow, so the label sat
+        // one arrow to the right of the drop it described: an 80->46 drop of
+        // -43% rendered between 46 and 9, whose real drop is -80%.)
+        const next = i < steps.length - 1 ? steps[i + 1] : null;
+        const dropPct = next && s.value > 0 ? Math.round(((s.value - next.value) / s.value) * 100) : null;
         const widthPct = Math.max(12, Math.round((s.value / max) * 100));
         return (
           <div key={s.label} className="flex flex-1 items-stretch gap-1.5">
@@ -151,7 +156,11 @@ export function Funnel({ steps }: { steps: { label: string; value: number }[] })
             {!last && (
               <div className="flex flex-col items-center justify-center px-1 text-xs" style={{ color: "var(--c-text-faint)" }}>
                 <span>→</span>
-                {dropPct !== null && dropPct > 0 && <span className="mt-0.5 tabular-nums">-{dropPct}%</span>}
+                {dropPct !== null && dropPct > 0 && (
+                  <span className="mt-0.5 whitespace-nowrap tabular-nums" title={`${dropPct}% of "${s.label}" did not reach "${next!.label}"`}>
+                    −{dropPct}% lost
+                  </span>
+                )}
               </div>
             )}
           </div>
