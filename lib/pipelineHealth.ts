@@ -187,18 +187,24 @@ export async function getEmailYield(nights: number): Promise<YieldRow[]> {
 export async function getAnomalies(night: string, funnel: NightFunnel | null): Promise<string[]> {
   const flags: string[] = [];
 
-  // Gate-2 failed open: a RICH band with no pro-score means the Vision call
-  // didn't happen. `unclear` is deliberately EXCLUDED — Gate 2 skips it by
-  // design (decidePhotoFit can only reject `rich`), so every unclear lead has
-  // a null pro-score on purpose; counting them would cry outage every night.
+  // Gate-2 failed open: a RICH band where Vision made ZERO calls means the API
+  // was unreachable. Two exclusions, both learned the hard way:
+  //   - `unclear` is skipped by design (decidePhotoFit can only reject `rich`),
+  //     so every unclear lead has a null pro-score on purpose.
+  //   - A null pro-score is NOT the signal. Gate 2 legitimately returns null
+  //     when it scored images but found no real photo (logos/menus only) —
+  //     which is common. Keying on that made this fire on three consecutive
+  //     normal nights (2026-08-25/26/27) before website_images_scored existed.
+  //     `= 0` is the true outage signature; NULL means "enriched before the
+  //     column existed", which we can't judge, so we don't flag it.
   const [g2] = asRows<{ n: number }>(
     await db.execute(sql`
       select count(*)::int as n from restaurants
-      where ${inNight(night)} and website_photo_band = 'rich' and website_pro_score is null`)
+      where ${inNight(night)} and website_photo_band = 'rich' and website_images_scored = 0`)
   );
   if (g2?.n > 0)
     flags.push(
-      `Gate-2 (Vision) skipped on ${g2.n} rich-band lead(s) last night — likely an API outage; those leads were NOT photo-screened (this can't reject them into a decision, but it means they were never actually judged).`
+      `Gate-2 (Vision) made zero calls on ${g2.n} rich-band lead(s) last night — the API was likely unreachable, so those leads were never actually judged (this can't reject them into a decision, but they went unscreened).`
     );
 
   // Chain check failed open: a full run with zero chain/group rejections is

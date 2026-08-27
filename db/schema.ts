@@ -38,6 +38,11 @@ export const restaurants = pgTable('restaurants', {
   websitePhotoBand: text('website_photo_band'), // 'rich' | 'unclear' | 'sparse' (Gate 1)
   websitePhotoRichness: integer('website_photo_richness'), // 0–100 structural richness (Gate 1)
   websiteProScore: integer('website_pro_score'), // best real-photo Vision score 2–6 (Gate 2); null if sparse / unjudged
+  // How many Vision calls Gate 2 actually made. Distinguishes "Gate 2 ran and
+  // found no real photo" (>0, normal) from "Gate 2 never ran" (0, an API
+  // outage) — both leave website_pro_score null, so the anomaly detector can't
+  // tell them apart without this. Null on rows enriched before 2026-08-27.
+  websiteImagesScored: integer('website_images_scored'),
   emailSource: text('email_source'), // 'website' | 'manual' | null — where `email` came from
   // Personalization for the cold email (derived in enrichment):
   signatureDish: text('signature_dish'), // a real standout dish, from Claude Vision — the #1 reply-rate lever

@@ -94,13 +94,19 @@ export async function runEnrichment(data: EnrichJobData): Promise<void> {
   // leads with real websites ended up recorded as "sparse, richness 0" and
   // treated as our best targets. Null also makes them automatic candidates for
   // scripts/rescreen-backlog.ts, which targets rows with no band.
+  // websiteImagesScored is what separates "Gate 2 ran and found no real photo"
+  // (0 is impossible there — it scored something) from "Gate 2 never ran at all"
+  // (an API outage). Both leave proScore null, so without this the anomaly
+  // detector flagged normal nights as outages — it cried wolf three nights
+  // running before this column existed (2026-08-27).
   const fitSignals = fit.screened
     ? {
         websitePhotoBand: fit.band,
         websitePhotoRichness: fit.richness,
         websiteProScore: fit.proScore,
+        websiteImagesScored: fit.imagesScored,
       }
-    : { websitePhotoBand: null, websitePhotoRichness: null, websiteProScore: null };
+    : { websitePhotoBand: null, websitePhotoRichness: null, websiteProScore: null, websiteImagesScored: null };
   if (fit.decision === "reject") {
     await db
       .update(restaurants)

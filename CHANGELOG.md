@@ -15,6 +15,60 @@ Newest first.
 
 ## 2026-08-27
 
+### Fixed: bounces were being counted as REPLIES
+A delivery failure arrives in the same Gmail thread as the message that failed,
+so `pollReplies` recorded it as `replied`. The pipeline's only "reply" across 44
+sends was a mailer-daemon *"Address not found"* — so the **true reply rate was
+0/44, not 1/44**, on the dashboard, the weekly email, and Insights. It also left
+the dead address un-suppressed (invisible to the deliverability guard, which
+counts suppressions) and queued a blank draft as if someone owed a human reply.
+
+`isBounceNotification()` now runs *before* the `replied` write, suppresses the
+address we actually sent to (read off the restaurant row — never the
+mailer-daemon sender), marks the job `bounced`, and skips the draft. Backfilled
+the one historical row.
+
+**Calibration worth remembering:** that address was `source=guessed` and had
+*passed* NeverBounce — the catch-all trap (a catch-all domain accepts at SMTP
+time so NeverBounce answers `catchall`; the server rejects the unknown mailbox
+later). Our current bar already produces bounces.
+
+### Email-yield investigation — where the bottleneck actually is
+Measured across all 140 leads stuck at `needs_manual_email`:
+- **Extraction is not the bottleneck.** Only 13/140 (9%) have a scrapable
+  address; the structured extractors barely fire (mailto 7, jsonld 1,
+  cloudflare 0, meta 0). More parsers would be wasted effort.
+- **54% have no MX record at all** — no mailbox exists on their domain.
+  Permanently unreachable by email; correctly excluded.
+- Of the 64 that *do* have a live mailbox, `info@` returns **69% "unknown"**,
+  25% invalid, 6% valid/catchall. **We discard every "unknown"** — ~44 leads
+  here, roughly 5/night ongoing.
+
+### Rejected: the "unknown = greylisting, so retry" hypothesis
+Greylisting resolves on retry, which would have made this a safe, easy win.
+Retried 8 "unknown" addresses ~10 minutes later: **0 of 8 flipped.** The verdict
+is stable, not transient. A retry system would have done nothing. Cost to find
+out: $0.06 (total diagnostics ~$1.08).
+
+### Deferred: the controlled unknown-email test batch
+Approved in principle, sequenced *after* a baseline. Rationale: bounces were
+invisible until today, and a NeverBounce-approved address already bounced — so
+there is no observed bounce rate to judge an experiment against. Worse, before
+the fix above, bounces registered as *replies*, which would have made a failing
+experiment look like a winning one. Plan: run the bounce fix on normal traffic
+for 3–4 nights to establish the verified-address baseline, then send the unknown
+batch and compare against it.
+
+### Dropped two classes of wrong-recipient address
+Found by the backfill dry run on real leads:
+- **Plus-addressed agency inboxes** (`proyectoweber+<client>.com@gmail.com`) — a
+  web developer routing many clients into one mailbox. We'd have pitched the
+  developer, not the restaurant.
+- **Corporate loyalty/rewards/franchise mailboxes** (`loyalty@acfp.com`).
+Tests pin that a plain gmail and `order_info@` still pass, so the filter doesn't
+overreach.
+
+
 ### Reviewed: the `minReviews: 20` sourcing floor — **NO CHANGE**
 "Too few reviews" is consistently the top rejection reason (29 of 34 free-filtered
 leads on 2026-08-25), which reads alarming but is the filter working as designed:
