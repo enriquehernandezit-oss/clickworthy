@@ -23,7 +23,7 @@ import { restaurants, outreachJobs, magicLinks } from "@/db/schema";
 import { sendAlert } from "@/lib/alerts";
 import { config } from "../config";
 import { listInboxMessages, getMessage, getAttachmentBytes } from "../lib/gmail";
-import { isOptOut } from "../lib/outreachEmail";
+import { isOptOut, isBounceNotification } from "../lib/outreachEmail";
 import { addSuppression } from "../lib/suppression";
 import { storeImageBytes } from "@/lib/storage";
 import { generateRevenueImpactCopy } from "../lib/anthropic";
@@ -72,6 +72,30 @@ export async function runReplyPoll(): Promise<void> {
 
     const sender = parseFromEmail(full.from);
     const isFirstReply = job.repliedAt == null;
+
+    // A BOUNCE, not a reply. Must be handled before the `replied` write below:
+    // a delivery failure arrives in the same thread as the message that failed,
+    // so recording it as a reply inflates the reply rate (the pipeline's only
+    // "reply" across 42 sends was a mailer-daemon bounce), queues a pointless
+    // draft for a human to answer, and — worst — leaves the dead address
+    // un-suppressed, invisible to the deliverability guard.
+    //
+    // Suppress the address we actually SENT to (from the restaurant row), never
+    // `sender` — that's mailer-daemon's own address, which would suppress the
+    // robot instead of the dead mailbox.
+    if (isBounceNotification(sender, full.bodyText)) {
+      const [bounced] = await db.select().from(restaurants).where(eq(restaurants.id, job.restaurantId)).limit(1);
+      if (bounced?.email) {
+        await addSuppression(bounced.email, "bounce");
+        await db.update(restaurants).set({ suppressed: true }).where(eq(restaurants.id, bounced.id));
+      }
+      await db
+        .update(outreachJobs)
+        .set({ status: "bounced", lastReplyMessageId: messageId })
+        .where(eq(outreachJobs.id, job.id));
+      console.log(`[poll] BOUNCE for ${bounced?.email ?? "(unknown address)"} (${bounced?.name ?? job.restaurantId}) — suppressed, not counted as a reply`);
+      continue;
+    }
 
     // Record the message id + content up front so a mid-run error doesn't
     // cause reprocessing loops, and re-runs recognize this exact message even

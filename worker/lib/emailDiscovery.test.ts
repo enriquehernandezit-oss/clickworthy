@@ -16,6 +16,7 @@ import {
   isAcceptableDomain,
   guessEmailCandidates,
   contactLinks,
+  discoverEmail,
 } from "./emailDiscovery";
 
 // ---------------------------------------------------------------------------
@@ -311,5 +312,41 @@ describe("contactLinks — only crawls the restaurant's own site", () => {
   test("ignores an href with no hint word at all", () => {
     const html = `<a href="/menu">Menu</a>`;
     expect(contactLinks(html, BASE)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Wrong-recipient guards — addresses that parse fine but belong to someone
+// other than the restaurant. Both cases below were found on real leads by the
+// backfill dry run on 2026-08-27. discoverEmail() is given its HTML directly,
+// so these run with no network (and the fixtures carry no contact-page links,
+// so nothing is crawled).
+// ---------------------------------------------------------------------------
+
+const page = (body: string) => `<!doctype html><html><body>${body}</body></html>`;
+
+describe("wrong-recipient guards", () => {
+  test("drops a plus-addressed agency inbox tagged with the client domain", async () => {
+    // proyectoweber+<client>.com@gmail.com — a web developer routing many
+    // clients into one inbox. Emailing it pitches the developer, not the venue.
+    const html = page(`<a href="mailto:proyectoweber+shaddaimaimi.com@gmail.com">email us</a>`);
+    expect(await discoverEmail("https://shaddaimiami.example/", html)).toBeNull();
+  });
+
+  test("a plain gmail on the page is still accepted (small venues really use them)", async () => {
+    const html = page(`<a href="mailto:mezbistromiami@gmail.com">email us</a>`);
+    const found = await discoverEmail("https://mezbistro.example/", html);
+    expect(found?.email).toBe("mezbistromiami@gmail.com");
+  });
+
+  test("drops a corporate loyalty mailbox", async () => {
+    const html = page(`<a href="mailto:loyalty@acfp.com">rewards</a>`);
+    expect(await discoverEmail("https://acfp.com/", html)).toBeNull();
+  });
+
+  test("keeps a real ordering mailbox that merely contains 'info'", async () => {
+    const html = page(`<a href="mailto:order_info@ifrasindiankitchen.com">order</a>`);
+    const found = await discoverEmail("https://ifrasindiankitchen.com/", html);
+    expect(found?.email).toBe("order_info@ifrasindiankitchen.com");
   });
 });

@@ -188,6 +188,43 @@ export function composeTouch2(params: {
   return { subject, body };
 }
 
+// Detects a delivery-failure notification (a "bounce") rather than a human
+// reply. Bounces land in the SAME Gmail thread as the message that failed, so
+// without this the reply poller records them as `replied` — which is exactly
+// what happened: on 2026-08-27 the pipeline's one and only recorded "reply"
+// across 42 sends was a mailer-daemon "Address not found", making the reply
+// rate read 1/42 when the true figure was 0/42. A bounce mistaken for a reply
+// also skips suppression, so the dead address stays live and the
+// deliverability guard (which counts suppressions) never sees the failure.
+//
+// Two independent signals, either is enough: the sender is a mail-system
+// robot, or the body carries standard DSN wording. Deliberately broad on the
+// sender check and conservative on the body wording — a false positive here
+// silently discards a real reply, so body phrases must be ones a restaurant
+// owner would never write.
+const BOUNCE_SENDERS = ["mailer-daemon", "postmaster", "no-reply@", "noreply@"];
+const BOUNCE_BODY_MARKERS = [
+  "address not found",
+  "delivery status notification",
+  "undeliverable",
+  "wasn't delivered",
+  "was not delivered",
+  "couldn't be delivered",
+  "could not be delivered",
+  "delivery incomplete",
+  "recipient address rejected",
+  "user unknown",
+  "mailbox unavailable",
+  "does not exist",
+];
+
+export function isBounceNotification(fromAddress: string | null | undefined, bodyText: string): boolean {
+  const from = (fromAddress ?? "").toLowerCase();
+  if (BOUNCE_SENDERS.some((s) => from.includes(s))) return true;
+  const body = bodyText.toLowerCase();
+  return BOUNCE_BODY_MARKERS.some((m) => body.includes(m));
+}
+
 // Detects a "STOP"/opt-out reply (plain, case-insensitive, tolerant of
 // surrounding whitespace/punctuation). Kept conservative so a genuine reply
 // that merely contains the word "stop" mid-sentence isn't misread. Coupled to

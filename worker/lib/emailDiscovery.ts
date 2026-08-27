@@ -64,7 +64,20 @@ const JUNK_LOCALPARTS = new Set([
   "hr", "press", "media", "newsletter", "marketing", "noreply", "no-reply", "donotreply",
   "do-not-reply", "unsubscribe", "mailer-daemon", "postmaster", "webmaster", "abuse",
   "privacy", "legal", "compliance", "billing", "accounts", "accounting", "invoices",
+  // Corporate/loyalty-program mailboxes — same wrong-audience class as
+  // marketing/newsletter. Found on a real lead 2026-08-27: loyalty@acfp.com.
+  "loyalty", "rewards", "giftcards", "franchise", "franchising", "catering-corporate",
 ]);
+
+// Plus-addressed local parts ("proyectoweber+theirsite.com@gmail.com") are the
+// signature of an AGENCY or web developer routing many clients into one inbox —
+// the tag is the client's domain. Emailing it pitches the developer, not the
+// restaurant. Found on a real lead 2026-08-27. A restaurant's own published
+// contact address effectively never uses plus-addressing, so the trade is
+// heavily in our favour: we lose a rare edge case, we stop pitching vendors.
+function isPlusAddressed(localPart: string): boolean {
+  return localPart.includes("+");
+}
 
 // Consumer mailbox hosts. A restaurant legitimately using gmail/yahoo is
 // common at the small end, so these stay eligible even though they don't match
@@ -296,7 +309,9 @@ function extractEmails(html: string): string[] {
     const email = raw.toLowerCase().trim();
     if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(email)) continue;
     if (JUNK_PATTERNS.some((j) => email.includes(j))) continue;
-    if (JUNK_LOCALPARTS.has(email.split("@")[0])) continue; // wrong-audience mailbox (donations@, careers@, …)
+    const localPart = email.split("@")[0];
+    if (JUNK_LOCALPARTS.has(localPart)) continue; // wrong-audience mailbox (donations@, careers@, …)
+    if (isPlusAddressed(localPart)) continue; // agency/developer inbox, not the restaurant's
     found.add(email);
   }
   return [...found];

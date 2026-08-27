@@ -13,6 +13,7 @@ import {
   signatureBlock,
   complianceFooter,
   hasComplianceFooter,
+  isBounceNotification,
   type ComposeIdentity,
 } from "./outreachEmail";
 import type { Touch1Template, BumpTemplate, Touch2Template } from "@/lib/settings";
@@ -107,5 +108,47 @@ describe("composeTouch1 / composeBump / composeTouch2 — signature placement", 
       identity: IDENTITY_WITH_SIG,
     });
     expect(hasComplianceFooter(body)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bounce detection. A delivery failure arrives in the SAME thread as the
+// message that failed, so without this the poller books it as a reply — which
+// is exactly what happened on 2026-08-27: the only "reply" across 42 sends was
+// a mailer-daemon "Address not found", so the reply rate read 1/42 instead of
+// the true 0/42. False positives are the dangerous direction here (they
+// silently bin a real reply), so the human-reply cases below are the point.
+// ---------------------------------------------------------------------------
+
+describe("isBounceNotification", () => {
+  test("catches the exact Gmail bounce this pipeline received", () => {
+    expect(
+      isBounceNotification(
+        "mailer-daemon@googlemail.com",
+        "** Address not found ** Your message wasn't delivered to info@originaljohnnysshrimpboat.com because the address couldn't be found."
+      )
+    ).toBe(true);
+  });
+
+  test("catches a bounce by sender alone, even with an empty body", () => {
+    expect(isBounceNotification("MAILER-DAEMON@example.net", "")).toBe(true);
+    expect(isBounceNotification("postmaster@somehost.com", "")).toBe(true);
+  });
+
+  test("catches a bounce by body alone, from an unusual sender", () => {
+    expect(isBounceNotification("bounces@mail.example", "Delivery Status Notification (Failure)")).toBe(true);
+    expect(isBounceNotification("relay@example.com", "550 5.1.1 User unknown")).toBe(true);
+  });
+
+  test("does NOT swallow a genuine owner reply", () => {
+    expect(isBounceNotification("maria@tacos.example", "Hi! Yes please send me the photo, sounds great.")).toBe(false);
+    expect(isBounceNotification("owner@bistro.example", "Interested — what does it cost?")).toBe(false);
+  });
+
+  test("does NOT misread a reply that merely mentions delivery", () => {
+    // A restaurant talking about ITS OWN delivery service is the realistic
+    // false-positive risk; none of the DSN phrases appear here.
+    expect(isBounceNotification("chef@x.example", "We do delivery on weekends, can you shoot those dishes?")).toBe(false);
+    expect(isBounceNotification("chef@x.example", "Our delivery photos are terrible, yes let's talk.")).toBe(false);
   });
 });
