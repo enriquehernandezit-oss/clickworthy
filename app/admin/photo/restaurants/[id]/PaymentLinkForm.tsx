@@ -2,13 +2,21 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { PACKAGES, PACKAGE_ORDER, type PackageId } from "@/lib/packages";
+import { PACKAGE_ORDER, type PackageId, type PackageTier } from "@/lib/packages";
 
 // Generates a Stripe Payment Link for a package this restaurant has already
 // agreed to (on a call, by reply, however) and hands back a URL to paste into
 // your own email/message — see app/api/admin/paymentlink/route.ts for why this
 // exists separately from the /l/[token] funnel's own checkout.
-export default function PaymentLinkForm({ restaurantId }: { restaurantId: number }) {
+export default function PaymentLinkForm({
+  restaurantId,
+  packages,
+}: {
+  restaurantId: number;
+  // Live tiers, fetched server-side by the page (client component — can't call
+  // getPackages()/getSetting() itself, see lib/packages.ts).
+  packages: Record<PackageId, PackageTier>;
+}) {
   const router = useRouter();
   const [packageId, setPackageId] = useState<PackageId>("glow_up");
   const [overrideDollars, setOverrideDollars] = useState("");
@@ -17,7 +25,7 @@ export default function PaymentLinkForm({ restaurantId }: { restaurantId: number
   const [result, setResult] = useState<{ url: string; priceCents: number } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const listed = PACKAGES[packageId];
+  const listed = packages[packageId];
 
   const generate = async () => {
     setBusy(true);
@@ -81,7 +89,7 @@ export default function PaymentLinkForm({ restaurantId }: { restaurantId: number
           >
             {PACKAGE_ORDER.map((id) => (
               <option key={id} value={id}>
-                {PACKAGES[id].name.en} — ${(PACKAGES[id].priceCents / 100).toFixed(0)}
+                {packages[id].name.en} — ${(packages[id].priceCents / 100).toFixed(0)}
                 {id === "always_fresh" ? "/mo" : ""}
               </option>
             ))}

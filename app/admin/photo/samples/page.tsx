@@ -1,8 +1,8 @@
 import { desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { magicLinks, restaurants } from "@/db/schema";
-import { getSetting } from "@/lib/settings";
-import { composeTouch2, normalizeLanguage, type ComposeIdentity } from "@/worker/lib/outreachEmail";
+import { getSetting, getPackages } from "@/lib/settings";
+import { composeTouch2, formatPricingBlock, normalizeLanguage, type ComposeIdentity } from "@/worker/lib/outreachEmail";
 import { config } from "@/worker/config";
 import SampleActions from "../SampleActions";
 import UnrejectButton from "./UnrejectButton";
@@ -17,7 +17,7 @@ const LIMIT = 25;
 const HISTORY_STATUSES = ["approved", "rejected"] as const;
 
 async function getQueue() {
-  const [rows, touch2Template, senderNameSetting, postalAddressSetting, signatureSetting] = await Promise.all([
+  const [rows, touch2Template, senderNameSetting, postalAddressSetting, signatureSetting, packages] = await Promise.all([
     db
       .select({
         id: magicLinks.id,
@@ -43,6 +43,7 @@ async function getQueue() {
     getSetting("outreach_sender_name"),
     getSetting("outreach_postal_address"),
     getSetting("outreach_signature"),
+    getPackages(),
   ]);
   const identity: ComposeIdentity = { senderName: senderNameSetting, postalAddress: postalAddressSetting, signature: signatureSetting };
 
@@ -61,6 +62,7 @@ async function getQueue() {
       };
     }
     try {
+      const language = normalizeLanguage(item.language);
       const seed = composeTouch2({
         restaurantName: item.restaurantName,
         firstName: item.contactFirstName,
@@ -70,7 +72,8 @@ async function getQueue() {
         city: item.city,
         funnelUrl: `${config.appOrigin.replace(/\/$/, "")}/l/${item.token}`,
         bookingUrl: process.env.NEXT_PUBLIC_BOOKING_URL ?? null,
-        language: normalizeLanguage(item.language),
+        pricingBlock: formatPricingBlock(packages, language),
+        language,
         template: touch2Template,
         identity,
       });

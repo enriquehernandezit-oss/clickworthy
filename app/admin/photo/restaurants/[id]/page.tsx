@@ -9,6 +9,7 @@ import ComposeForm from "./ComposeForm";
 import EditFields from "./EditFields";
 import PaymentLinkForm from "./PaymentLinkForm";
 import UploadOnBehalfForm from "./UploadOnBehalfForm";
+import { getPackages } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +52,7 @@ export default async function RestaurantDetailPage({ params }: { params: Promise
   const id = Number(idStr);
   if (!Number.isInteger(id)) notFound();
 
-  const data = await load(id);
+  const [data, packages] = await Promise.all([load(id), getPackages()]);
   if (!data) notFound();
   const { r, timeline, links } = data;
 
@@ -145,7 +146,7 @@ export default async function RestaurantDetailPage({ params }: { params: Promise
       <section>
         <SectionHeading>Send a payment link</SectionHeading>
         <Card className="mt-3">
-          <PaymentLinkForm restaurantId={r.id} />
+          <PaymentLinkForm restaurantId={r.id} packages={packages} />
         </Card>
       </section>
 

@@ -3,7 +3,8 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { magicLinks } from "@/db/schema";
 import { storeImageBytes } from "@/lib/storage";
-import { PACKAGES, isPackageId } from "@/lib/packages";
+import { isPackageId } from "@/lib/packages";
+import { getPackages } from "@/lib/settings";
 
 const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp"]);
 
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
   if (!isPackageId(link.packageSelected)) {
     return NextResponse.json({ error: "No package on file." }, { status: 400 });
   }
-  const limit = PACKAGES[link.packageSelected].photoLimit;
+  const limit = (await getPackages())[link.packageSelected].photoLimit;
 
   if (photos.length === 0) return NextResponse.json({ error: "Please upload at least one photo." }, { status: 400 });
   if (photos.length > limit) {

@@ -7,7 +7,8 @@ import { persistEnhancedFromUrl, storeImageBytes } from "@/lib/storage";
 import { composeOrderDeliveredEmail, sendCustomerEmail } from "@/lib/customerEmail";
 import { FINALIZED_ENHANCEMENT_PROMPT } from "@/worker/lib/prompts";
 import { recordManualPayment } from "@/lib/paymentLedger";
-import { PACKAGES, isPackageId } from "@/lib/packages";
+import { isPackageId } from "@/lib/packages";
+import { getPackages } from "@/lib/settings";
 
 type Original = { name: string; url: string };
 
@@ -163,7 +164,7 @@ export async function POST(request: NextRequest) {
     // Record an off-Stripe (check/Zelle) payment: real fee $0. Priced from the
     // package list — a manual payment never has a Stripe amount to read.
     if (isPackageId(link.packageSelected)) {
-      const pkg = PACKAGES[link.packageSelected];
+      const pkg = (await getPackages())[link.packageSelected];
       await recordManualPayment({
         line: "package",
         magicLinkId: id,
@@ -193,7 +194,7 @@ export async function POST(request: NextRequest) {
     if (!isPackageId(link.packageSelected)) {
       return NextResponse.json({ error: "No package on file for this link." }, { status: 400 });
     }
-    const limit = PACKAGES[link.packageSelected].photoLimit;
+    const limit = (await getPackages())[link.packageSelected].photoLimit;
 
     const photos = form.getAll("photos").filter((e): e is File => e instanceof File);
     if (photos.length === 0) return NextResponse.json({ error: "Choose at least one photo." }, { status: 400 });

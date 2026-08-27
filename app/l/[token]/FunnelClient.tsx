@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { PACKAGE_ORDER, PACKAGES, formatCents, type PackageId } from "@/lib/packages";
+import { PACKAGE_ORDER, formatCents, type PackageId, type PackageTier } from "@/lib/packages";
 import { funnelCopy, type Lang } from "./copy";
 
 export default function FunnelClient({
@@ -11,6 +11,7 @@ export default function FunnelClient({
   originalUrl,
   enhancedUrl,
   qualifyingPhotoCount,
+  packages,
 }: {
   token: string;
   language: string;
@@ -18,6 +19,9 @@ export default function FunnelClient({
   originalUrl: string | null;
   enhancedUrl: string | null;
   qualifyingPhotoCount: number;
+  // Live tiers, fetched server-side by the page (this is a client component,
+  // so it can't call getPackages()/getSetting() itself — see lib/packages.ts).
+  packages: Record<PackageId, PackageTier>;
 }) {
   const lang: Lang = (language as Lang) === "es" ? "es" : "en";
   const copy = funnelCopy[lang];
@@ -106,7 +110,7 @@ export default function FunnelClient({
         </h3>
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
           {PACKAGE_ORDER.map((id) => {
-            const pkg = PACKAGES[id];
+            const pkg = packages[id];
             const featured = id === "glow_up";
             const badge = featured ? copy.recommended : id === "grand_opening" ? copy.forNewOpenings : null;
             const canBook = Boolean(bookingUrl);

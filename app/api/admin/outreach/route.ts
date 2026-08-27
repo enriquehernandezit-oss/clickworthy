@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { outreachJobs, restaurants } from "@/db/schema";
-import { composeTouch1, normalizeLanguage, type ComposeIdentity } from "@/worker/lib/outreachEmail";
-import { getSetting, type Touch1Template } from "@/lib/settings";
+import { composeTouch1, composeBump, normalizeLanguage, type ComposeIdentity } from "@/worker/lib/outreachEmail";
+import { getSetting, type Touch1Template, type BumpTemplate } from "@/lib/settings";
 
 type Restaurant = typeof restaurants.$inferSelect;
 
@@ -119,6 +119,59 @@ export async function POST(request: NextRequest) {
         .set({ subject: result.subject, emailContent: result.body, draftedAt: new Date() })
         .where(eq(outreachJobs.id, job.id));
       updated++;
+    }
+    return NextResponse.json({ ok: true, updated, skipped: skipped.length, skippedNames: skipped });
+  }
+
+  // Same idea as redraft_all, for the Touch 1.5 bump. Separate action (not a
+  // parameter) because the two differ in more than the template: a bump is
+  // BODY-ONLY — it replies into the original Touch 1 thread, so it has no
+  // subject to recompose — and it reads outreach_bump_template. Kept to drafts
+  // still awaiting approval; an approved-but-unsent bump is left alone, since
+  // redrafting it would silently change copy a human already signed off on.
+  if (action === "redraft_all_bumps") {
+    const [bumpTemplate, senderNameSetting, postalAddressSetting, signatureSetting] = await Promise.all([
+      getSetting("outreach_bump_template"),
+      getSetting("outreach_sender_name"),
+      getSetting("outreach_postal_address"),
+      getSetting("outreach_signature"),
+    ]);
+    const identity: ComposeIdentity = {
+      senderName: senderNameSetting,
+      postalAddress: postalAddressSetting,
+      signature: signatureSetting,
+    };
+
+    const pending = await db
+      .select({ job: outreachJobs, r: restaurants })
+      .from(outreachJobs)
+      .innerJoin(restaurants, eq(outreachJobs.restaurantId, restaurants.id))
+      .where(and(eq(outreachJobs.status, "draft"), eq(outreachJobs.kind, "bump"), isNull(outreachJobs.sentAt)));
+
+    let updated = 0;
+    const skipped: string[] = [];
+    for (const { job, r } of pending) {
+      const language = normalizeLanguage(r.language);
+      try {
+        // Same dish fallback the bump sender uses, so a redraft can't produce
+        // copy the nightly path never would (worker/jobs/sendBumps.ts).
+        const body = composeBump({
+          restaurantName: r.name,
+          firstName: r.contactFirstName,
+          dish: r.signatureDish ?? (language === "es" ? "plato" : "dish"),
+          city: r.city,
+          language,
+          template: bumpTemplate as BumpTemplate,
+          identity,
+        });
+        await db
+          .update(outreachJobs)
+          .set({ emailContent: body, draftedAt: new Date() })
+          .where(eq(outreachJobs.id, job.id));
+        updated++;
+      } catch (err) {
+        skipped.push(`${r.name} (${err instanceof Error ? err.message : "compose failed"})`);
+      }
     }
     return NextResponse.json({ ok: true, updated, skipped: skipped.length, skippedNames: skipped });
   }

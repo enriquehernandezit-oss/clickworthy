@@ -1,7 +1,8 @@
 import { desc, eq, isNotNull } from "drizzle-orm";
 import { db } from "@/db";
 import { magicLinks, restaurants, enhancementOrders } from "@/db/schema";
-import { PACKAGES, isPackageId, formatCents as formatPackageCents } from "@/lib/packages";
+import { isPackageId, formatCents as formatPackageCents, type PackageTier, type PackageId } from "@/lib/packages";
+import { getPackages } from "@/lib/settings";
 import { formatCents as formatPhotoCents } from "@/lib/pricing";
 import { composeOrderDeliveredEmail } from "@/lib/customerEmail";
 import { config } from "@/worker/config";
@@ -95,9 +96,12 @@ async function getSelfServeOrders(page: number) {
     .offset((page - 1) * LIMIT);
 }
 
-function packageLabel(id: string | null): string {
+// Takes the already-resolved tiers rather than awaiting per-row — this is
+// called from inside a table map, and one getPackages() call up front avoids
+// N redundant settings reads for what's the same value every row.
+function packageLabel(id: string | null, packages: Record<PackageId, PackageTier>): string {
   if (!isPackageId(id)) return id ?? "—";
-  const pkg = PACKAGES[id];
+  const pkg = packages[id];
   return `${pkg.name.en} · ${formatPackageCents(pkg.priceCents)}`;
 }
 
@@ -110,10 +114,11 @@ export default async function OrdersPage({
   const page = Math.max(1, Number(sp.page) || 1);
   const ssPage = Math.max(1, Number(sp.sspage) || 1);
 
-  const [queue, packageRows, selfServeRows] = await Promise.all([
+  const [queue, packageRows, selfServeRows, packages] = await Promise.all([
     getQueue(),
     getPackageOrders(page),
     getSelfServeOrders(ssPage),
+    getPackages(),
   ]);
 
   const packageOrders = packageRows.slice(0, LIMIT);
@@ -168,7 +173,7 @@ export default async function OrdersPage({
                       <div className="font-medium">{row.restaurantName ?? "(unknown)"}</div>
                       <div className="text-xs text-muted">{row.city ?? "—"}</div>
                     </td>
-                    <td className="px-3 py-2 text-text">{packageLabel(row.packageSelected)}</td>
+                    <td className="px-3 py-2 text-text">{packageLabel(row.packageSelected, packages)}</td>
                     <td className="px-3 py-2">
                       <Badge value={row.packageStatus} />
                     </td>

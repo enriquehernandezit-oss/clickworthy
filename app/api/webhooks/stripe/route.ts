@@ -7,8 +7,8 @@ import { getStripe } from "@/lib/stripe";
 import { sendAlert } from "@/lib/alerts";
 import { recordStripePayment } from "@/lib/paymentLedger";
 import { composePackagePaymentConfirmationEmail } from "@/lib/customerEmail";
-import { PACKAGES, isPackageId } from "@/lib/packages";
-import { getSetting } from "@/lib/settings";
+import { isPackageId } from "@/lib/packages";
+import { getSetting, getPackages } from "@/lib/settings";
 import { signatureBlock } from "@/worker/lib/outreachEmail";
 
 function appOriginFrom(request: NextRequest): string {
@@ -129,13 +129,14 @@ export async function POST(request: NextRequest) {
       // The package ACTUALLY paid for comes from the checkout metadata, not the
       // magic link's mutable packageSelected. Fall back only if metadata is absent.
       const pkgId = session.metadata.package ?? link.packageSelected ?? undefined;
+      const description = isPackageId(pkgId) ? (await getPackages())[pkgId].name.en : "Package";
       await recordStripePayment(stripe, {
         line: "package",
         session,
         magicLinkId: link.id,
         restaurantId: link.restaurantId,
         packageId: isPackageId(pkgId) ? pkgId : null,
-        description: isPackageId(pkgId) ? PACKAGES[pkgId].name.en : "Package",
+        description,
       });
 
       // Drafts the confirmation instead of sending it directly — a human

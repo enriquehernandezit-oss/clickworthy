@@ -4,7 +4,8 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants, magicLinks } from "@/db/schema";
 import { getStripe } from "@/lib/stripe";
-import { PACKAGES, isPackageId } from "@/lib/packages";
+import { isPackageId } from "@/lib/packages";
+import { getPackages } from "@/lib/settings";
 
 // Generates a Stripe PAYMENT LINK (not a Checkout Session) for a restaurant
 // that's already agreed to a package — on a call, by email reply, however —
@@ -38,7 +39,7 @@ export async function POST(request: NextRequest) {
   const [restaurant] = await db.select().from(restaurants).where(eq(restaurants.id, restaurantId)).limit(1);
   if (!restaurant) return NextResponse.json({ error: "Restaurant not found" }, { status: 404 });
 
-  const pkg = PACKAGES[packageId];
+  const pkg = (await getPackages())[packageId];
   let priceCents = pkg.priceCents;
   if (overrideRaw != null && String(overrideRaw).trim() !== "") {
     const n = Number(overrideRaw);

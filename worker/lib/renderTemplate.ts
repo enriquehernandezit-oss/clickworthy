@@ -17,8 +17,9 @@ const PLACEHOLDER_RE = /\{\{(\w+)\}\}/g;
 // A variable that IS a known key but happens to be an empty string (e.g. no
 // firstName on file) is NOT an error — it substitutes as "". Callers decide
 // which variables are guaranteed non-empty by what they put in `vars` (see
-// outreachEmail.ts: dish is gated upstream and always present; firstName and
-// city are legitimately nullable and render as empty rather than block a send).
+// outreachEmail.ts: dish falls back to a generic "food"/"comida" when a lead
+// has none on file, so it's never gated out and never blocks a send; firstName
+// and city are legitimately nullable and render as empty).
 export function renderTemplate(template: string, vars: TemplateVars): string {
   return template.replace(PLACEHOLDER_RE, (_match, name: string) => {
     if (!(name in vars)) {

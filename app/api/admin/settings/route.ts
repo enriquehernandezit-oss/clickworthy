@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { setSetting, type SettingsMap, type Touch1Template, type BumpTemplate, type Touch2Template } from "@/lib/settings";
+import {
+  setSetting,
+  type SettingsMap,
+  type Touch1Template,
+  type BumpTemplate,
+  type Touch2Template,
+  type PackageId,
+  type PackageTier,
+} from "@/lib/settings";
 import { COST_KEYS } from "@/lib/costs";
+import { PACKAGE_ORDER } from "@/lib/packages";
 import { OUTREACH_TEMPLATE_VARS, TOUCH2_TEMPLATE_VARS } from "@/worker/lib/outreachEmail";
 import { validateTemplateSyntax, TemplateRenderError } from "@/worker/lib/renderTemplate";
 
@@ -132,6 +141,58 @@ export async function POST(request: NextRequest) {
       key as "outreach_touch1_template" | "outreach_touch1_nodish_template" | "outreach_bump_template" | "outreach_touch2_template",
       parsed as never
     );
+    return NextResponse.json({ ok: true, key });
+  }
+
+  if (key === "package_tiers") {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return NextResponse.json({ error: "Package tiers value must be valid JSON." }, { status: 400 });
+    }
+
+    // Rejected here at save time — the same "never let a bad object reach a
+    // live compose" reasoning as the template branch above. `id` and the tier
+    // count are permanent (see the PackageTier comment in lib/settings.ts —
+    // both are persisted on payments/magic_links), so those are asserted, not
+    // accepted from the client.
+    const t = parsed as Partial<Record<PackageId, Partial<PackageTier>>> | null;
+    if (!t || typeof t !== "object") {
+      return NextResponse.json({ error: "Invalid package tiers." }, { status: 400 });
+    }
+    const keys = Object.keys(t);
+    if (keys.length !== PACKAGE_ORDER.length || !PACKAGE_ORDER.every((id) => keys.includes(id))) {
+      return NextResponse.json({ error: `Must have exactly these tiers: ${PACKAGE_ORDER.join(", ")}.` }, { status: 400 });
+    }
+    for (const id of PACKAGE_ORDER) {
+      const tier = t[id];
+      if (!tier || tier.id !== id) {
+        return NextResponse.json({ error: `Tier "${id}" is missing or its id doesn't match.` }, { status: 400 });
+      }
+      if (!Number.isInteger(tier.priceCents) || (tier.priceCents as number) <= 0) {
+        return NextResponse.json({ error: `${id}: price must be a positive amount.` }, { status: 400 });
+      }
+      if (!Number.isInteger(tier.photoLimit) || (tier.photoLimit as number) <= 0) {
+        return NextResponse.json({ error: `${id}: photo limit must be a positive integer.` }, { status: 400 });
+      }
+      if (typeof tier.checkoutEnabled !== "boolean") {
+        return NextResponse.json({ error: `${id}: checkoutEnabled must be a boolean.` }, { status: 400 });
+      }
+      if (typeof tier.billingNote?.en !== "string" || typeof tier.billingNote?.es !== "string") {
+        return NextResponse.json({ error: `${id}: billing note must be set (can be empty).` }, { status: 400 });
+      }
+      for (const lang of ["en", "es"] as const) {
+        if (!tier.name?.[lang]?.trim()) {
+          return NextResponse.json({ error: `${id}: ${lang.toUpperCase()} name is required.` }, { status: 400 });
+        }
+        if (!tier.blurb?.[lang]?.trim()) {
+          return NextResponse.json({ error: `${id}: ${lang.toUpperCase()} description is required.` }, { status: 400 });
+        }
+      }
+    }
+
+    await setSetting("package_tiers", parsed as Record<PackageId, PackageTier>);
     return NextResponse.json({ ok: true, key });
   }
 

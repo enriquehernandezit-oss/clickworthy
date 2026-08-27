@@ -7,6 +7,7 @@ import IdentityForm from "./IdentityForm";
 import Touch1Editor from "./Touch1Editor";
 import BumpEditor from "./BumpEditor";
 import Touch2Editor from "./Touch2Editor";
+import PackageTiersEditor from "./PackageTiersEditor";
 
 // Where Touch 1 / Touch 1.5 copy and the sender identity are edited — moved
 // out of worker/lib/outreachEmail.ts and into app_settings so neither needs a
@@ -38,6 +39,18 @@ async function getPreviewRestaurant() {
   return r ? { ...r, signatureDish: r.signatureDish! } : FALLBACK_RESTAURANT;
 }
 
+// Bumps are counted separately from Touch 1: they use their own template and
+// their own redraft action, so the button must show the size of ITS pile, not
+// Touch 1's. Deliberately excludes `bumped` legacy rows and anything approved —
+// redrafting an approved bump would change copy a human already signed off on.
+async function getPendingBumpCount(): Promise<number> {
+  const [{ n }] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(outreachJobs)
+    .where(and(eq(outreachJobs.kind, "bump"), eq(outreachJobs.status, "draft"), isNull(outreachJobs.sentAt)));
+  return n ?? 0;
+}
+
 async function getPendingDraftCount(): Promise<number> {
   const [{ n }] = await db
     .select({ n: sql<number>`count(*)::int` })
@@ -54,10 +67,11 @@ async function getPendingDraftCount(): Promise<number> {
 }
 
 export default async function TemplatesPage() {
-  const [{ values }, previewRestaurant, pendingDrafts] = await Promise.all([
+  const [{ values }, previewRestaurant, pendingDrafts, pendingBumps] = await Promise.all([
     getAllSettings(),
     getPreviewRestaurant(),
     getPendingDraftCount(),
+    getPendingBumpCount(),
   ]);
 
   const identity = {
@@ -77,6 +91,13 @@ export default async function TemplatesPage() {
             signature={values.outreach_signature}
             pendingDrafts={pendingDrafts}
           />
+        </div>
+      </section>
+
+      <section>
+        <SectionHeading>Packages</SectionHeading>
+        <div className="mt-3">
+          <PackageTiersEditor initialTiers={values.package_tiers} />
         </div>
       </section>
 
@@ -108,11 +129,13 @@ export default async function TemplatesPage() {
             initialTemplate={values.outreach_bump_template}
             identity={identity}
             previewRestaurant={previewRestaurant}
+            pendingDrafts={pendingBumps}
           />
           <Touch2Editor
             initialTemplate={values.outreach_touch2_template}
             identity={identity}
             previewRestaurant={previewRestaurant}
+            packages={values.package_tiers}
           />
         </div>
       </section>

@@ -12,7 +12,8 @@ import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { enhancementOrders, magicLinks, payments } from "@/db/schema";
 import { getStripe } from "@/lib/stripe";
-import { PACKAGES, isPackageId } from "@/lib/packages";
+import { isPackageId } from "@/lib/packages";
+import { getPackages } from "@/lib/settings";
 import { recordStripePayment, recordManualPayment } from "@/lib/paymentLedger";
 import { getRevenue } from "@/lib/photoStats";
 import type Stripe from "stripe";
@@ -39,6 +40,15 @@ let recordedPackageCents = 0;
 let recordedSelfServeCents = 0;
 let anomalies = 0;
 
+// Fetched ONCE — every reference to PACKAGES below now reads this live map,
+// so re-running the reconciler after a price change restates history at
+// TODAY's price for any manual row (see the plan's flagged out-of-scope
+// item: onConflictDoUpdate overwrites grossCents for manual rows, so this
+// script now has a real, if pre-existing, exposure once a package is
+// actually sold — Stripe rows are unaffected, their grossCents comes from
+// session.amount_total and is never overwritten).
+const packages = await getPackages();
+
 // ---- Package payments (magic_links with a paidAt) --------------------------
 console.log(`\n${commit ? "COMMIT" : "DRY RUN"} — packages`);
 const paidLinks = await db
@@ -48,7 +58,7 @@ const paidLinks = await db
 
 for (const link of paidLinks) {
   const pkgId = isPackageId(link.packageSelected) ? link.packageSelected : null;
-  const listCents = pkgId ? PACKAGES[pkgId].priceCents : 0;
+  const listCents = pkgId ? packages[pkgId].priceCents : 0;
 
   if (link.stripeSessionId) {
     const session = await getSession(link.stripeSessionId);
@@ -66,7 +76,7 @@ for (const link of paidLinks) {
           magicLinkId: link.id,
           restaurantId: link.restaurantId,
           packageId: metaPkg,
-          description: metaPkg ? `${PACKAGES[metaPkg].name.en}` : "Package",
+          description: metaPkg ? `${packages[metaPkg].name.en}` : "Package",
         });
       }
       continue;
@@ -91,7 +101,7 @@ for (const link of paidLinks) {
       restaurantId: link.restaurantId,
       packageId: pkgId,
       grossCents: listCents,
-      description: `${PACKAGES[pkgId].name.en} (manual)`,
+      description: `${packages[pkgId].name.en} (manual)`,
       paidAt: link.paidAt ?? new Date(),
     });
   }

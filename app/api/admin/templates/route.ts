@@ -8,11 +8,12 @@ import {
   composeTouch1,
   composeBump,
   composeTouch2,
+  formatPricingBlock,
   hasComplianceFooter,
   normalizeLanguage,
   type ComposeIdentity,
 } from "@/worker/lib/outreachEmail";
-import type { Touch1Template, BumpTemplate, Touch2Template } from "@/lib/settings";
+import { getPackages, type Touch1Template, type BumpTemplate, type Touch2Template } from "@/lib/settings";
 
 // test_send — composes the SUBMITTED (possibly unsaved) template against a
 // real restaurant and sends it to the signed-in admin's own inbox, so a
@@ -96,6 +97,7 @@ export async function POST(request: NextRequest) {
     } else if (which === "touch2") {
       // No real magic link for a test send — a clearly-fake token, never sent
       // for real (this whole path ignores OUTREACH_ENABLED and writes no row).
+      const packages = await getPackages();
       const composed = composeTouch2({
         restaurantName: r.name,
         firstName: r.contactFirstName,
@@ -103,6 +105,7 @@ export async function POST(request: NextRequest) {
         city: r.city,
         funnelUrl: "https://clickworthytool.com/l/preview-token",
         bookingUrl: process.env.NEXT_PUBLIC_BOOKING_URL ?? null,
+        pricingBlock: formatPricingBlock(packages, language),
         language,
         template: templateJson as Touch2Template,
         identity,

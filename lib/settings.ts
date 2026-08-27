@@ -55,6 +55,31 @@ export type Touch2Template = {
   es: { subject: string; body: string };
 };
 
+// High-ticket offer tiers (see lib/packages.ts for the read side —
+// getPackages() — and every consumer: checkout, the /l/[token] funnel card,
+// the Touch 2 pricing block, and post-payment photo-limit enforcement all
+// derive from this ONE setting, so a price/limit change is visible
+// everywhere in the same request with no deploy and no drift between what
+// the email promises and what checkout charges).
+//
+// `id` is permanent, never operator-editable — it's persisted in
+// payments.packageId and magicLinks.packageSelected, and
+// app/admin/photo/clients/page.tsx matches "always_fresh" directly in SQL.
+// Defined here (not in lib/packages.ts) to avoid a circular import:
+// lib/packages.ts needs getSetting() from this file, so this file can't
+// import a value back from lib/packages.ts.
+export type PackageId = "glow_up" | "grand_opening" | "always_fresh";
+
+export type PackageTier = {
+  id: PackageId;
+  name: { en: string; es: string };
+  priceCents: number;
+  photoLimit: number; // max photos the customer may upload (per delivery / per month)
+  blurb: { en: string; es: string };
+  billingNote: { en: string; es: string };
+  checkoutEnabled: boolean; // false => booking-call CTA instead of Stripe Checkout
+};
+
 export type SettingsMap = {
   outreach_paused: boolean; // panic button: blocks all Gmail sending
   outreach_autosend: boolean; // false = approval mode; true = drafts auto-approve + send
@@ -89,6 +114,7 @@ export type SettingsMap = {
   outreach_touch1_nodish_template: Touch1Template; // cold-open for leads with NO signature dish — the dish-personalized copy would read wrong for them
   outreach_bump_template: BumpTemplate; // the one-time Touch 1.5 follow-up
   outreach_touch2_template: Touch2Template; // the enhanced-sample delivery + funnel link
+  package_tiers: Record<PackageId, PackageTier>; // editable on /admin/photo/templates — see the PackageTier comment above
 
   // --- Financials: editable unit-cost assumptions (all in CENTS, decimals ok) ---
   // These drive /admin/photo/financials. Every one is an ESTIMATE — Clickworthy
@@ -265,28 +291,85 @@ const DEFAULTS: SettingsMap = {
   // nothing" guarantee as the touch1/bump defaults above. {{funnelUrl}} and
   // {{talkLine}} are Touch-2-specific (talkLine is precomputed empty-or-not by
   // whether a booking URL is configured — see worker/lib/outreachEmail.ts).
+  // Subject dropped {{dish}} 2026-08-27 (operator: "we're not using dish
+  // anymore, but it's optional") — a fixed subject reads fine whether or not
+  // a lead has a signature dish on file, and {{dish}} stays available in the
+  // body for anyone who wants to use it (baseVars still substitutes a
+  // "food"/"comida" fallback when there's none, same as before).
+  //
+  // {{pricing}} replaces the old hardcoded price prose — it's now RENDERED
+  // from the live package_tiers setting (see composeTouch2's pricingBlock
+  // param in worker/lib/outreachEmail.ts), so this template can never quote a
+  // number the funnel page won't actually charge. Edit prices in the "Package
+  // pricing" box on this page, not here.
   outreach_touch2_template: {
     en: {
-      subject: "your {{dish}}, enhanced",
+      subject: "your photo, enhanced",
       body:
         "{{greeting}}\n\n" +
         "Here it is — your {{dish}}, enhanced. Same photo you sent, nothing invented.\n\n" +
         "That photo is yours. Use it anywhere, no charge, no catch.\n\n" +
-        "Here's the part most owners haven't done the math on: the delivery apps take 15–30% of every order — closer to 30–40% once promos and fees pile on — while your own website, Google profile, and Instagram pay you 100%. But for most restaurants, the apps' listings look better than their own channels. So that's where people order.\n\n" +
-        "We fix that. We take your top 20–30 dishes, enhance them like the one above, and deliver them sized and ready for your website, Google Business Profile, Instagram, and Yelp — so your own channels finally outsell your DoorDash page. A photographer charges $1,200–$3,500 for a session like that. We do it for a fraction, using photos you already have or shoot on your phone.\n\n" +
+        "Here's something worth a second look, and totally understandable if it's never come up before: the delivery apps take 15–30% of every order — closer to 30–40% once promos and fees pile on — while your own website, Google profile, and Instagram pay you 100%. But for most restaurants, the apps' listings just look better than their own channels, so that's naturally where people end up ordering.\n\n" +
+        "We fix that. We take your top dishes, enhance them like the one above, and deliver them sized and ready for your website, Google Business Profile, Instagram, and Yelp — so your own channels finally outsell your DoorDash page. A photographer charges $1,200–$3,500 for a session like that. We do it for a fraction, using photos you already have or shoot on your phone.\n\n" +
+        "Here's how it works if you want more:\n\n" +
+        "{{pricing}}\n\n" +
         "Everything's here, including your before/after: {{funnelUrl}}{{talkLine}}\n\n" +
         "Either way, enjoy the photo.",
     },
     es: {
-      subject: "su {{dish}}, mejorado",
+      subject: "su foto, mejorada",
       body:
         "{{greeting}}\n\n" +
         "Aquí está — su {{dish}}, mejorado. La misma foto que envió, nada inventado.\n\n" +
         "Esa foto es suya. Úsela donde quiera, sin costo, sin trampa.\n\n" +
-        "Ahora, la parte que pocos dueños han calculado: las apps de delivery se quedan con 15–30% de cada orden — más bien 30–40% cuando suman promociones y cargos — mientras que su propio sitio web, perfil de Google e Instagram le pagan el 100%. Pero en la mayoría de los restaurantes, las apps se ven mejor que los canales propios. Y por eso la gente ordena por ahí.\n\n" +
-        "Eso es lo que arreglamos. Tomamos sus 20–30 platos principales, los mejoramos como el de arriba, y se los entregamos listos para su sitio web, Google Business Profile, Instagram y Yelp — para que sus propios canales vendan más que su página de DoorDash. Un fotógrafo cobra $1,200–$3,500 por una sesión así. Nosotros lo hacemos por una fracción, con fotos que ya tiene o que toma con su celular.\n\n" +
+        "Algo que vale la pena mirar de nuevo, y es entendible si nunca lo había pensado: las apps de delivery se quedan con 15–30% de cada orden — más bien 30–40% cuando suman promociones y cargos — mientras que su propio sitio web, perfil de Google e Instagram le pagan el 100%. Pero en la mayoría de los restaurantes, las apps simplemente se ven mejor que los canales propios, y por eso la gente termina ordenando por ahí.\n\n" +
+        "Eso es lo que arreglamos. Tomamos sus platos principales, los mejoramos como el de arriba, y se los entregamos listos para su sitio web, Google Business Profile, Instagram y Yelp — para que sus propios canales vendan más que su página de DoorDash. Un fotógrafo cobra $1,200–$3,500 por una sesión así. Nosotros lo hacemos por una fracción, con fotos que ya tiene o que toma con su celular.\n\n" +
+        "Así funciona si quiere más:\n\n" +
+        "{{pricing}}\n\n" +
         "Todo está aquí, incluyendo su antes y después: {{funnelUrl}}{{talkLine}}\n\n" +
         "De cualquier forma, disfrute la foto.",
+    },
+  },
+
+  // Fallback until an operator saves the price box on /admin/photo/templates
+  // for the first time. Values as of 2026-08-27 — see the PackageTier comment
+  // above for why `id` is not editable.
+  package_tiers: {
+    glow_up: {
+      id: "glow_up",
+      name: { en: "Menu Glow-Up", es: "Renovación de Menú" },
+      priceCents: 49900,
+      photoLimit: 30,
+      blurb: {
+        en: "Up to 30 dishes enhanced, sized for your site, Google, Instagram & Yelp",
+        es: "Hasta 30 platos mejorados, listos para su sitio, Google, Instagram y Yelp",
+      },
+      billingNote: { en: "one-time", es: "pago único" },
+      checkoutEnabled: true,
+    },
+    grand_opening: {
+      id: "grand_opening",
+      name: { en: "Grand Opening Package", es: "Paquete de Apertura" },
+      priceCents: 89900,
+      photoLimit: 40,
+      blurb: {
+        en: "Up to 40 photos — dishes plus interior & exterior, social-ready",
+        es: "Hasta 40 fotos — platos más interior y exterior, listas para redes",
+      },
+      billingNote: { en: "one-time", es: "pago único" },
+      checkoutEnabled: true,
+    },
+    always_fresh: {
+      id: "always_fresh",
+      name: { en: "Always Fresh", es: "Siempre Fresco" },
+      priceCents: 24900,
+      photoLimit: 8,
+      blurb: {
+        en: "8 photos/month — specials & seasonal items kept looking their best",
+        es: "8 fotos al mes — especiales y platos de temporada siempre impecables",
+      },
+      billingNote: { en: "per month · 3-month minimum", es: "por mes · mínimo 3 meses" },
+      checkoutEnabled: false,
     },
   },
 };
@@ -295,6 +378,23 @@ export async function getSetting<K extends keyof SettingsMap>(key: K): Promise<S
   const [row] = await db.select().from(appSettings).where(eq(appSettings.key, key)).limit(1);
   if (!row || row.value == null) return DEFAULTS[key];
   return row.value as SettingsMap[K];
+}
+
+// The live package tiers — thin wrapper kept HERE, not in lib/packages.ts.
+// lib/packages.ts is imported by client components (FunnelClient.tsx,
+// PaymentLinkForm.tsx) for its pure/sync exports (PACKAGE_ORDER, isPackageId,
+// formatCents); this file's `db` import (via getSetting) is a real module-load
+// side effect (db/index.ts calls postgres(...) at module scope) that a bundler
+// can't tree-shake away — confirmed the hard way: even a dynamic import()
+// inside packages.ts still pulled db/postgres into the client bundle and broke
+// the production build ("Module not found: Can't resolve 'tls'"). Nothing
+// client-side has ever imported a runtime value from THIS file (only
+// `import type` for the template types), so defining getPackages here instead
+// keeps that invariant intact. Callers: `import { getPackages } from
+// "@/lib/settings"`, alongside `import { isPackageId, ... } from
+// "@/lib/packages"` for the sync pieces.
+export async function getPackages(): Promise<Record<PackageId, PackageTier>> {
+  return getSetting("package_tiers");
 }
 
 export async function setSetting<K extends keyof SettingsMap>(key: K, value: SettingsMap[K]): Promise<void> {

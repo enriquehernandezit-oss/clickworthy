@@ -2,7 +2,8 @@ import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { db } from "@/db";
 import { magicLinks, restaurants } from "@/db/schema";
-import { PACKAGES, isPackageId } from "@/lib/packages";
+import { isPackageId } from "@/lib/packages";
+import { getPackages } from "@/lib/settings";
 import Header from "../../../components/Header";
 import { getCopy } from "../copy";
 import UploadClient from "./UploadClient";
@@ -34,7 +35,7 @@ export default async function UploadPage({ params }: { params: Promise<{ token: 
     );
   }
 
-  const photoLimit = isPackageId(link.packageSelected) ? PACKAGES[link.packageSelected].photoLimit : 5;
+  const photoLimit = isPackageId(link.packageSelected) ? (await getPackages())[link.packageSelected].photoLimit : 5;
 
   return (
     <div className="flex min-h-full flex-col bg-stone-50 text-stone-900">

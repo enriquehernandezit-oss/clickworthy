@@ -13,7 +13,8 @@
 import { like, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants, outreachJobs, magicLinks, enhancementOrders, payments } from "@/db/schema";
-import { PACKAGES, type PackageId } from "@/lib/packages";
+import { type PackageId } from "@/lib/packages";
+import { getPackages } from "@/lib/settings";
 import { totalPriceCents } from "@/lib/pricing";
 
 const clear = process.argv.includes("--clear");
@@ -114,10 +115,11 @@ const pkgResults = (n: number, failed: number) =>
     error: i < n - failed ? null : "enhancement failed",
   }));
 
+const packages = await getPackages();
 for (let i = 0; i < DEALS.length; i++) {
   const d = DEALS[i];
   const rid = restId.get(d.rest)!;
-  const price = PACKAGES[d.pkg].priceCents;
+  const price = packages[d.pkg].priceCents;
   const token = `demo_${d.rest}_${i}`;
   const paidAt = daysAgo(d.paid);
 
@@ -146,7 +148,7 @@ for (let i = 0; i < DEALS.length; i++) {
     line: "package",
     method: d.manual ? "manual" : "stripe",
     packageId: d.pkg,
-    description: `${PACKAGES[d.pkg].name.en}${d.manual ? " (manual)" : ""}`,
+    description: `${packages[d.pkg].name.en}${d.manual ? " (manual)" : ""}`,
     grossCents: gross,
     feeCents: fee,
     netCents: gross - fee,

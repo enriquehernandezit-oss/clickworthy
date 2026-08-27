@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Touch2Template } from "@/lib/settings";
-import { composeTouch2, hasComplianceFooter } from "@/worker/lib/outreachEmail";
+import type { PackageId, PackageTier } from "@/lib/packages";
+import { composeTouch2, formatPricingBlock, hasComplianceFooter } from "@/worker/lib/outreachEmail";
 import { TemplateRenderError } from "@/worker/lib/renderTemplate";
 
 type PreviewRestaurant = { name: string; contactFirstName: string | null; signatureDish: string; city: string | null };
@@ -14,13 +15,14 @@ const PREVIEW_FUNNEL_URL = "https://clickworthytool.com/l/preview-token";
 
 const VARS_HELP: { key: string; desc: string }[] = [
   { key: "restaurant", desc: "restaurant name" },
-  { key: "dish", desc: "signature dish" },
+  { key: "dish", desc: "signature dish — optional; leads with none still compose fine (see the dish toggle below)" },
   { key: "firstName", desc: "owner first name — often empty; use {{greeting}} for the salutation instead of this directly" },
   { key: "greeting", desc: `"Hi Maria," or "Hi there," — already handles the missing-firstName fallback` },
   { key: "city", desc: "city (may be empty)" },
   { key: "senderName", desc: "the sender name set above" },
   { key: "funnelUrl", desc: "the /l/[token] link to their before/after + packages — Touch 2 only" },
   { key: "talkLine", desc: "an optional \"or talk first\" booking line — Touch 2 only, empty unless a booking URL is configured" },
+  { key: "pricing", desc: "the package tiers below, rendered as one paragraph per tier — Touch 2 only" },
 ];
 
 // Editor for Touch 2 — subject + body, per language. Unlike Touch 1 / bump,
@@ -32,14 +34,21 @@ export default function Touch2Editor({
   initialTemplate,
   identity,
   previewRestaurant,
+  packages,
 }: {
   initialTemplate: Touch2Template;
   identity: Identity;
   previewRestaurant: PreviewRestaurant;
+  // Live tiers, fetched server-side by the page — feeds {{pricing}} below,
+  // same map the /l/[token] funnel charges from (see lib/settings.ts).
+  packages: Record<PackageId, PackageTier>;
 }) {
   const router = useRouter();
   const [template, setTemplate] = useState<Touch2Template>(initialTemplate);
   const [lang, setLang] = useState<"en" | "es">("en");
+  // Dish is optional in Touch 2 (2026-08-27) — this toggle previews both cases,
+  // since the restaurant behind previewRestaurant always has one on file.
+  const [dishVariant, setDishVariant] = useState<"dish" | "nodish">("dish");
   const [busy, setBusy] = useState<"save" | "test" | null>(null);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
@@ -51,10 +60,11 @@ export default function Touch2Editor({
       const composed = composeTouch2({
         restaurantName: previewRestaurant.name,
         firstName: previewRestaurant.contactFirstName,
-        dish: previewRestaurant.signatureDish,
+        dish: dishVariant === "nodish" ? "" : previewRestaurant.signatureDish,
         city: previewRestaurant.city,
         funnelUrl: PREVIEW_FUNNEL_URL,
         bookingUrl: null,
+        pricingBlock: formatPricingBlock(packages, lang),
         language: lang,
         template,
         identity,
@@ -63,7 +73,7 @@ export default function Touch2Editor({
     } catch (err) {
       return { ok: false as const, error: err instanceof TemplateRenderError ? err.message : "Preview error." };
     }
-  }, [template, lang, previewRestaurant, identity]);
+  }, [template, lang, previewRestaurant, identity, packages, dishVariant]);
 
   function setBody(text: string) {
     setTemplate((t) => ({ ...t, [lang]: { ...t[lang], body: text } }));
@@ -182,9 +192,23 @@ export default function Touch2Editor({
 
         {/* Preview */}
         <div className="flex flex-col gap-2">
-          <label className="text-xs font-medium text-muted">
-            Live preview — against &quot;{previewRestaurant.name}&quot;
-          </label>
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-medium text-muted">
+              Live preview — against &quot;{previewRestaurant.name}&quot;
+            </label>
+            <div className="flex gap-1 rounded-lg border border-line p-1">
+              {(["dish", "nodish"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setDishVariant(v)}
+                  className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${dishVariant === v ? "bg-gold text-[#0F1216]" : "text-muted hover:bg-surface-2"}`}
+                >
+                  {v === "dish" ? "with dish" : "no dish"}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="rounded-lg border border-line bg-surface-2 p-3">
             {preview.ok ? (
               <>

@@ -1,62 +1,37 @@
-// High-ticket offer tiers. Single source of truth: the /l/[token] funnel, the
-// landing page, the checkout route, and post-payment photo-count validation all
-// read from here, so changing a price/limit is a one-line edit.
+// High-ticket offer tiers — the CLIENT-SAFE half. Outreach-only — never shown
+// on the public landing page (see the rule reasserted in HANDOFF.md and
+// PIPELINE.md).
 //
-// Prices are in USD cents (Stripe's native unit). Menu Glow-Up $499 is the main
-// cold-outreach sale; Grand Opening $899 is for new openings; Always Fresh
-// $249/mo is the retainer — sold on a call, so it has NO self-serve checkout
-// (checkoutEnabled: false) and renders a "book a call" CTA instead.
+// This file is imported by client components (FunnelClient.tsx,
+// PaymentLinkForm.tsx) for the pure/sync pieces below, so it must NEVER
+// acquire a runtime dependency on lib/settings.ts — that file imports @/db,
+// and db/index.ts calls postgres(...) at module scope, a side effect no
+// bundler can tree-shake away. (Confirmed the hard way: even routing the
+// import through a dynamic import() still pulled postgres into the client
+// bundle and broke the production build — "Module not found: Can't resolve
+// 'tls'". Turbopack apparently still walks a same-file dynamic import for its
+// module graph.) The `import type` below is safe regardless — type-only
+// imports are erased entirely at compile time, no runtime edge at all.
+//
+// The tier DATA (name, price, photo limit, blurb, billing note) is
+// operator-editable on /admin/photo/templates and lives in the
+// `package_tiers` setting. For the LIVE values, call getPackages() —
+// `import { getPackages } from "@/lib/settings"` — which lives there
+// specifically so this file stays clean. Everything that charges money or
+// promises a photo count MUST go through it, never assume today's values, or
+// the email/checkout/limit can drift from what the operator set. That drift
+// is exactly what this file used to allow: a hardcoded constant here,
+// duplicated as prose in the Touch 2 template, held in sync by nothing but a
+// code comment.
+//
+// ids are permanent — persisted in payments.packageId and
+// magicLinks.packageSelected, and app/admin/photo/clients/page.tsx matches
+// "always_fresh" directly in SQL — so only the display fields are editable,
+// never the id or the tier count.
 
-export type PackageId = "glow_up" | "grand_opening" | "always_fresh";
+import type { PackageId, PackageTier } from "./settings";
 
-export type PackageTier = {
-  id: PackageId;
-  name: { en: string; es: string };
-  priceCents: number;
-  photoLimit: number; // max photos the customer may upload (per delivery / per month)
-  blurb: { en: string; es: string };
-  billingNote: { en: string; es: string };
-  checkoutEnabled: boolean; // false => booking-call CTA instead of Stripe Checkout
-};
-
-export const PACKAGES: Record<PackageId, PackageTier> = {
-  glow_up: {
-    id: "glow_up",
-    name: { en: "Menu Glow-Up", es: "Renovación de Menú" },
-    priceCents: 49900,
-    photoLimit: 30,
-    blurb: {
-      en: "Up to 30 dishes enhanced, sized for your site, Google, Instagram & Yelp",
-      es: "Hasta 30 platos mejorados, listos para su sitio, Google, Instagram y Yelp",
-    },
-    billingNote: { en: "one-time", es: "pago único" },
-    checkoutEnabled: true,
-  },
-  grand_opening: {
-    id: "grand_opening",
-    name: { en: "Grand Opening Package", es: "Paquete de Apertura" },
-    priceCents: 89900,
-    photoLimit: 40,
-    blurb: {
-      en: "Up to 40 photos — dishes plus interior & exterior, social-ready",
-      es: "Hasta 40 fotos — platos más interior y exterior, listas para redes",
-    },
-    billingNote: { en: "one-time", es: "pago único" },
-    checkoutEnabled: true,
-  },
-  always_fresh: {
-    id: "always_fresh",
-    name: { en: "Always Fresh", es: "Siempre Fresco" },
-    priceCents: 24900,
-    photoLimit: 8,
-    blurb: {
-      en: "8 photos/month — specials & seasonal items kept looking their best",
-      es: "8 fotos al mes — especiales y platos de temporada siempre impecables",
-    },
-    billingNote: { en: "per month · 3-month minimum", es: "por mes · mínimo 3 meses" },
-    checkoutEnabled: false,
-  },
-};
+export type { PackageId, PackageTier };
 
 export const PACKAGE_ORDER: PackageId[] = ["glow_up", "grand_opening", "always_fresh"];
 

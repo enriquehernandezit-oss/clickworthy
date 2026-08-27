@@ -11,15 +11,17 @@
 // of one DB round-trip per restaurant.
 
 import type { BumpTemplate, Touch1Template, Touch2Template } from "@/lib/settings";
+import { PACKAGE_ORDER, formatCents, type PackageId, type PackageTier } from "@/lib/packages";
 import { renderTemplate, sanitizeSubject, type TemplateVars } from "./renderTemplate";
 
 // The only placeholders a template may reference. Shared with the settings
 // validation route so "what can I use" and "what's allowed to save" can't drift.
 export const OUTREACH_TEMPLATE_VARS = ["restaurant", "dish", "firstName", "greeting", "city", "senderName"] as const;
 
-// Touch 2 adds two of its own on top of the shared set — both Touch-2-specific,
-// so they're not offered on Touch 1 / bump (which are deliberately link-free).
-export const TOUCH2_TEMPLATE_VARS = [...OUTREACH_TEMPLATE_VARS, "funnelUrl", "talkLine"] as const;
+// Touch 2 adds three of its own on top of the shared set — all Touch-2-specific,
+// so they're not offered on Touch 1 / bump (which are deliberately link-free
+// and price-free).
+export const TOUCH2_TEMPLATE_VARS = [...OUTREACH_TEMPLATE_VARS, "funnelUrl", "talkLine", "pricing"] as const;
 
 export type Language = "en" | "es";
 
@@ -158,6 +160,24 @@ export function composeBump(params: {
 // app/api/admin/sample/route.ts) — the template here only sets the SEED text,
 // not what actually ships.
 
+// Renders the {{pricing}} block from the LIVE package tiers (lib/settings.ts's
+// getPackages()) — never a hardcoded constant — so Touch 2 can't quote a price
+// the funnel/checkout won't actually charge. Takes the tiers as a plain
+// argument rather than fetching them itself: this file stays synchronous/pure
+// (see the file header) so the Templates page can live-preview with no
+// network round-trip. Callers (samples/page.tsx's real send, the test-send
+// route, Touch2Editor's preview) all call getPackages() once and pass the
+// same map in here.
+export function formatPricingBlock(packages: Record<PackageId, PackageTier>, language: Language): string {
+  return PACKAGE_ORDER.map((id) => {
+    const pkg = packages[id];
+    const price = formatCents(pkg.priceCents);
+    const billing = pkg.billingNote[language]?.trim();
+    const headline = `${pkg.name[language]} — up to ${pkg.photoLimit} photos, ${price}${billing ? ` (${billing})` : ""}`;
+    return `${headline}\n${pkg.blurb[language]}`;
+  }).join("\n\n");
+}
+
 export function composeTouch2(params: {
   restaurantName: string;
   firstName: string | null;
@@ -165,11 +185,12 @@ export function composeTouch2(params: {
   city: string | null;
   funnelUrl: string;
   bookingUrl: string | null;
+  pricingBlock: string;
   language: Language;
   template: Touch2Template;
   identity: ComposeIdentity;
 }): OutreachEmail {
-  const { language, template, identity, funnelUrl, bookingUrl } = params;
+  const { language, template, identity, funnelUrl, bookingUrl, pricingBlock } = params;
   const t = template[language] ?? template.en;
 
   // Precomputed, not a template conditional — renderTemplate is flat
@@ -181,7 +202,12 @@ export function composeTouch2(params: {
       : `\n\nOr if you'd rather talk first: ${bookingUrl} — 15 minutes, no pitch marathon.`
     : "";
 
-  const vars: TemplateVars = { ...baseVars({ ...params, senderName: identity.senderName }), funnelUrl, talkLine };
+  const vars: TemplateVars = {
+    ...baseVars({ ...params, senderName: identity.senderName }),
+    funnelUrl,
+    talkLine,
+    pricing: pricingBlock,
+  };
 
   const subject = sanitizeSubject(renderTemplate(t.subject, vars));
   const body = renderTemplate(t.body, vars) + signatureBlock(identity) + complianceFooter(language, identity.postalAddress);

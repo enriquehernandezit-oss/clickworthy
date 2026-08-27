@@ -5,6 +5,7 @@ import { magicLinks, restaurants } from "@/db/schema";
 import Header from "../../components/Header";
 import { getCopy } from "./copy";
 import FunnelClient from "./FunnelClient";
+import { getPackages } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +56,7 @@ async function loadFunnel(token: string) {
 export default async function MagicLinkPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
 
-  const data = await loadFunnel(token);
+  const [data, packages] = await Promise.all([loadFunnel(token), getPackages()]);
   if (!data) return <NotFound />;
   const { link, restaurant, expired } = data;
 
@@ -88,6 +89,7 @@ export default async function MagicLinkPage({ params }: { params: Promise<{ toke
               originalUrl={link.original}
               enhancedUrl={link.enhanced}
               qualifyingPhotoCount={link.qualifyingPhotoCount ?? 0}
+              packages={packages}
             />
           )}
         </section>

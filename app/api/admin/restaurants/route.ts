@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
 
     // Only a row that was blocked *on the missing email* should be released
     // into the queue — a `rejected` or already-`contacted` row keeps its status.
-    let releasing = row.enrichmentStatus === "needs_manual_email";
+    const releasing = row.enrichmentStatus === "needs_manual_email";
     if (releasing) {
       const verdict = await verifyManualEmail(email);
       if (!verdict.contactable) {

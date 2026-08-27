@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "../../primitives";
 import type { BumpTemplate } from "@/lib/settings";
 import { composeBump, hasComplianceFooter } from "@/worker/lib/outreachEmail";
 import { TemplateRenderError } from "@/worker/lib/renderTemplate";
@@ -27,15 +28,18 @@ export default function BumpEditor({
   initialTemplate,
   identity,
   previewRestaurant,
+  pendingDrafts,
 }: {
   initialTemplate: BumpTemplate;
   identity: Identity;
   previewRestaurant: PreviewRestaurant;
+  pendingDrafts: number;
 }) {
   const router = useRouter();
   const [template, setTemplate] = useState<BumpTemplate>(initialTemplate);
   const [lang, setLang] = useState<"en" | "es">("en");
-  const [busy, setBusy] = useState<"save" | "test" | null>(null);
+  const { confirm, confirmDialog } = useConfirm();
+  const [busy, setBusy] = useState<"save" | "apply" | "test" | null>(null);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   const dirty = JSON.stringify(template) !== JSON.stringify(initialTemplate);
@@ -62,7 +66,7 @@ export default function BumpEditor({
     setTemplate((t) => ({ ...t, [lang]: { body: text } }));
   }
 
-  async function save() {
+  async function save(): Promise<boolean> {
     setBusy("save");
     setMsg(null);
     try {
@@ -73,12 +77,14 @@ export default function BumpEditor({
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         setMsg({ text: body?.error ?? "Failed.", ok: false });
-      } else {
-        setMsg({ text: "Saved. New bump drafts will use this — still waiting on your approval before they send.", ok: true });
-        router.refresh();
+        return false;
       }
+      setMsg({ text: "Saved. New bump drafts will use this — still waiting on your approval before they send.", ok: true });
+      router.refresh();
+      return true;
     } catch {
       setMsg({ text: "Network error.", ok: false });
+      return false;
     } finally {
       setBusy(null);
     }
@@ -113,8 +119,46 @@ export default function BumpEditor({
     }
   }
 
+  // Saving only changes what a NEW bump draft starts out saying; bumps already
+  // waiting in Approvals keep their old copy. This pushes the current template
+  // into those pending drafts — the bump equivalent of Touch 1's same button.
+  // Approved-but-unsent bumps are deliberately left alone by the API.
+  async function applyToPending() {
+    const ok = await confirm({
+      title: `Rewrite ${pendingDrafts} pending bump draft${pendingDrafts === 1 ? "" : "s"}?`,
+      description: "They'll be recomposed with this template. Bumps you've already approved are left alone.",
+      confirmLabel: "Rewrite drafts",
+    });
+    if (!ok) return;
+    setBusy("apply");
+    setMsg(null);
+    const saved = dirty ? await save() : true;
+    if (!saved) {
+      setBusy(null);
+      return;
+    }
+    try {
+      const fd = new FormData();
+      fd.set("action", "redraft_all_bumps");
+      const res = await fetch("/api/admin/outreach", { method: "POST", body: fd });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMsg({ text: body?.error ?? "Failed.", ok: false });
+      } else {
+        const skippedNote = body.skipped > 0 ? ` (${body.skipped} skipped)` : "";
+        setMsg({ text: `Rewrote ${body.updated} bump draft${body.updated === 1 ? "" : "s"}${skippedNote}.`, ok: true });
+        router.refresh();
+      }
+    } catch {
+      setMsg({ text: "Network error.", ok: false });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div className="rounded-xl border border-line bg-surface-2 p-5">
+      {confirmDialog}
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <div>
           <div className="text-base font-semibold text-text">Touch 1.5 — the bump</div>
@@ -200,6 +244,16 @@ export default function BumpEditor({
         >
           {busy === "test" ? "Sending…" : "Send test to my inbox"}
         </button>
+        {pendingDrafts > 0 && (
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={applyToPending}
+            className="rounded-lg border border-gold/40 bg-gold/10 px-4 py-2 text-sm font-medium text-gold hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy === "apply" ? "Rewriting…" : `Apply to ${pendingDrafts} pending draft${pendingDrafts === 1 ? "" : "s"}`}
+          </button>
+        )}
         {msg && (
           <span className={`text-xs ${msg.ok ? "text-teal" : "text-coral"}`} role="alert">
             {msg.text}

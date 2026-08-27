@@ -10,6 +10,7 @@ import {
   composeTouch1,
   composeBump,
   composeTouch2,
+  formatPricingBlock,
   signatureBlock,
   complianceFooter,
   hasComplianceFooter,
@@ -17,6 +18,7 @@ import {
   type ComposeIdentity,
 } from "./outreachEmail";
 import type { Touch1Template, BumpTemplate, Touch2Template } from "@/lib/settings";
+import { PACKAGE_ORDER, formatCents, type PackageId, type PackageTier } from "@/lib/packages";
 
 const IDENTITY_NO_SIG: ComposeIdentity = { senderName: "Enrique", postalAddress: "123 Main St, Miami, FL", signature: "" };
 const IDENTITY_WITH_SIG: ComposeIdentity = {
@@ -57,6 +59,36 @@ const TOUCH2_TEMPLATE: Touch2Template = {
 
 const RESTAURANT = { restaurantName: "Casa del Sol", firstName: "Maria", dish: "ropa vieja", city: "Miami, FL" };
 
+const TEST_PACKAGES: Record<PackageId, PackageTier> = {
+  glow_up: {
+    id: "glow_up",
+    name: { en: "Menu Glow-Up", es: "Renovación de Menú" },
+    priceCents: 49900,
+    photoLimit: 30,
+    blurb: { en: "Up to 30 dishes enhanced", es: "Hasta 30 platos mejorados" },
+    billingNote: { en: "one-time", es: "pago único" },
+    checkoutEnabled: true,
+  },
+  grand_opening: {
+    id: "grand_opening",
+    name: { en: "Grand Opening Package", es: "Paquete de Apertura" },
+    priceCents: 89900,
+    photoLimit: 40,
+    blurb: { en: "Up to 40 photos", es: "Hasta 40 fotos" },
+    billingNote: { en: "one-time", es: "pago único" },
+    checkoutEnabled: true,
+  },
+  always_fresh: {
+    id: "always_fresh",
+    name: { en: "Always Fresh", es: "Siempre Fresco" },
+    priceCents: 24900,
+    photoLimit: 8,
+    blurb: { en: "8 photos/month", es: "8 fotos al mes" },
+    billingNote: { en: "per month", es: "por mes" },
+    checkoutEnabled: false,
+  },
+};
+
 describe("composeTouch1 / composeBump / composeTouch2 — signature placement", () => {
   test("body ends with: template body, then signature, then compliance footer — in that order", () => {
     const { body } = composeTouch1({
@@ -81,6 +113,7 @@ describe("composeTouch1 / composeBump / composeTouch2 — signature placement", 
       ...RESTAURANT,
       funnelUrl: "https://clickworthytool.com/l/abc",
       bookingUrl: null,
+      pricingBlock: "",
       language: "en",
       template: TOUCH2_TEMPLATE,
       identity: IDENTITY_WITH_SIG,
@@ -150,5 +183,92 @@ describe("isBounceNotification", () => {
     // false-positive risk; none of the DSN phrases appear here.
     expect(isBounceNotification("chef@x.example", "We do delivery on weekends, can you shoot those dishes?")).toBe(false);
     expect(isBounceNotification("chef@x.example", "Our delivery photos are terrible, yes let's talk.")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// {{pricing}} — added 2026-08-27 so Touch 2 quotes live package_tiers instead
+// of a hardcoded prose block that could drift from what checkout charges.
+// ---------------------------------------------------------------------------
+
+describe("formatPricingBlock", () => {
+  test("renders one paragraph per tier, in PACKAGE_ORDER, with name/photoLimit/blurb", () => {
+    const block = formatPricingBlock(TEST_PACKAGES, "en");
+    const paragraphs = block.split("\n\n");
+    expect(paragraphs).toHaveLength(PACKAGE_ORDER.length);
+    PACKAGE_ORDER.forEach((id, i) => {
+      const tier = TEST_PACKAGES[id];
+      expect(paragraphs[i]).toContain(tier.name.en);
+      expect(paragraphs[i]).toContain(String(tier.photoLimit));
+      expect(paragraphs[i]).toContain(tier.blurb.en);
+    });
+  });
+
+  test("consistency: quotes exactly the same price string checkout would charge", () => {
+    // The whole point of this feature — Touch 2 and the funnel/checkout both
+    // read priceCents off the SAME packages map, so this can never drift the
+    // way the old hardcoded prose could. formatCents is what the funnel card
+    // and Stripe unit_amount both ultimately derive from (see FunnelClient.tsx
+    // and app/api/outreach/checkout/route.ts).
+    const block = formatPricingBlock(TEST_PACKAGES, "en");
+    for (const id of PACKAGE_ORDER) {
+      expect(block).toContain(formatCents(TEST_PACKAGES[id].priceCents));
+    }
+  });
+
+  test("renders the ES branch when language is es", () => {
+    const block = formatPricingBlock(TEST_PACKAGES, "es");
+    expect(block).toContain("Renovación de Menú");
+    expect(block).not.toContain("Menu Glow-Up");
+  });
+});
+
+describe("composeTouch2 — dish is optional", () => {
+  const TOUCH2_NO_DISH: Touch2Template = {
+    en: { subject: "your photo, enhanced", body: "{{greeting}}\n\nHere's your sample.\n\n{{pricing}}" },
+    es: { subject: "su foto, mejorada", body: "{{greeting}}\n\nAquí está su muestra.\n\n{{pricing}}" },
+  };
+
+  test("composes fine with a template that never references {{dish}}", () => {
+    const { subject, body } = composeTouch2({
+      ...RESTAURANT,
+      funnelUrl: "https://clickworthytool.com/l/abc",
+      bookingUrl: null,
+      pricingBlock: formatPricingBlock(TEST_PACKAGES, "en"),
+      language: "en",
+      template: TOUCH2_NO_DISH,
+      identity: IDENTITY_WITH_SIG,
+    });
+    expect(subject).toBe("your photo, enhanced");
+    expect(body).toContain("Here's your sample.");
+    expect(body).toContain("Menu Glow-Up");
+  });
+
+  test("still composes with a template that DOES reference {{dish}} — backwards compatible", () => {
+    const { subject, body } = composeTouch2({
+      ...RESTAURANT,
+      funnelUrl: "https://clickworthytool.com/l/abc",
+      bookingUrl: null,
+      pricingBlock: formatPricingBlock(TEST_PACKAGES, "en"),
+      language: "en",
+      template: TOUCH2_TEMPLATE, // subject is "your {{dish}}"
+      identity: IDENTITY_WITH_SIG,
+    });
+    expect(subject).toBe("your ropa vieja");
+    expect(body).toContain("Here it is.");
+  });
+
+  test("a dish-less lead still composes — falls back to the generic word, doesn't throw", () => {
+    const { subject } = composeTouch2({
+      ...RESTAURANT,
+      dish: "",
+      funnelUrl: "https://clickworthytool.com/l/abc",
+      bookingUrl: null,
+      pricingBlock: formatPricingBlock(TEST_PACKAGES, "en"),
+      language: "en",
+      template: TOUCH2_TEMPLATE,
+      identity: IDENTITY_WITH_SIG,
+    });
+    expect(subject).toBe("your food");
   });
 });
