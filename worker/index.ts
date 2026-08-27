@@ -11,7 +11,7 @@
 
 import { PgBoss } from "pg-boss";
 import { config, requireKey } from "./config";
-import { SOURCE_QUEUE, ENRICH_QUEUE, SEND_QUEUE, REPLY_QUEUE, PACKAGE_QUEUE, STATS_QUEUE, SOURCING_REPORT_QUEUE, SNAPSHOT_QUEUE } from "@/lib/queues";
+import { ALL_QUEUES, SOURCE_QUEUE, ENRICH_QUEUE, SEND_QUEUE, REPLY_QUEUE, PACKAGE_QUEUE, STATS_QUEUE, SOURCING_REPORT_QUEUE, SNAPSHOT_QUEUE } from "@/lib/queues";
 import { runSourcing, type SourceJobData } from "./jobs/sourceLeads";
 import { runEnrichment, type EnrichJobData } from "./jobs/enrichRestaurant";
 import { runSendOutreach, RAMP } from "./jobs/sendOutreach";
@@ -40,15 +40,18 @@ async function main() {
   // they simply run again on the next tick, avoiding overlapping double-runs.
   const RETRY = { retryLimit: 3, retryDelay: 30, retryBackoff: true, expireInSeconds: 900 };
   const NO_RETRY = { retryLimit: 0, expireInSeconds: 1800 };
-  const queueConfig: Record<string, object> = {
-    [SOURCE_QUEUE]: NO_RETRY,
-    [ENRICH_QUEUE]: RETRY,
-    [SEND_QUEUE]: NO_RETRY,
-    [REPLY_QUEUE]: NO_RETRY,
-    [PACKAGE_QUEUE]: NO_RETRY,
-    [STATS_QUEUE]: NO_RETRY,
-    [SOURCING_REPORT_QUEUE]: NO_RETRY,
-  };
+
+  // DERIVED from ALL_QUEUES, not hand-listed. pg-boss v12 refuses to
+  // schedule()/work() a queue that was never created, and it throws at BOOT —
+  // so a queue missing from this map takes the whole worker down (sourcing,
+  // sending, reply polling included). That happened on 2026-08-26 when
+  // pipeline-snapshot was added to ALL_QUEUES + scheduled but not to the
+  // hand-maintained creation list. Deriving it makes that drift impossible:
+  // every queue gets NO_RETRY unless it appears in RETRY_QUEUES below.
+  const RETRY_QUEUES: readonly string[] = [ENRICH_QUEUE];
+  const queueConfig: Record<string, object> = Object.fromEntries(
+    ALL_QUEUES.map((q) => [q, RETRY_QUEUES.includes(q) ? RETRY : NO_RETRY])
+  );
   for (const [q, cfg] of Object.entries(queueConfig)) {
     // createQueue only applies options on first creation; updateQueue enforces
     // the policy every boot, so changing retry config takes effect on existing
