@@ -68,15 +68,20 @@ export function complianceFooter(language: Language, postalAddress: string): str
   // STOP and we won't email you again." read as boilerplate. Keeps the literal
   // word STOP (matched by hasComplianceFooter below and isOptOut()), just in a
   // first-person voice that matches a single sender signing their own name.
+  // Softened again 2026-08-27 — "I'll take you off the list" still read like a
+  // CRM sending it, not a person. STOP itself is untouched (isOptOut() matches
+  // the reply text, not this outbound copy, so this edit can't affect
+  // detection either way) — only the sentence around it changed, echoing the
+  // "no hard feelings" / "sin problema" register the bump already uses.
   if (language === "es") {
     return (
       `\n\n—\nClickworthy · ${address}\n` +
-      `¿No quiere más correos? Responda STOP y lo quito de la lista al momento.`
+      `¿No es para usted? Responda STOP y no le escribo más — sin problema.`
     );
   }
   return (
     `\n\n—\nClickworthy · ${address}\n` +
-    `Don't want more emails from me? Just reply STOP and I'll take you off the list.`
+    `Not for you? Reply STOP and I'll stop emailing you — no hard feelings.`
   );
 }
 
