@@ -23,7 +23,7 @@
 // in lib/pipelineHealth.ts for the dashboard/script-facing read side.
 
 import { randomBytes } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants, outreachJobs, magicLinks } from "@/db/schema";
 import { sendAlert } from "@/lib/alerts";
@@ -31,7 +31,7 @@ import { getSetting, setSetting } from "@/lib/settings";
 import { getReplyPollHealth } from "@/lib/pipelineHealth";
 import { config } from "../config";
 import { listInboxMessages, getMessage, getAttachmentBytes } from "../lib/gmail";
-import { isOptOut, isBounceNotification } from "../lib/outreachEmail";
+import { isOptOut, isBounceNotification, extractBouncedRecipient } from "../lib/outreachEmail";
 import { addSuppression } from "../lib/suppression";
 import { storeImageBytes } from "@/lib/storage";
 import { generateRevenueImpactCopy } from "../lib/anthropic";
@@ -75,8 +75,71 @@ async function checkReplyPollStaleness(): Promise<void> {
   }
 }
 
+// Bounces are found by SEARCHING for them, not by waiting for one to show up in
+// a thread we already know about. See extractBouncedRecipient() in
+// outreachEmail.ts for why: DSNs routinely arrive as their own Gmail thread, so
+// the main loop below — which requires a matching gmailThreadId before it looks
+// at a message at all — never saw them. This sweep runs first and independently.
+//
+// The query is narrow on purpose (a targeted list costs one call and returns
+// only a handful of messages), then isBounceNotification() makes the real
+// decision — the search is a cheap prefilter, not the classifier.
+const BOUNCE_QUERY =
+  'in:inbox newer_than:7d (from:mailer-daemon OR from:postmaster OR subject:"Delivery Status Notification")';
+
+async function sweepBounces(): Promise<void> {
+  let candidates: { id: string; threadId: string }[];
+  try {
+    candidates = await listInboxMessages(BOUNCE_QUERY);
+  } catch (err) {
+    console.warn("[poll] bounce sweep list failed:", err instanceof Error ? err.message : err);
+    return;
+  }
+
+  for (const { id } of candidates) {
+    const full = await getMessage(id).catch(() => null);
+    if (!full || !isBounceNotification(full.from, full.bodyText)) continue;
+
+    const failed = extractBouncedRecipient(full.bodyText);
+    if (!failed) {
+      // Parsed nothing — better to say so than to suppress a guess. If this
+      // shows up in the logs, the DSN format needs a new pattern.
+      console.warn(`[poll] bounce ${id} — couldn't parse the failed recipient out of the body`);
+      continue;
+    }
+
+    const [victim] = await db
+      .select({ id: restaurants.id, name: restaurants.name, suppressed: restaurants.suppressed })
+      .from(restaurants)
+      .where(sql`lower(${restaurants.email}) = ${failed}`)
+      .limit(1);
+
+    if (!victim) {
+      console.log(`[poll] bounce for ${failed} — no restaurant on file with that address, ignoring`);
+      continue;
+    }
+    // Already handled. This is also what keeps the sweep cheap on re-runs: the
+    // same DSN stays in the inbox for its whole 7-day window and is re-listed
+    // every 4 minutes, but does no work after the first time.
+    if (victim.suppressed) continue;
+
+    await addSuppression(failed, "bounce");
+    await db.update(restaurants).set({ suppressed: true }).where(eq(restaurants.id, victim.id));
+    // Correct the outreach row's story too, so the reply rate and the
+    // deliverability guard both count this as what it was.
+    await db
+      .update(outreachJobs)
+      .set({ status: "bounced" })
+      .where(
+        and(eq(outreachJobs.restaurantId, victim.id), eq(outreachJobs.kind, "touch1"), eq(outreachJobs.status, "sent"))
+      );
+    console.log(`[poll] BOUNCE (sweep) ${failed} (${victim.name}) — suppressed`);
+  }
+}
+
 export async function runReplyPoll(): Promise<void> {
   await checkReplyPollStaleness();
+  await sweepBounces();
 
   let messages: { id: string; threadId: string }[];
   try {

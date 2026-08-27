@@ -256,6 +256,46 @@ export function isBounceNotification(fromAddress: string | null | undefined, bod
   return BOUNCE_BODY_MARKERS.some((m) => body.includes(m));
 }
 
+// Pulls the address that FAILED out of a bounce notification's body.
+//
+// Why this exists: the original bounce handler identified the dead address by
+// looking up the Gmail thread the DSN arrived in, on the assumption that a
+// bounce always threads with the message it's reporting on. It doesn't — the
+// three DSNs sitting in the mailbox on 2026-08-27 (info@tauropizza.com,
+// info@pinkyringpizza.com, info@zatar.nyc) each arrived as their OWN thread, so
+// the lookup matched nothing and the handler was skipped before it ever ran.
+// Across 79 sends the poller had matched exactly one inbound message, and even
+// that one came from a local dev run rather than production. Reading the victim
+// out of the DSN itself removes the dependency on threading entirely.
+//
+// Two formats, most reliable first:
+//   1. RFC 3464 `Final-Recipient: rfc822; someone@example.com` — the machine-
+//      readable part every standards-compliant DSN carries.
+//   2. Gmail's prose: "Your message wasn't delivered to someone@example.com
+//      because the address couldn't be found."
+// Returns null rather than guessing when neither matches — the caller logs that
+// instead of suppressing an address it isn't sure about. Suppression is
+// effectively permanent for a lead, so a wrong guess here costs a real prospect.
+// Both captures are GREEDY and stop only on a character that genuinely can't
+// appear in an address (whitespace, angle brackets, comma, semicolon). A lazy
+// quantifier with "." among its terminators truncates a@b.example to a@b — the
+// dot is a normal domain character, so a trailing SENTENCE period has to be
+// stripped afterwards rather than excluded during the match.
+const FINAL_RECIPIENT_RE = /Final-Recipient:\s*rfc822\s*;\s*<?([^\s<>,;]+@[^\s<>,;]+)>?/i;
+const PROSE_RECIPIENT_RE =
+  /\b(?:was ?n[o']t|was not|could ?n[o']t be|could not be|has ?n[o']t been|has not been)\s+deliver(?:ed)?\s+to\s+<?([^\s<>,;]+@[^\s<>,;]+)>?/i;
+
+export function extractBouncedRecipient(bodyText: string): string | null {
+  for (const re of [FINAL_RECIPIENT_RE, PROSE_RECIPIENT_RE]) {
+    const hit = bodyText.match(re)?.[1];
+    // Trim a trailing sentence period ("...delivered to a@b.com.") without
+    // eating a legitimate final character.
+    const cleaned = hit?.replace(/\.+$/, "").trim().toLowerCase();
+    if (cleaned && cleaned.includes("@") && !cleaned.endsWith("@")) return cleaned;
+  }
+  return null;
+}
+
 // Detects a "STOP"/opt-out reply (plain, case-insensitive, tolerant of
 // surrounding whitespace/punctuation). Kept conservative so a genuine reply
 // that merely contains the word "stop" mid-sentence isn't misread. Coupled to

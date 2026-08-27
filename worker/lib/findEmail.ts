@@ -4,8 +4,11 @@
 // mirroring how photoFit.ts wraps websitePhotos.ts.
 //
 // The invariant that keeps deliverability safe: NOTHING is returned unless
-// NeverBounce says it's contactable. A guessed address clears exactly the same
-// bar as a scraped one — guessing only changes which candidates we ASK about.
+// NeverBounce says it's contactable. A guess used to clear exactly the same bar
+// as a scraped address; since 2026-08-27 it clears a STRICTER one — a `catchall`
+// verdict is accepted for a scraped address but rejected for a guess, because an
+// accept-all domain says yes to any address we invent (see isContactable in
+// neverbounce.ts for the measured bounce numbers behind that split).
 //
 // Shared by worker/jobs/enrichRestaurant.ts and scripts/backfill-emails.ts so
 // the nightly path and the backfill can never drift apart.
@@ -22,11 +25,13 @@ export type FoundEmail = {
 };
 
 export type FindEmailDeps = {
-  verify: (email: string) => Promise<boolean>;
+  // `guessed` is passed through to isContactable, which applies a stricter bar
+  // to invented addresses than to ones found on the site.
+  verify: (email: string, opts: { guessed: boolean }) => Promise<boolean>;
 };
 
 const defaultDeps: FindEmailDeps = {
-  verify: async (email) => isContactable(await verifyEmail(email)),
+  verify: async (email, opts) => isContactable(await verifyEmail(email), opts),
 };
 
 export async function findVerifiedEmail(
@@ -41,7 +46,7 @@ export async function findVerifiedEmail(
   if (discovered) {
     try {
       checks++;
-      if (await deps.verify(discovered.email)) {
+      if (await deps.verify(discovered.email, { guessed: false })) {
         return { found: { email: discovered.email, rank: discovered.rank, source: "website", checks }, checks };
       }
     } catch (err) {
@@ -57,7 +62,7 @@ export async function findVerifiedEmail(
   for (const guess of guesses) {
     try {
       checks++;
-      if (await deps.verify(guess)) {
+      if (await deps.verify(guess, { guessed: true })) {
         // rank 3 = "preferred mailbox, not proven to be on the site" — a guess is
         // never rank 1, so a scraped address always outranks it downstream.
         return { found: { email: guess, rank: 3, source: "guessed", checks }, checks };

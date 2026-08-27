@@ -15,6 +15,7 @@ import {
   complianceFooter,
   hasComplianceFooter,
   isBounceNotification,
+  extractBouncedRecipient,
   type ComposeIdentity,
 } from "./outreachEmail";
 import type { Touch1Template, BumpTemplate, Touch2Template } from "@/lib/settings";
@@ -183,6 +184,76 @@ describe("isBounceNotification", () => {
     // false-positive risk; none of the DSN phrases appear here.
     expect(isBounceNotification("chef@x.example", "We do delivery on weekends, can you shoot those dishes?")).toBe(false);
     expect(isBounceNotification("chef@x.example", "Our delivery photos are terrible, yes let's talk.")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractBouncedRecipient — added 2026-08-27 after finding that bounces were
+// never being caught in production: DSNs arrive as their OWN Gmail thread, so
+// the thread-matching handler was skipped entirely. Reading the dead address
+// out of the DSN body removes the dependency on threading.
+// ---------------------------------------------------------------------------
+
+describe("extractBouncedRecipient", () => {
+  test("parses the exact Gmail DSN body this pipeline received", () => {
+    // Verbatim shape of the stored replyBody on Johnny's Shrimp Boat (job #129).
+    const body =
+      "\r\n** Address not found **\r\n\r\nYour message wasn't delivered to " +
+      "info@originaljohnnysshrimpboat.com because the address couldn't be found, " +
+      "or is unable to receive mail.\r\n";
+    expect(extractBouncedRecipient(body)).toBe("info@originaljohnnysshrimpboat.com");
+  });
+
+  test("parses the three addresses that bounced un-caught on 2026-08-27", () => {
+    for (const addr of ["info@tauropizza.com", "info@pinkyringpizza.com", "info@zatar.nyc"]) {
+      const body = `** Address not found **\n\nYour message wasn't delivered to ${addr} because the address couldn't be found.`;
+      expect(extractBouncedRecipient(body)).toBe(addr);
+    }
+  });
+
+  test("prefers the machine-readable RFC 3464 Final-Recipient header", () => {
+    const body =
+      "Reporting-MTA: dns; mail.example.com\n" +
+      "Final-Recipient: rfc822; owner@bistro.example\n" +
+      "Action: failed\n" +
+      "Status: 5.1.1\n";
+    expect(extractBouncedRecipient(body)).toBe("owner@bistro.example");
+  });
+
+  test("handles an angle-bracketed Final-Recipient", () => {
+    expect(extractBouncedRecipient("Final-Recipient: rfc822; <owner@bistro.example>")).toBe("owner@bistro.example");
+  });
+
+  test("strips a trailing sentence period", () => {
+    const body = "Your message wasn't delivered to chef@x.example.";
+    expect(extractBouncedRecipient(body)).toBe("chef@x.example");
+  });
+
+  test("lowercases the address so the restaurants lookup matches", () => {
+    expect(extractBouncedRecipient("Your message wasn't delivered to INFO@Zatar.NYC because")).toBe("info@zatar.nyc");
+  });
+
+  test("handles the 'was not delivered' / 'could not be delivered' spellings", () => {
+    expect(extractBouncedRecipient("Your message was not delivered to a@b.example because")).toBe("a@b.example");
+    expect(extractBouncedRecipient("The message could not be delivered to c@d.example after 3 attempts")).toBe("c@d.example");
+  });
+
+  test("returns null rather than guessing when nothing matches", () => {
+    // Suppression is effectively permanent for a lead, so a wrong guess here
+    // costs a real prospect — null makes the caller log instead of act.
+    expect(extractBouncedRecipient("Delivery Status Notification (Failure)")).toBe(null);
+    expect(extractBouncedRecipient("")).toBe(null);
+    expect(extractBouncedRecipient("Hi! Yes please send the photo.")).toBe(null);
+  });
+
+  test("does NOT pick up an unrelated address elsewhere in the body", () => {
+    // The DSN quotes our own headers back at us; grabbing the first address in
+    // the body would suppress the SENDER instead of the dead mailbox.
+    const body =
+      "** Address not found **\n\nYour message wasn't delivered to info@deadplace.example because " +
+      "the address couldn't be found.\n\n----- Original message -----\nFrom: mail@clickworthytool.com\n" +
+      "To: info@deadplace.example\n";
+    expect(extractBouncedRecipient(body)).toBe("info@deadplace.example");
   });
 });
 
