@@ -97,6 +97,7 @@ const PHOTO_GROUPS: PhotoGroup[] = [
   {
     title: "Pipeline",
     links: [
+      { href: "/admin/photo/insights", label: "Insights" },
       { href: "/admin/photo/restaurants", label: "Leads" },
       { href: "/admin/photo/call-list", label: "Call list" },
       { href: "/admin/photo/website-leads", label: "Website leads" },
