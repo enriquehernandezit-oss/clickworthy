@@ -52,3 +52,6 @@ tmp-*.ts
 
 # Stray World Bank 404 page mis-saved as .xlsx, committed by accident (0480f24)
 wbes_innov.xlsx
+
+# Playwright MCP scratch output (accessibility snapshots from browser testing)
+.playwright-mcp/

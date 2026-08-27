@@ -199,19 +199,31 @@ type ConfirmOpts = {
 };
 
 export function useConfirm() {
-  const [pending, setPending] = useState<{ opts: ConfirmOpts; resolve: (ok: boolean) => void } | null>(null);
+  const [pending, setPending] = useState<{ opts: ConfirmOpts } | null>(null);
+  // The resolver lives in a ref, NOT in state: calling resolve() inside a
+  // setState updater is a side effect in what React requires to be a pure
+  // function (it may re-invoke or defer updaters), which can leave the
+  // awaiting caller hanging. Settling outside the updater keeps it honest.
+  // Nulling it first also makes settle idempotent — the Confirm path closes
+  // the dialog, which fires `close`, which calls onCancel again; without the
+  // guard that second call would resolve the same promise with `false`.
+  const resolverRef = useRef<((ok: boolean) => void) | null>(null);
 
   const confirm = useCallback(
-    (opts: ConfirmOpts) => new Promise<boolean>((resolve) => setPending({ opts, resolve })),
+    (opts: ConfirmOpts) =>
+      new Promise<boolean>((resolve) => {
+        resolverRef.current = resolve;
+        setPending({ opts });
+      }),
     []
   );
 
-  const settle = (ok: boolean) => {
-    setPending((p) => {
-      p?.resolve(ok);
-      return null;
-    });
-  };
+  const settle = useCallback((ok: boolean) => {
+    const resolve = resolverRef.current;
+    resolverRef.current = null;
+    setPending(null);
+    resolve?.(ok);
+  }, []);
 
   const confirmDialog = (
     <ConfirmDialog
