@@ -208,7 +208,7 @@ async function sendApprovedBumps(): Promise<void> {
       await sendAlert(
         "Blocked send — missing CAN-SPAM footer",
         `Bump to ${email} (${r.name}) was cancelled instead of sent: its body is missing the postal ` +
-          `address or the STOP opt-out line. Check the postal address and bump template on ` +
+          `address or the opt-out line. Check the postal address and bump template on ` +
           `/admin/photo/templates, then approve a fresh one.`
       );
       console.error(`[bump] BLOCKED draft ${job.id} (${r.name}) — missing compliance footer`);

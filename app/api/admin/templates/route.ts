@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
   // Same compliance check the live send path applies — a test send should
   // surface a missing footer, not hide it.
   const complianceWarning = !hasComplianceFooter(body)
-    ? " ⚠ This body is missing the postal address or STOP line — it would be blocked from a real send."
+    ? " ⚠ This body is missing the postal address or opt-out line — it would be blocked from a real send."
     : "";
 
   try {

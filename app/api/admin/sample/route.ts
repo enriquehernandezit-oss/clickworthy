@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
     // same guard every other send path in this app applies before a real send.
     if (!hasComplianceFooter(body)) {
       return NextResponse.json(
-        { error: "This email is missing the postal address or STOP line — required on every commercial email." },
+        { error: "This email is missing the postal address or opt-out line — required on every commercial email." },
         { status: 400 }
       );
     }

@@ -4,9 +4,12 @@ import { suppressions } from "@/db/schema";
 import SuppressionActions, { AddSuppressionForm } from "./SuppressionActions";
 import { Badge, EmptyState, Pager, SectionHeading, fmtDateTime } from "../../ui";
 
-// The do-not-contact list the worker checks before every send. Anyone who
-// replies STOP lands here automatically; this page is for adding someone who
-// asked by phone/in person, and for undoing a mistake.
+// The do-not-contact list the worker checks before every send. Hard bounces
+// land here automatically. Opt-outs are a HUMAN call since 2026-08-27 (the
+// footer no longer asks for a "STOP" keyword — see OPT_OUT_LINE in
+// worker/lib/outreachEmail.ts): read the reply on the Outreach page, then
+// suppress that restaurant. This page is also for adding someone who asked by
+// phone/in person, and for undoing a mistake.
 export const dynamic = "force-dynamic";
 
 const LIMIT = 50;
@@ -40,8 +43,8 @@ export default async function SuppressionsPage({
     <section>
       <SectionHeading>Do not contact</SectionHeading>
       <p className="mt-2 max-w-2xl text-sm text-muted">
-        Checked before every outreach send. STOP replies are added here automatically — add someone manually if they
-        asked to be removed another way.
+        Checked before every outreach send. Hard bounces are added automatically. If someone asks to be left alone in
+        a reply, suppress them from the Outreach page — that part is a human call, so read the reply first.
       </p>
 
       <AddSuppressionForm />

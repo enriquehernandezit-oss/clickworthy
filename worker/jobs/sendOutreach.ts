@@ -424,7 +424,7 @@ async function sendApproved(): Promise<void> {
       await sendAlert(
         "Blocked send — missing CAN-SPAM footer",
         `Touch 1 to ${email} (${r.name}) was cancelled instead of sent: its body is missing the postal ` +
-          `address or the STOP opt-out line. Check the postal address and Touch 1 template on ` +
+          `address or the opt-out line. Check the postal address and Touch 1 template on ` +
           `/admin/photo/templates, then redraft.`
       );
       console.error(`[send] BLOCKED draft ${job.id} (${r.name}) — missing compliance footer`);

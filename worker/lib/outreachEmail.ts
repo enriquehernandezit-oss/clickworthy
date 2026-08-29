@@ -62,27 +62,37 @@ function greeting(firstName: string | null, language: Language): string {
 // address renders an obvious placeholder rather than a blank line, so it's
 // caught by reading the email — and the pre-send assertion in sendOutreach.ts
 // blocks the send outright regardless.
+// The opt-out sentence, per language. CAN-SPAM requires a clear, working,
+// single-step opt-out — it does NOT require any particular wording, and
+// specifically not the literal word "STOP" (that's an SMS convention, not a
+// statute). Dropped 2026-08-27: an uppercase command word in the middle of an
+// otherwise conversational sign-off is the single clearest "a machine sent
+// this" tell in the whole email, which is exactly what a cold open can't
+// afford. "Just reply and say so" is the same promise in the sender's own
+// voice, and asking for a plain reply is a LOWER-friction opt-out than asking
+// for a keyword, so it reads as more compliant, not less.
+//
+// The tradeoff, accepted deliberately by the operator: without a keyword,
+// isOptOut() below catches far fewer opt-outs automatically. Opt-outs are now
+// handled by reading the reply on /admin/photo/outreach and suppressing the
+// restaurant by hand. isOptOut() stays as a free safety net for anyone who
+// happens to write "stop"/"unsubscribe"/"remove" unprompted.
+const OPT_OUT_LINE: Record<Language, string> = {
+  en: "Not interested? Just reply and say so — I won't write again.",
+  es: "¿No le interesa? Respóndame y no le vuelvo a escribir — sin problema.",
+};
+
+// Short, distinctive fragments of the lines above. hasComplianceFooter matches
+// these rather than the full sentence so it survives trivial punctuation
+// differences — but it is still deliberately strict: the ONLY place a human
+// edits a composed body is the Touch 2 hand-edit on the Samples page, and if
+// someone rewords the opt-out away entirely the send SHOULD be blocked. That
+// is the guard doing its job, not brittleness.
+const OPT_OUT_MARKERS = ["reply and say so", "no le vuelvo a escribir"] as const;
+
 export function complianceFooter(language: Language, postalAddress: string): string {
   const address = postalAddress.trim() || "[set your postal address on the Templates page]";
-  // Wording rewritten 2026-08-26 — the old "Prefer not to hear from us? Reply
-  // STOP and we won't email you again." read as boilerplate. Keeps the literal
-  // word STOP (matched by hasComplianceFooter below and isOptOut()), just in a
-  // first-person voice that matches a single sender signing their own name.
-  // Softened again 2026-08-27 — "I'll take you off the list" still read like a
-  // CRM sending it, not a person. STOP itself is untouched (isOptOut() matches
-  // the reply text, not this outbound copy, so this edit can't affect
-  // detection either way) — only the sentence around it changed, echoing the
-  // "no hard feelings" / "sin problema" register the bump already uses.
-  if (language === "es") {
-    return (
-      `\n\n—\nClickworthy · ${address}\n` +
-      `¿No es para usted? Responda STOP y no le escribo más — sin problema.`
-    );
-  }
-  return (
-    `\n\n—\nClickworthy · ${address}\n` +
-    `Not for you? Reply STOP and I'll stop emailing you — no hard feelings.`
-  );
+  return `\n\n—\nClickworthy · ${address}\n${OPT_OUT_LINE[language]}`;
 }
 
 // Pre-send guard (worker/jobs/sendOutreach.ts sendApproved(), sendBumps.ts):
@@ -91,7 +101,8 @@ export function complianceFooter(language: Language, postalAddress: string): str
 // hand-edited draft that deleted the footer, or any other way the footer could
 // go missing, before the email actually sends.
 export function hasComplianceFooter(body: string): boolean {
-  return body.includes("Clickworthy ·") && /\bSTOP\b/.test(body) && !body.includes("[set your postal address");
+  const hasOptOut = OPT_OUT_MARKERS.some((marker) => body.includes(marker));
+  return body.includes("Clickworthy ·") && hasOptOut && !body.includes("[set your postal address");
 }
 
 export type OutreachEmail = { subject: string; body: string };
@@ -296,11 +307,17 @@ export function extractBouncedRecipient(bodyText: string): string | null {
   return null;
 }
 
-// Detects a "STOP"/opt-out reply (plain, case-insensitive, tolerant of
+// Best-effort opt-out detector (plain, case-insensitive, tolerant of
 // surrounding whitespace/punctuation). Kept conservative so a genuine reply
-// that merely contains the word "stop" mid-sentence isn't misread. Coupled to
-// the footer's opt-out instruction above — if that copy ever stops saying
-// "STOP", this list needs to move with it.
+// that merely contains the word "stop" mid-sentence isn't misread.
+//
+// NO LONGER the primary opt-out path. The footer stopped instructing people to
+// reply "STOP" on 2026-08-27 (see OPT_OUT_LINE above), so almost nobody will
+// send one of these keywords now — they'll write a sentence. Opt-outs are
+// handled by a human reading the reply on /admin/photo/outreach and hitting
+// Suppress, which is also what the operator wants: see the reply first, decide
+// per restaurant. This list stays because catching an unprompted "unsubscribe"
+// for free is strictly better than not, not because anything depends on it.
 export function isOptOut(replyText: string): boolean {
   const firstLine = replyText.trim().split(/\r?\n/)[0]?.trim().toLowerCase() ?? "";
   const normalized = firstLine.replace(/[.!,]/g, "");

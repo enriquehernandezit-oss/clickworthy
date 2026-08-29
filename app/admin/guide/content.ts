@@ -62,7 +62,7 @@ export const PHOTO_TABS: TabDoc[] = [
   { label: "Call list", href: "/admin/photo/call-list", detail: "Restaurants with no website — they can't be emailed, so phone is the only channel. Click-to-call numbers, filterable by city, sorted busiest-first. These aren't lesser leads; a no-website spot most likely needs the photos AND (later) a website." },
   { label: "Website leads", href: "/admin/photo/website-leads", detail: "Prospects for the future website product, banked automatically — no website, a free subdomain / ordering page / social page (they never bought a domain), or a weak site. The Platform column shows what each is running. Nothing here is contacted by the current pipeline; it's a call/pitch sheet that fills on its own." },
   { label: "Clients", href: "/admin/photo/clients", detail: "Everyone who has paid, grouped by client, with lifetime value — and, most usefully, who has gone quiet. The retention view: an Always Fresh subscriber with no recent charge is the one to reach out to." },
-  { label: "Suppressions", href: "/admin/photo/suppressions", detail: "The do-not-contact list. STOP replies land here automatically; add or remove manually." },
+  { label: "Suppressions", href: "/admin/photo/suppressions", detail: "The do-not-contact list. Bounces land here automatically; opt-outs are yours to make — read the reply, then hit Suppress on that restaurant. Add or remove manually any time." },
   { label: "Controls", href: "/admin/photo/controls", detail: "The panic button (pause all sending), approval↔autosend toggle, daily send cap, bump timing, and worker health." },
   { label: "Setup", href: "/admin/photo/setup", detail: "The go-live checklist — every environment variable, which service needs it, and what breaks if it's missing." },
 ];
@@ -80,7 +80,7 @@ export const RULES: string[] = [
   "Nothing auto-sends to a prospect without a human approving it first, unless autosend is deliberately turned on in Controls (Touch 1 and the bump only).",
   "Every customer-facing email — not just the cold-outreach sequence — needs a human's approval and edit before it sends. No exceptions elsewhere, and no LLM-drafted replies: you write every reply yourself.",
   "A human finishes every photo. Claid's first pass is a starting point, never the final product a customer sees.",
-  "Every commercial email needs a real postal address and the STOP opt-out — the system now refuses to send one that's missing either, but the address itself (Templates tab) has to stay accurate.",
+  "Every commercial email needs a real postal address and a working opt-out line — the system refuses to send one that's missing either, but the address itself (Templates tab) has to stay accurate. Honour an opt-out within 10 business days: suppress the restaurant as soon as you read the reply.",
   "We never promise a refund to a customer. If a photo doesn't land, we re-edit it — as many times as it takes, at no extra cost.",
 ];
 
@@ -99,7 +99,7 @@ export const TROUBLESHOOTING: TroubleshootRow[] = [
   },
   {
     symptom: "A reply came in with no photo attached",
-    whatsHappening: "The pipeline only auto-handles a photo reply or a STOP — anything else needs a person.",
+    whatsHappening: "The pipeline only auto-handles a photo reply — anything else, including someone asking to be left alone, needs a person.",
     whatToDo: "You'll get an alert email, and a blank draft is waiting in Approvals — write your reply there and send.",
   },
   {
@@ -161,7 +161,7 @@ export const GLOSSARY: GlossaryEntry[] = [
   { term: "Magic link", definition: "The unique /l/[token] link tied to one restaurant, carrying them from viewing their sample through paying and uploading." },
   { term: "Free sample", definition: "The one photo you hand-edit as a taste of the work, before they've paid anything." },
   { term: "First pass", definition: "Claid's automatic rough enhancement — a starting point you finish by hand, never the final delivered version." },
-  { term: "Suppression", definition: "An email address on the do-not-contact list, from a STOP reply or a bounce. Outreach skips these automatically." },
+  { term: "Suppression", definition: "An email address on the do-not-contact list, from a hard bounce or from you suppressing a restaurant after reading its reply. Outreach skips these automatically." },
   { term: "Signature dish", definition: "The standout dish Claude picks out while enriching a lead — it's what personalizes the Touch 1 email." },
   { term: "Deliverability guard", definition: "Automatic pause on sending if too many recent recipients opt out or bounce, to protect the sending domain's reputation." },
   { term: "Payment link", definition: "A Stripe link you generate for a specific restaurant + package, for a deal already agreed off-pipeline. Doesn't expire." },
