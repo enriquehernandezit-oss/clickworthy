@@ -1,11 +1,19 @@
 // Reply poller (runs every few minutes). Reads the Gmail inbox, matches replies
-// back to the outreach thread they answer, and for each first-time reply:
-//   - "STOP"/opt-out  -> suppress the sender, mark the restaurant, stop.
+// back to the outreach thread they answer (Touch 1 or a manual one-off — see
+// REPLYABLE_KINDS), and for each first-time reply:
+//   - unambiguous opt-out -> suppress, AND alert (never silent — see below).
 //   - photo attached  -> store the original, create an awaiting_edit magic link
 //                        with a Revenue Impact Card, and alert us to edit it.
 //   - no photo        -> record the reply text + alert us to answer it by hand.
 // Every branch stores the reply body/sender on the outreach row, so what they
 // wrote is readable in /admin instead of living only in Gmail.
+//
+// Opt-outs are mostly a HUMAN call now. The footer stopped asking people to
+// reply "STOP" (see OPT_OUT_LINE in ../lib/outreachEmail.ts), so almost nobody
+// sends a keyword — they write a sentence, which lands in the no-photo branch
+// for the operator to read and act on from /admin/photo/outreach. isOptOut()
+// still auto-suppresses the unambiguous cases ("unsubscribe", "remove me"),
+// because honoring those instantly is free and CAN-SPAM-safe.
 //
 // Dedup is PER MESSAGE (outreachJobs.lastReplyMessageId), not per thread. It
 // used to be per-thread only (skip any thread with repliedAt already set) —
@@ -23,7 +31,7 @@
 // in lib/pipelineHealth.ts for the dashboard/script-facing read side.
 
 import { randomBytes } from "node:crypto";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants, outreachJobs, magicLinks } from "@/db/schema";
 import { sendAlert } from "@/lib/alerts";
@@ -35,6 +43,19 @@ import { isOptOut, isBounceNotification, extractBouncedRecipient } from "../lib/
 import { addSuppression } from "../lib/suppression";
 import { storeImageBytes } from "@/lib/storage";
 import { generateRevenueImpactCopy } from "../lib/anthropic";
+
+// Which outbound kinds a reply can land against. `manual` is the hand-written
+// one-off from /admin/photo/restaurants/[id] (kind 'manual', touchNumber 0) —
+// it sends via the same Gmail mailbox and threads like anything else, but the
+// poller used to match `kind='touch1'` ONLY, so every reply to a manual email
+// was invisible: no record, no alert, and an opt-out request in one would
+// never have been honored (a CAN-SPAM exposure, not just a lost lead).
+// Flagged in AUDIT.md; widened 2026-08-31.
+//
+// `bump` is deliberately absent: a bump replies INTO the Touch 1 thread and
+// carries that same gmailThreadId, so the Touch 1 row already matches it.
+// Listing it here would just make the lookup ambiguous between two rows.
+const REPLYABLE_KINDS = ["touch1", "manual"] as const;
 
 function parseFromEmail(from: string): string {
   const m = from.match(/<([^>]+)>/);
@@ -164,7 +185,7 @@ export async function runReplyPoll(): Promise<void> {
     const [job] = await db
       .select()
       .from(outreachJobs)
-      .where(and(eq(outreachJobs.gmailThreadId, threadId), eq(outreachJobs.kind, "touch1")))
+      .where(and(eq(outreachJobs.gmailThreadId, threadId), inArray(outreachJobs.kind, REPLYABLE_KINDS)))
       .limit(1);
     if (!job || job.restaurantId == null) continue;
 
@@ -222,11 +243,31 @@ export async function runReplyPoll(): Promise<void> {
       })
       .where(eq(outreachJobs.id, job.id));
 
-    // Opt-out.
+    // Opt-out. Still auto-suppresses — honoring an unambiguous request
+    // instantly is both the right thing and the CAN-SPAM-safe thing (10
+    // business days is the ceiling, not a target). What changed 2026-08-31 is
+    // that it is no longer SILENT: suppression removes a lead from the
+    // pipeline permanently, so the operator is told every time it happens.
+    // Previously this branch suppressed and `continue`d with only a console
+    // line, meaning a lead could vanish with no trace anywhere the operator
+    // looks. Paired with dropping bare "no" from isOptOut(), the ambiguous
+    // cases now reach a human instead of being decided by a keyword list.
     if (isOptOut(full.bodyText)) {
+      const [optedOut] = await db
+        .select({ name: restaurants.name, city: restaurants.city })
+        .from(restaurants)
+        .where(eq(restaurants.id, job.restaurantId))
+        .limit(1);
       await addSuppression(sender, "opt_out");
       await db.update(restaurants).set({ suppressed: true }).where(eq(restaurants.id, job.restaurantId));
-      console.log(`[poll] opt-out from ${sender} — suppressed`);
+      await sendAlert(
+        "Opt-out — restaurant suppressed automatically",
+        `${optedOut?.name ?? `restaurant ${job.restaurantId}`} (${optedOut?.city ?? "?"}) — ${sender} — asked to be ` +
+          `removed, so they've been suppressed and will never be contacted again.\n\n` +
+          `They wrote:\n"${full.bodyText.trim().slice(0, 500)}"\n\n` +
+          `No action needed. If this was a misread, undo it on /admin/photo/suppressions.`
+      );
+      console.log(`[poll] opt-out from ${sender} — suppressed + alerted`);
       continue;
     }
 

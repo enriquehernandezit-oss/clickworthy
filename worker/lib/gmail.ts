@@ -79,6 +79,21 @@ export type SentMessage = { id: string; threadId: string };
 // Sends a plaintext email. Returns Gmail's message + thread ids (stored so we
 // can later match inbound replies back to the outreach they answer).
 // Pass `threadId` + `inReplyTo` (the original RFC Message-ID) to reply in-thread.
+// RFC 2047 encoded-word. MIME headers are 7-bit ASCII only, so a raw non-ASCII
+// Subject ships as mojibake — "Mi Ranchito Taquería" arriving as "TaquerÃ­a",
+// which reads as broken to the recipient AND is a spam signal. Body text is
+// unaffected (it declares charset=UTF-8); this is a header-only problem.
+//
+// ASCII subjects are returned untouched, so the common case produces byte-for
+// -byte the same header it always did. Base64 (?B?) over quoted-printable
+// because it is trivially correct for arbitrary UTF-8 — no per-character
+// escaping rules to get subtly wrong.
+export function encodeHeaderValue(value: string): string {
+  // eslint-disable-next-line no-control-regex
+  if (/^[\x00-\x7F]*$/.test(value)) return value;
+  return `=?UTF-8?B?${Buffer.from(value, "utf-8").toString("base64")}?=`;
+}
+
 export async function sendEmail(params: {
   to: string;
   subject: string;
@@ -88,12 +103,15 @@ export async function sendEmail(params: {
   inReplyTo?: string | null;
 }): Promise<SentMessage> {
   const sender = process.env.GMAIL_SENDER!;
-  const from = params.fromName ? `${params.fromName} <${sender}>` : sender;
+  // Only the display name is encoded — the address itself must stay literal.
+  // outreach_sender_name is operator-editable, so "Enrique Hernández" with the
+  // accent is a realistic value and would otherwise garble the From line.
+  const from = params.fromName ? `${encodeHeaderValue(params.fromName)} <${sender}>` : sender;
 
   const headers = [
     `From: ${from}`,
     `To: ${params.to}`,
-    `Subject: ${params.subject}`,
+    `Subject: ${encodeHeaderValue(params.subject)}`,
     "MIME-Version: 1.0",
     'Content-Type: text/plain; charset="UTF-8"',
   ];

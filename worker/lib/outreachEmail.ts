@@ -318,8 +318,43 @@ export function extractBouncedRecipient(bodyText: string): string | null {
 // Suppress, which is also what the operator wants: see the reply first, decide
 // per restaurant. This list stays because catching an unprompted "unsubscribe"
 // for free is strictly better than not, not because anything depends on it.
+// Unambiguous, administrative opt-out language ONLY. Every phrase here means
+// "do not contact me again" and nothing else.
+//
+// Bare "no" was REMOVED 2026-08-31. It used to auto-suppress, silently and
+// with no alert, but it is genuinely ambiguous — "no" can open a real
+// conversation ("no, we already have a photographer, what do you charge?") as
+// easily as it can end one. Auto-suppressing on it destroyed leads invisibly
+// (flagged in AUDIT.md). A bare "no" now falls through to the normal
+// needs-a-human branch, which alerts and queues a blank draft, and the
+// operator decides. Same reasoning keeps "no thanks" / "no gracias" out: a
+// rejection of the offer is not necessarily a request to never write again,
+// and that call is the operator's to make from the reply text.
+const OPT_OUT_PHRASES = [
+  "stop",
+  "unsubscribe",
+  "unsubscribe me",
+  "please unsubscribe",
+  "remove",
+  "remove me",
+  "please remove me",
+  "take me off",
+  "take me off the list",
+  "opt out",
+  "opt-out",
+  // Spanish equivalents. Kept even though every emailable lead is currently
+  // language 'en' — the ES templates exist and cost nothing to cover.
+  "baja",
+  "darse de baja",
+  "eliminar",
+  "no me escriba",
+  "no me escriban",
+];
+
 export function isOptOut(replyText: string): boolean {
   const firstLine = replyText.trim().split(/\r?\n/)[0]?.trim().toLowerCase() ?? "";
-  const normalized = firstLine.replace(/[.!,]/g, "");
-  return ["stop", "unsubscribe", "baja", "no", "remove"].includes(normalized);
+  // Strip trailing/incidental punctuation and collapse whitespace so
+  // "Remove me, please." and "remove  me" both normalize to a listed phrase.
+  const normalized = firstLine.replace(/[.!,;:¡¿?"']/g, "").replace(/\s+/g, " ").trim();
+  return OPT_OUT_PHRASES.includes(normalized);
 }

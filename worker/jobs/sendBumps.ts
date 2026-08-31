@@ -10,7 +10,7 @@
 //                            thread fresh at send time (drafting and approval
 //                            can be days apart).
 
-import { and, asc, eq, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants, outreachJobs } from "@/db/schema";
 import { config } from "../config";
@@ -33,6 +33,25 @@ const BUMP_AFTER_DAYS_DEFAULT = 3;
 // 2/tick on a */4 cron = at most 1 send/2min, ~30/hour, well-paced across the
 // business-hours window while the shared daily cap still bounds the total.
 const BUMP_BATCH_PER_TICK = 2;
+
+// The subject we actually sent Touch 1 with, straight off the outreach row.
+// Used only as a fallback when the live Gmail thread lookup fails — see the
+// call site in sendApprovedBumps().
+async function touch1Subject(restaurantId: number): Promise<string | null> {
+  const [row] = await db
+    .select({ subject: outreachJobs.subject })
+    .from(outreachJobs)
+    .where(
+      and(
+        eq(outreachJobs.restaurantId, restaurantId),
+        eq(outreachJobs.kind, "touch1"),
+        isNotNull(outreachJobs.sentAt)
+      )
+    )
+    .orderBy(desc(outreachJobs.sentAt))
+    .limit(1);
+  return row?.subject ?? null;
+}
 
 export async function runSendBumps(): Promise<void> {
   await draftBumps();
@@ -222,11 +241,26 @@ async function sendApprovedBumps(): Promise<void> {
       // proper "Re: ..." subject (not just threadId/In-Reply-To) keeps this
       // threaded in non-Gmail clients too, which key off Subject.
       const { threadId, inReplyTo, subject: origSubject } = await threadToReplyInto(r.id);
-      const subject = origSubject
-        ? origSubject.toLowerCase().startsWith("re:")
-          ? origSubject
-          : `Re: ${origSubject}`
+      // Fall back to the Touch 1 subject we STORED at send time when the live
+      // thread lookup comes back empty (getThreadTail returns nulls on any
+      // Gmail error, and threadToReplyInto swallows the throw). Without this
+      // the subject was `""` — a subject-less email, which is both a strong
+      // spam signal on a domain whose reputation is already being repaired and
+      // unthreadable in clients that key off Subject rather than References.
+      // Flagged in AUDIT.md; fixed 2026-08-31.
+      const storedSubject = origSubject ?? (await touch1Subject(r.id));
+      const subject = storedSubject
+        ? storedSubject.toLowerCase().startsWith("re:")
+          ? storedSubject
+          : `Re: ${storedSubject}`
         : "";
+      if (!subject) {
+        // Both the live thread AND the stored row gave us nothing. Sending a
+        // subject-less cold email is worse than not sending: skip and say so,
+        // rather than spend a daily-cap slot on a guaranteed spam signal.
+        console.warn(`[bump] skipped ${email} — no subject available (thread lookup and stored Touch 1 both empty)`);
+        continue;
+      }
       const sent = await withRetry(
         () =>
           sendEmail({

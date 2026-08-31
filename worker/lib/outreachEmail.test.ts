@@ -16,6 +16,7 @@ import {
   hasComplianceFooter,
   isBounceNotification,
   extractBouncedRecipient,
+  isOptOut,
   type ComposeIdentity,
 } from "./outreachEmail";
 import type { Touch1Template, BumpTemplate, Touch2Template } from "@/lib/settings";
@@ -341,5 +342,58 @@ describe("composeTouch2 — dish is optional", () => {
       identity: IDENTITY_WITH_SIG,
     });
     expect(subject).toBe("your food");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Opt-out detection. Rewritten 2026-08-31: bare "no" removed (it silently
+// destroyed leads — AUDIT.md), unambiguous phrases widened. False positives
+// are the dangerous direction: one wrongly suppresses a restaurant forever.
+// ---------------------------------------------------------------------------
+
+describe("isOptOut", () => {
+  test("catches unambiguous administrative opt-outs", () => {
+    for (const s of [
+      "stop", "STOP", "Unsubscribe", "unsubscribe me", "please unsubscribe",
+      "remove", "Remove me", "please remove me", "take me off",
+      "take me off the list", "opt out", "opt-out",
+    ]) {
+      expect(isOptOut(s)).toBe(true);
+    }
+  });
+
+  test("catches the Spanish equivalents", () => {
+    for (const s of ["baja", "darse de baja", "eliminar", "no me escriba", "no me escriban"]) {
+      expect(isOptOut(s)).toBe(true);
+    }
+  });
+
+  test("tolerates punctuation and extra whitespace", () => {
+    expect(isOptOut("Remove me, please.")).toBe(false); // trailing word -> not an exact phrase
+    expect(isOptOut("Remove me.")).toBe(true);
+    expect(isOptOut("  unsubscribe!  ")).toBe(true);
+    expect(isOptOut("remove  me")).toBe(true);
+  });
+
+  test("a bare 'no' is NOT an opt-out — it goes to a human instead", () => {
+    // The regression this list was rewritten for: "no" can open a real
+    // conversation as easily as end one, and auto-suppressing killed leads
+    // silently. It must fall through to the needs-a-human branch.
+    expect(isOptOut("no")).toBe(false);
+    expect(isOptOut("No.")).toBe(false);
+    expect(isOptOut("no thanks")).toBe(false);
+    expect(isOptOut("no gracias")).toBe(false);
+  });
+
+  test("does NOT fire on a genuine reply that merely contains an opt-out word", () => {
+    expect(isOptOut("Please remove the watermark and resend")).toBe(false);
+    expect(isOptOut("Stop by the restaurant any time and we can talk")).toBe(false);
+    expect(isOptOut("Interested — what does it cost?")).toBe(false);
+    expect(isOptOut("We already have a photographer, but send info")).toBe(false);
+  });
+
+  test("only the FIRST line is considered", () => {
+    expect(isOptOut("unsubscribe\n\n(sent from my iPhone)")).toBe(true);
+    expect(isOptOut("Sounds great!\nunsubscribe")).toBe(false);
   });
 });
