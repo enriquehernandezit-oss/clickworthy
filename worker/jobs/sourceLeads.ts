@@ -23,6 +23,7 @@ import { inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants } from "@/db/schema";
 import { config } from "../config";
+import { getSetting } from "@/lib/settings";
 import { sendAlert } from "@/lib/alerts";
 import {
   searchNearbyRestaurants,
@@ -46,8 +47,22 @@ export type SourceJobData = {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function runSourcing(boss: PgBoss, data: SourceJobData): Promise<void> {
+  // Sourcing is the largest variable cost in the pipeline and is worth nothing
+  // while sending is paused — the leads only pile up in `queued`. An explicit
+  // `limit` on a manual/one-off run bypasses the pause on purpose, so a human
+  // can still do a deliberate test sweep from /admin without un-pausing.
+  const [paused, capOverride] = await Promise.all([
+    getSetting("sourcing_paused"),
+    getSetting("sourcing_nightly_cap"),
+  ]);
+  if (paused && data.limit == null) {
+    console.log("[source] skipped — sourcing_paused is on (Controls). No Places calls, no spend.");
+    return;
+  }
+
   const cities = data.cities ?? config.targetCities;
-  const candidateCap = data.limit ?? config.nightlyEnrichCap; // 0 = no cap
+  // Precedence: explicit per-run limit > the Controls setting > config/env.
+  const candidateCap = data.limit ?? capOverride ?? config.nightlyEnrichCap; // 0 = no cap
 
   // --- 1. DISCOVER: sweep every grid cell for every city, dedup by place id. ---
   const discovered = new Map<string, { place: Place; city: string }>();

@@ -86,6 +86,73 @@ export function PauseControl({ paused }: { paused: boolean }) {
   );
 }
 
+// The spend brake. Deliberately styled quieter than PauseControl: pausing
+// sourcing is a cost decision, not an emergency, and it stops no customer-
+// facing behaviour at all. Confirms on pause only (same reasoning as
+// PauseControl — resuming is the recovery path and shouldn't be fenced).
+export function SourcingPauseControl({ paused }: { paused: boolean }) {
+  const router = useRouter();
+  const { confirm, confirmDialog } = useConfirm();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const flip = async (to: boolean) => {
+    if (to) {
+      const ok = await confirm({
+        title: "Pause the nightly lead fetch?",
+        description:
+          "No Places search, no photo scoring, no chain checks — the whole per-lead spend stops. Leads already sourced are untouched, and sending/replies carry on as normal.",
+        confirmLabel: "Pause sourcing",
+      });
+      if (!ok) return;
+    }
+    setBusy(true);
+    setError(null);
+    const err = await postSetting("sourcing_paused", to).catch(() => "Network error.");
+    setBusy(false);
+    if (err) return setError(err);
+    router.refresh();
+  };
+
+  return (
+    <div className={`rounded-xl border p-5 ${paused ? "border-gold/40 bg-gold/5" : "border-line bg-surface"}`}>
+      {confirmDialog}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <div className="text-base font-semibold text-text">
+            {paused ? "Nightly lead fetch is PAUSED" : "Nightly lead fetch is running"}
+          </div>
+          <p className="mt-1 max-w-xl text-sm text-muted">
+            {paused
+              ? "No new leads are being sourced, so the per-lead API spend is $0. Everything already sourced stays exactly where it is."
+              : "Sourcing is the biggest variable cost in the pipeline. Pause it while sending is paused — new leads would only pile up in the queue."}
+          </p>
+        </div>
+        {paused ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => flip(false)}
+            className="btn-press rounded-lg bg-teal px-5 py-2.5 text-sm font-semibold text-[#0F1216] hover:brightness-110 disabled:opacity-50"
+          >
+            {busy ? "Resuming…" : "Resume sourcing"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => flip(true)}
+            className="btn-press rounded-lg border border-line px-5 py-2.5 text-sm font-medium text-text hover:bg-surface-2 disabled:opacity-50"
+          >
+            {busy ? "Pausing…" : "Pause sourcing"}
+          </button>
+        )}
+      </div>
+      {error && <p className="mt-2 text-sm text-coral">{error}</p>}
+    </div>
+  );
+}
+
 // Approval-mode vs autosend.
 export function AutosendControl({ autosend }: { autosend: boolean }) {
   const router = useRouter();
@@ -168,7 +235,7 @@ export function NumberSetting({
   step,
   min = 1,
 }: {
-  settingKey: "outreach_daily_cap" | "bump_after_days" | "outreach_daily_draft_target" | CostKey;
+  settingKey: "outreach_daily_cap" | "bump_after_days" | "outreach_daily_draft_target" | "sourcing_nightly_cap" | CostKey;
   label: string;
   help: string;
   value: number | null;

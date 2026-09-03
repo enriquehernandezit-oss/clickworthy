@@ -7,7 +7,7 @@ import { dailyCap, sentToday } from "@/worker/jobs/sendOutreach";
 import { describeSendWindow } from "@/worker/lib/sendWindow";
 import { ALL_QUEUES, SOURCE_QUEUE, SEND_QUEUE, REPLY_QUEUE, STATS_QUEUE, PACKAGE_QUEUE, SOURCING_REPORT_QUEUE, SNAPSHOT_QUEUE } from "@/lib/queues";
 import { Card, EmptyState, SectionHeading, fmtDateTime } from "../../ui";
-import { PauseControl, AutosendControl, NumberSetting } from "./ControlToggles";
+import { PauseControl, SourcingPauseControl, AutosendControl, NumberSetting } from "./ControlToggles";
 import RunNow from "./RunNow";
 
 // Approved-but-unsent Touch 1 + bump rows — the pile actually waiting on the
@@ -172,6 +172,29 @@ export default async function ControlsPage() {
           value={values.outreach_daily_draft_target}
           nullable={false}
           suffix="/ day"
+        />
+      </section>
+
+      {/* Sourcing spend. Separate section from the send controls above on
+          purpose: these two gates cost money rather than gate customer-facing
+          behaviour, and conflating them with the panic button invites pausing
+          the wrong one in a hurry. */}
+      <section className="flex flex-col gap-4">
+        <SectionHeading>Lead sourcing &amp; spend</SectionHeading>
+        <p className="-mt-2 max-w-2xl text-sm text-muted">
+          Sourcing is the largest variable cost here — Places search, Vision photo scoring, and a chain check on
+          every emailable lead. The right nightly number tracks your <strong>send</strong> rate: sourcing far more
+          than you can email just buys inventory that sits in the queue.
+        </p>
+        <SourcingPauseControl paused={values.sourcing_paused} />
+        <NumberSetting
+          settingKey="sourcing_nightly_cap"
+          label="Nightly sourcing cap"
+          help="How many candidates reach PAID enrichment each night. Leave empty to use the worker's own default. Rough guide: about 8× your daily send cap."
+          value={values.sourcing_nightly_cap}
+          nullable
+          suffix="/ night"
+          formulaHint={boot?.nightlyEnrichCap ? `worker default: ${boot.nightlyEnrichCap}` : "worker default"}
         />
       </section>
 

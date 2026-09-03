@@ -17,9 +17,9 @@ import { validateTemplateSyntax, TemplateRenderError } from "@/worker/lib/render
 // /admin/photo/templates. Each key has its own validation because the value
 // types differ (boolean, positive int, nullable int, non-negative number,
 // short text, or a whole bilingual template object).
-const BOOLEAN_KEYS = new Set(["outreach_paused", "outreach_autosend"]);
+const BOOLEAN_KEYS = new Set(["outreach_paused", "outreach_autosend", "sourcing_paused"]);
 const POSITIVE_INT_KEYS = new Set(["bump_after_days", "outreach_daily_draft_target"]);
-const NULLABLE_INT_KEYS = new Set(["outreach_daily_cap"]);
+const NULLABLE_INT_KEYS = new Set(["outreach_daily_cap", "sourcing_nightly_cap"]);
 // Cost assumptions (lib/costs.ts): cents, may be fractional and may be 0.
 const NON_NEG_NUMBER_KEYS = new Set<string>(COST_KEYS);
 // Outreach identity: short strings, editable to empty (postal address starts
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
 
   if (BOOLEAN_KEYS.has(key)) {
     if (raw !== "true" && raw !== "false") return NextResponse.json({ error: "Value must be true/false" }, { status: 400 });
-    await setSetting(key as "outreach_paused" | "outreach_autosend", raw === "true");
+    await setSetting(key as "outreach_paused" | "outreach_autosend" | "sourcing_paused", raw === "true");
     return NextResponse.json({ ok: true, key, value: raw === "true" });
   }
 
@@ -54,12 +54,12 @@ export async function POST(request: NextRequest) {
   if (NULLABLE_INT_KEYS.has(key)) {
     // Empty string = clear (use the built-in formula). Any other value must be a positive integer.
     if (raw === "" || raw === "null") {
-      await setSetting(key as "outreach_daily_cap", null);
+      await setSetting(key as "outreach_daily_cap" | "sourcing_nightly_cap", null);
       return NextResponse.json({ ok: true, key, value: null });
     }
     const n = Number(raw);
     if (!Number.isInteger(n) || n <= 0) return NextResponse.json({ error: "Value must be a positive integer, or empty to clear." }, { status: 400 });
-    await setSetting(key as "outreach_daily_cap", n);
+    await setSetting(key as "outreach_daily_cap" | "sourcing_nightly_cap", n);
     return NextResponse.json({ ok: true, key, value: n });
   }
 

@@ -95,7 +95,14 @@ export const config = {
   // hit rate, for roughly +$1-1.50/night (chain checks + Vision + NeverBounce
   // on ~15 extra gate-clearing candidates). Set WORKER_NIGHTLY_ENRICH_CAP on
   // Railway to override without a deploy.
-  nightlyEnrichCap: intEnv("WORKER_NIGHTLY_ENRICH_CAP", 80),
+  // Lowered 80 -> 40 on 2026-09-03. The 80 above was sized for a 20/day send
+  // target; the send cap is now 5/day while domain reputation recovers, and at
+  // 80/night sourcing was banking ~10 email-ready leads a night against 5
+  // sends — inventory that just sits in `queued` costing Vision + chain-check
+  // money up front. 40 tracks the current send rate. Raise it back in step
+  // with the send cap, or override per-run from Controls via the
+  // `sourcing_nightly_cap` setting (which takes precedence over this).
+  nightlyEnrichCap: intEnv("WORKER_NIGHTLY_ENRICH_CAP", 40),
 
   // Cities to source, SEMICOLON-separated (so each entry can be "City, State").
   // Each MUST have a grid in worker/lib/grid.ts. Added Nashville/Denver/San Diego

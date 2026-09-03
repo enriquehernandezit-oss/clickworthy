@@ -92,6 +92,18 @@ export type SettingsMap = {
   // manual-approval mode (autosend paces to the send cap instead). Read fresh
   // each run by worker/jobs/sendOutreach.ts.
   outreach_daily_draft_target: number;
+  // Stops the nightly lead fetch without a deploy — the sourcing equivalent of
+  // outreach_paused. Sourcing is the single largest VARIABLE cost (Places
+  // search + Vision photo scoring + a chain check on every emailable lead),
+  // and it is worth nothing while sending is paused: the leads just pile up in
+  // `queued`. Added 2026-09-03 so the spend can be stopped from Controls
+  // instead of by editing Railway env. Read fresh by worker/jobs/sourceLeads.ts.
+  sourcing_paused: boolean;
+  // Overrides how many candidates reach PAID enrichment per night. `null` =
+  // use config.nightlyEnrichCap (which honors WORKER_NIGHTLY_ENRICH_CAP).
+  // Exists because the right number tracks the SEND rate, not the ambition:
+  // sourcing 80/night to feed 5 sends/day just buys inventory that sits.
+  sourcing_nightly_cap: number | null;
   worker_boot_info: WorkerBootInfo | null;
   // ISO timestamp, written by runReplyPoll() (worker/jobs/pollReplies.ts) the
   // moment it successfully lists the Gmail inbox — i.e. proof the poller that
@@ -163,6 +175,8 @@ const DEFAULTS: SettingsMap = {
   outreach_daily_cap: null,
   bump_after_days: 3,
   outreach_daily_draft_target: 20,
+  sourcing_paused: false,
+  sourcing_nightly_cap: null, // null = defer to config.nightlyEnrichCap (40)
   worker_boot_info: null,
   reply_poll_last_run: null,
   reply_poll_last_alert: null,
@@ -235,9 +249,9 @@ const DEFAULTS: SettingsMap = {
       ],
       body:
         "{{greeting}}\n\n" +
-        "I was looking at {{restaurant}} online and your {{dish}} caught my eye — but honestly, the photo doesn't do it justice. And photos are doing more selling than menus these days.\n\n" +
-        "I run a small studio that enhances real food photos for independent restaurants (no stock images, no fake AI food — your actual dishes, made to look the way they do in person).\n\n" +
-        "Want to see it on your own food? Reply with one photo of any dish — even a phone shot — and I'll send it back enhanced within a day. Free, no strings. If you don't love it, delete it and that's that.",
+        "I was looking at {{restaurant}} and your {{dish}} caught my eye — but honestly, the photo doesn't do it justice.\n\n" +
+        "Reply with one photo of any dish, even a phone shot, and I'll send it back professionally enhanced within a day. Your actual food — nothing stock, nothing AI-invented. Free, no strings.\n\n" +
+        "If you like it we can talk. If not, keep it anyway.",
     },
     es: {
       subjects: [
@@ -247,9 +261,9 @@ const DEFAULTS: SettingsMap = {
       ],
       body:
         "{{greeting}}\n\n" +
-        "Estaba viendo {{restaurant}} en línea y el {{dish}} me llamó la atención — pero honestamente, la foto no le hace justicia. Y hoy en día las fotos venden más que el menú.\n\n" +
-        "Tengo un estudio pequeño que mejora fotos reales de comida para restaurantes independientes (nada de fotos de banco ni comida falsa de IA — sus platos reales, con el aspecto que tienen en persona).\n\n" +
-        "¿Quiere verlo con su propia comida? Responda con una foto de cualquier plato — aunque sea del celular — y se la devuelvo mejorada en un día. Gratis, sin compromiso. Si no le encanta, la borra y ya.",
+        "Estaba viendo {{restaurant}} y el {{dish}} me llamó la atención — pero la verdad, la foto no le hace justicia.\n\n" +
+        "Respóndame con una foto de cualquier plato, aunque sea del celular, y se la devuelvo mejorada profesionalmente en un día. Su comida real — nada de banco, nada inventado por IA. Gratis, sin compromiso.\n\n" +
+        "Si le gusta, hablamos. Si no, se queda con la foto igual.",
     },
   },
   // Cold-open for leads with NO signature dish on file. Same offer and shape as
@@ -265,9 +279,9 @@ const DEFAULTS: SettingsMap = {
       ],
       body:
         "{{greeting}}\n\n" +
-        "I was looking at {{restaurant}} online and your food looks great — but honestly, the photos don't do it justice. And photos are doing more selling than menus these days.\n\n" +
-        "I run a small studio that enhances real food photos for independent restaurants (no stock images, no fake AI food — your actual dishes, made to look the way they do in person).\n\n" +
-        "Want to see it on your own food? Reply with one photo of any dish — even a phone shot — and I'll send it back enhanced within a day. Free, no strings. If you don't love it, delete it and that's that.",
+        "I was looking at {{restaurant}} and the food looks great — but honestly, the photos don't do it justice.\n\n" +
+        "Reply with one photo of any dish, even a phone shot, and I'll send it back professionally enhanced within a day. Your actual food — nothing stock, nothing AI-invented. Free, no strings.\n\n" +
+        "If you like it we can talk. If not, keep it anyway.",
     },
     es: {
       subjects: [
@@ -277,9 +291,9 @@ const DEFAULTS: SettingsMap = {
       ],
       body:
         "{{greeting}}\n\n" +
-        "Estaba viendo {{restaurant}} en línea y su comida se ve muy bien — pero honestamente, las fotos no le hacen justicia. Y hoy en día las fotos venden más que el menú.\n\n" +
-        "Tengo un estudio pequeño que mejora fotos reales de comida para restaurantes independientes (nada de fotos de banco ni comida falsa de IA — sus platos reales, con el aspecto que tienen en persona).\n\n" +
-        "¿Quiere verlo con su propia comida? Responda con una foto de cualquier plato — aunque sea del celular — y se la devuelvo mejorada en un día. Gratis, sin compromiso. Si no le encanta, la borra y ya.",
+        "Estaba viendo {{restaurant}} y su comida se ve muy bien — pero la verdad, las fotos no le hacen justicia.\n\n" +
+        "Respóndame con una foto de cualquier plato, aunque sea del celular, y se la devuelvo mejorada profesionalmente en un día. Su comida real — nada de banco, nada inventado por IA. Gratis, sin compromiso.\n\n" +
+        "Si le gusta, hablamos. Si no, se queda con la foto igual.",
     },
   },
   outreach_bump_template: {
@@ -287,15 +301,15 @@ const DEFAULTS: SettingsMap = {
       body:
         "{{greeting}}\n\n" +
         "Quick bump in case this got buried.\n\n" +
-        "The offer stands: send me one photo of a dish and I'll send it back professionally enhanced, free. Takes you 30 seconds, costs you nothing, and you keep the photo either way.\n\n" +
-        "If it's a no, no worries — just say so and I won't follow up again.",
+        "The offer stands: send me one photo of a dish and I'll send it back professionally enhanced, free. Takes 30 seconds, and the photo's yours either way.\n\n" +
+        "If it's not the right time, just say so and I won't follow up again.",
     },
     es: {
       body:
         "{{greeting}}\n\n" +
         "Un recordatorio rápido por si esto quedó enterrado.\n\n" +
-        "La oferta sigue en pie: mándeme una foto de un plato y se la devuelvo mejorada profesionalmente, gratis. Le toma 30 segundos, no cuesta nada, y la foto es suya de todos modos.\n\n" +
-        "Si no le interesa, sin problema — dígamelo y no vuelvo a escribir.",
+        "La oferta sigue en pie: mándeme una foto de un plato y se la devuelvo mejorada profesionalmente, gratis. Le toma 30 segundos y la foto es suya de todos modos.\n\n" +
+        "Si no es buen momento, dígamelo y no vuelvo a escribir.",
     },
   },
   // Character-for-character today's hardcoded composeTouch2() prose, with the
