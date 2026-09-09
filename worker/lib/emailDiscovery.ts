@@ -49,7 +49,14 @@ const JUNK_PATTERNS = [
   "domain.com",
 ];
 
-// Preferred local-parts for a business contact mailbox, best first.
+// Known ROLE-account local-parts — a shared business mailbox, not a person.
+// Despite the name (kept from before 2026-09-08 to avoid a wider rename),
+// these are now the FALLBACK class in rankEmail(), not preferred: a personal
+// address on the same domain outranks any of these. Still eligible for
+// scraping — only the RANK changed, not whether the address is used. (A
+// separate, independent list — GUESS_LOCALPARTS below — governs guessing,
+// which is now off entirely at emailGuessLimit=0; the two lists happen to
+// overlap but neither derives from the other.)
 const PREFERRED_LOCALPARTS = ["info", "contact", "contacto", "hello", "hola", "reservations", "reservas", "admin"];
 
 // Mailboxes that exist on a restaurant's site but are the WRONG audience for a
@@ -325,16 +332,26 @@ function siteDomain(websiteUrl: string): string | null {
   }
 }
 
-// Ranks a single email against the site domain. 1 = preferred mailbox on the
-// site's domain; 2 = any address on the site's domain; 3 = preferred mailbox
-// on another domain (e.g. a gmail contact); 4 = anything else.
-function rankEmail(email: string, domain: string | null): number {
+// Ranks a single email against the site domain. On-domain still ranks above
+// off-domain (real ownership signal), but WITHIN each tier a named/personal
+// address now outranks a role account. 1 = on-domain, personal; 2 = on-domain,
+// role; 3 = off-domain, personal; 4 = off-domain, role.
+//
+// INVERTED 2026-09-08 — this used to rank role accounts (PREFERRED_LOCALPARTS)
+// FIRST, so info@joes.com beat maria@joes.com whenever a page listed both.
+// Nobody owns a shared role inbox; it's the address least likely to produce a
+// reply, and by send history it's also the one behind every bounce this
+// pipeline has ever recorded (guessed info@ specifically — see
+// emailGuessLimit in config.ts, now 0). Role accounts stay eligible (scraped
+// role addresses bounce at 0%, same as personal ones — the risk was always
+// guessing, not the local-part), just no longer win a tie against a human.
+export function rankEmail(email: string, domain: string | null): number {
   const [localPart, emailDomain] = email.split("@");
   const onSiteDomain = domain != null && emailDomain === domain;
-  const preferred = PREFERRED_LOCALPARTS.includes(localPart);
-  if (onSiteDomain && preferred) return 1;
+  const role = PREFERRED_LOCALPARTS.includes(localPart);
+  if (onSiteDomain && !role) return 1;
   if (onSiteDomain) return 2;
-  if (preferred) return 3;
+  if (!role) return 3;
   return 4;
 }
 
@@ -409,11 +426,16 @@ export async function discoverEmail(
 
   if (candidates.size === 0) return null;
 
-  // Best = lowest rank, tie-broken by shorter local part (usually the generic mailbox).
-  const best = [...candidates.entries()].sort((a, b) => {
-    if (a[1] !== b[1]) return a[1] - b[1];
-    return a[0].length - b[0].length;
-  })[0];
+  // Best = lowest rank. No secondary tie-break: rankEmail() already separates
+  // personal from role addresses into different tiers (see above), so a real
+  // tie now means "two comparably-good candidates" — e.g. maria@ vs juan@, or
+  // info@ vs contact@ — not personal-vs-role. Used to tie-break by shorter
+  // local part, which actively preferred the more generic mailbox (info@
+  // over maria@) whenever the two DID land in the same tier; removed
+  // 2026-09-08 alongside the rankEmail inversion. Array.sort is
+  // spec-guaranteed stable, so a genuine tie now falls back to whichever
+  // address was found first (Map insertion order) rather than a biased rule.
+  const best = [...candidates.entries()].sort((a, b) => a[1] - b[1])[0];
 
   return { email: best[0], rank: best[1] };
 }

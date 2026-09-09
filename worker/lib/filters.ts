@@ -39,8 +39,17 @@ export type FilterThresholds = {
 // ceiling was discarding recoverable email-ready supply (186 leads rejected,
 // 183 of them with websites) for no gate-verified reason. Revert if the queue
 // gets noticeably noisier than before.
+//
+// Floor lowered 20 -> 10 on 2026-09-08: the 62-cell grid saturated (nightly
+// new-lead count fell to ~1-4 — see grid.ts) while 65 already-discovered
+// restaurants sat hand-rejected for having 10-19 reviews, at zero marginal
+// cost to re-admit (scripts/rescreen-rejected.ts). A 10-19-review place is
+// small or newly opened — exactly the profile least likely to already employ
+// a photographer, and "new opening" is already a segment sold the Grand
+// Opening package. Revert toward 20 if this band's email-hit-rate or
+// photo-fit-gate pass rate comes in much worse than the 20-plus band.
 export const DEFAULT_FILTER_THRESHOLDS: FilterThresholds = {
-  minReviews: 20,
+  minReviews: 10,
   maxReviews: 2000,
   maxPriceLevel: 2,
   // No longer required: a good restaurant with NO website used to be dropped

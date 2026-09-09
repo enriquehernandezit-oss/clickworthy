@@ -17,6 +17,7 @@ import {
   guessEmailCandidates,
   contactLinks,
   discoverEmail,
+  rankEmail,
 } from "./emailDiscovery";
 
 // ---------------------------------------------------------------------------
@@ -348,5 +349,78 @@ describe("wrong-recipient guards", () => {
     const html = page(`<a href="mailto:order_info@ifrasindiankitchen.com">order</a>`);
     const found = await discoverEmail("https://ifrasindiankitchen.com/", html);
     expect(found?.email).toBe("order_info@ifrasindiankitchen.com");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// rankEmail — inverted 2026-09-08 so a personal address beats a role account
+// (info@/contact@/...) instead of losing to it. This is the change most
+// likely to regress silently: the old ranking read as "reasonable" in
+// isolation (info@ IS a sensible business address), the bug only showed up as
+// a 33%-vs-0% bounce-rate gap in send history. Pin both the ranking function
+// directly AND the full discoverEmail() pick, since the tie-break inside
+// discoverEmail's sort is separate code that could regress independently.
+// ---------------------------------------------------------------------------
+
+describe("rankEmail", () => {
+  test("on-domain personal beats on-domain role (the actual bug)", () => {
+    const personal = rankEmail("maria@joes.com", "joes.com");
+    const role = rankEmail("info@joes.com", "joes.com");
+    expect(personal).toBeLessThan(role); // lower = better
+  });
+
+  test("on-domain still beats off-domain, regardless of role/personal", () => {
+    expect(rankEmail("info@joes.com", "joes.com")).toBeLessThan(rankEmail("maria@gmail.com", "joes.com"));
+  });
+
+  test("off-domain personal beats off-domain role", () => {
+    const personal = rankEmail("maria@gmail.com", "joes.com");
+    const role = rankEmail("info@gmail.com", "joes.com");
+    expect(personal).toBeLessThan(role);
+  });
+
+  test("full tier order: on-domain personal < on-domain role < off-domain personal < off-domain role", () => {
+    const ranks = [
+      rankEmail("maria@joes.com", "joes.com"),
+      rankEmail("info@joes.com", "joes.com"),
+      rankEmail("maria@gmail.com", "joes.com"),
+      rankEmail("info@gmail.com", "joes.com"),
+    ];
+    expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
+    expect(new Set(ranks).size).toBe(4); // all four tiers are actually distinct
+  });
+
+  test("no domain to compare against (null) treats everything as off-domain", () => {
+    expect(rankEmail("maria@joes.com", null)).toBeLessThan(rankEmail("info@joes.com", null));
+  });
+});
+
+describe("discoverEmail — personal address wins over a role account", () => {
+  test("prefers a named owner address over info@ on the same page", async () => {
+    const html = page(
+      `<a href="mailto:info@joesdiner.com">General inquiries</a>` +
+        `<a href="mailto:maria@joesdiner.com">Ask for Maria</a>`
+    );
+    const found = await discoverEmail("https://joesdiner.com/", html);
+    expect(found?.email).toBe("maria@joesdiner.com");
+  });
+
+  test("still picks a role account when it's the only address found", async () => {
+    const html = page(`<a href="mailto:info@joesdiner.com">Contact us</a>`);
+    const found = await discoverEmail("https://joesdiner.com/", html);
+    expect(found?.email).toBe("info@joesdiner.com"); // role accounts stay eligible, just not preferred
+  });
+
+  test("a genuine tie (two role accounts) no longer favors the shorter one", async () => {
+    // Regression guard for the removed length tie-break: "info" (4 chars)
+    // used to beat "contact" (7 chars) purely on string length. Both are role
+    // accounts on the same domain, so they're rank-tied; the result should be
+    // whichever was found first (stable sort / Map insertion order), not
+    // whichever local part happens to be shorter.
+    const html = page(
+      `<a href="mailto:contact@joesdiner.com">Contact</a>` + `<a href="mailto:info@joesdiner.com">Info</a>`
+    );
+    const found = await discoverEmail("https://joesdiner.com/", html);
+    expect(found?.email).toBe("contact@joesdiner.com"); // found first, not shortest
   });
 });

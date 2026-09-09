@@ -76,6 +76,12 @@ const FRANCHISE_NAMES: string[] = [
   "sweetgreen", "lou malnatis", "big bad breakfast", "cava",
   "daves hot chicken", "halal guys", "the halal guys", "nandos",
   "pollo tropical", "wing zone",
+  // Caught 2026-09-08 verifying the new grid cells (Bell Gardens, LA): a
+  // Southern-California-founded donut chain, expected to keep surfacing now
+  // that the grid covers more of LA/San Diego. National/regional chains from
+  // the OTHER Nearby Search results in that same check (Dunkin', Jack in the
+  // Box, Sonic, Little Caesars, Church's, Circle K, 7-Eleven) were already caught.
+  "winchells donut house",
 ];
 
 // Hotel/hospitality-CHAIN domains. A restaurant living on one of these is a

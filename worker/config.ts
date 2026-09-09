@@ -51,15 +51,17 @@ export const config = {
   photoScoreLimit: intEnv("WORKER_PHOTO_SCORE_LIMIT", 4),
 
   // How many guessed mailboxes to run past NeverBounce when the free
-  // extractors find nothing. Order in GUESS_LOCALPARTS (emailDiscovery.ts) is
-  // info/contact/hello — now load-bearing: measured 2026-08-25 across every
-  // verified guess ever, all 11 were info@; contact@/hello@ had verified ZERO.
-  // Lowered 3 -> 1 on that basis — no measured yield loss, and it keeps guess
-  // spend inside NeverBounce's flat 1,000-credit/mo plan at the current
-  // nightly cap (3/lead was heading toward overage). Raise via
-  // WORKER_EMAIL_GUESS_LIMIT if a later measurement shows contact@/hello@
-  // earning their keep; 0 turns the guess fallback off entirely.
-  emailGuessLimit: intEnv("WORKER_EMAIL_GUESS_LIMIT", 1),
+  // extractors find nothing. Lowered 1 -> 0 on 2026-09-08: guessed sends
+  // bounced at 33% (5/15) vs 0% for every scraped address regardless of
+  // local-part (0/53) — a guess is an invented mailbox, and even a catchall
+  // "yes" from NeverBounce carries zero evidence it exists (see
+  // neverbounce.ts). The prior 2026-08-25 measurement narrowed guessing to
+  // info@ only (all 11 verified guesses ever were info@); this turns the
+  // fallback off entirely rather than narrowing it further. Order in
+  // GUESS_LOCALPARTS (emailDiscovery.ts) is now moot at limit 0, left as
+  // documentation. Raise via WORKER_EMAIL_GUESS_LIMIT only alongside new
+  // bounce-rate evidence that a guess is worth the reputation risk.
+  emailGuessLimit: intEnv("WORKER_EMAIL_GUESS_LIMIT", 0),
 
   // The chain/hospitality-group check (Claude + up to 3 web searches, ~6¢ each).
   // ON by default (flipped 2026-08-21) — the static denylist (chains.ts) kept

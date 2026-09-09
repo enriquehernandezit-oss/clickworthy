@@ -43,7 +43,7 @@ export const restaurants = pgTable('restaurants', {
   // outage) — both leave website_pro_score null, so the anomaly detector can't
   // tell them apart without this. Null on rows enriched before 2026-08-27.
   websiteImagesScored: integer('website_images_scored'),
-  emailSource: text('email_source'), // 'website' | 'manual' | null — where `email` came from
+  emailSource: text('email_source'), // 'website' | 'guessed' | 'manual' | null — where `email` came from. 'guessed' is legacy data only as of 2026-09-08 (emailGuessLimit=0, see worker/config.ts) — bounced at 33% vs 0% for every scraped source.
   // Personalization for the cold email (derived in enrichment):
   signatureDish: text('signature_dish'), // a real standout dish, from Claude Vision — the #1 reply-rate lever
   contactFirstName: text('contact_first_name'), // best-effort owner name; null -> generic greeting

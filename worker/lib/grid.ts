@@ -82,6 +82,12 @@ export const CITY_GRIDS: Record<string, GridCell[]> = {
     { name: "Corona", lat: 40.747, lng: -73.8603, radiusM: 1200 },
     { name: "Jamaica", lat: 40.7027, lng: -73.789, radiusM: 1200 },
     { name: "Inwood", lat: 40.8677, lng: -73.9212, radiusM: 1200 },
+    // Added 2026-09-08 — only ~6% of NYC's land area had ever been swept (11
+    // cells over 780 km^2). Same thesis as the rest of the grid.
+    { name: "Elmhurst", lat: 40.7361, lng: -73.8781, radiusM: 1200 },
+    { name: "Ridgewood", lat: 40.7057, lng: -73.9013, radiusM: 1200 },
+    { name: "Bensonhurst", lat: 40.6111, lng: -73.9947, radiusM: 1200 },
+    { name: "Fordham", lat: 40.8601, lng: -73.8959, radiusM: 1200 },
   ],
   "Chicago, IL": [
     { name: "Pilsen", lat: 41.8562, lng: -87.6572, radiusM: 1500 },
@@ -106,6 +112,11 @@ export const CITY_GRIDS: Record<string, GridCell[]> = {
     { name: "Pacoima", lat: 34.2728, lng: -118.4262, radiusM: 1500 },
     { name: "Inglewood", lat: 33.9617, lng: -118.3531, radiusM: 1500 },
     { name: "El Sereno", lat: 34.0811, lng: -118.1765, radiusM: 1500 },
+    // Added 2026-09-08 — only ~5% of LA's land area had ever been swept.
+    { name: "Panorama City", lat: 34.2271, lng: -118.4490, radiusM: 1500 },
+    { name: "Canoga Park", lat: 34.2011, lng: -118.5970, radiusM: 1500 },
+    { name: "Wilmington", lat: 33.7753, lng: -118.2623, radiusM: 1500 },
+    { name: "Bell Gardens", lat: 33.9653, lng: -118.1512, radiusM: 1500 },
   ],
   "Nashville, TN": [
     { name: "Nolensville Pike", lat: 36.1156, lng: -86.7302, radiusM: 1500 },
@@ -115,6 +126,10 @@ export const CITY_GRIDS: Record<string, GridCell[]> = {
     { name: "Donelson", lat: 36.172, lng: -86.654, radiusM: 1500 },
     { name: "Woodbine", lat: 36.123, lng: -86.736, radiusM: 1500 },
     { name: "Gallatin Pike", lat: 36.198, lng: -86.74, radiusM: 1500 },
+    // Added 2026-09-08 — Nashville was the least-covered city, ~4%.
+    { name: "Dickerson Pike", lat: 36.212, lng: -86.751, radiusM: 1500 },
+    { name: "Murfreesboro Pike", lat: 36.106, lng: -86.664, radiusM: 1500 },
+    { name: "Hermitage", lat: 36.181, lng: -86.611, radiusM: 1500 },
   ],
   "Denver, CO": [
     { name: "Westwood", lat: 39.7, lng: -105.02, radiusM: 1500 },
@@ -133,5 +148,9 @@ export const CITY_GRIDS: Record<string, GridCell[]> = {
     { name: "Logan Heights", lat: 32.7, lng: -117.13, radiusM: 1500 },
     { name: "Normal Heights", lat: 32.755, lng: -117.105, radiusM: 1500 },
     { name: "Linda Vista", lat: 32.77, lng: -117.17, radiusM: 1500 },
+    // Added 2026-09-08 — only ~6% of San Diego's land area had ever been swept.
+    { name: "El Cajon", lat: 32.795, lng: -116.962, radiusM: 1500 },
+    { name: "San Ysidro", lat: 32.559, lng: -117.030, radiusM: 1500 },
+    { name: "Mira Mesa", lat: 32.906, lng: -117.142, radiusM: 1500 },
   ],
 };
