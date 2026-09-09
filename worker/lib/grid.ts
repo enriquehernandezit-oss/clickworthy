@@ -57,6 +57,37 @@ export function interleaveByCity<T extends { city: string }>(items: T[]): T[] {
   return out;
 }
 
+// Per-cell adaptive cooldown state, keyed "City::CellName". Lives in the
+// sourcing_cell_state setting (a plain jsonb blob — no migration, same
+// pattern as worker_boot_info / package_tiers), owned and read/written
+// entirely by sourceLeads.ts. Exported here so the pure decision below and
+// its test can share the type without importing the worker job.
+export type CellSweepState = { lastSweptAt: string; dryStreak: number };
+
+export function cellStateKey(city: string, cellName: string): string {
+  return `${city}::${cellName}`;
+}
+
+// Pure — the actual per-cell sweep-vs-skip decision, unit-testable without a
+// DB or a live Places call. A live probe (2026-09-08) found real cells 80-95%
+// saturated: the same 62-76 fixed circles are re-swept nightly with no
+// cooldown at all, so a cell whose restaurants are all already known still
+// bills a full Nearby Search every night forever. Backoff, not a permanent
+// skip — a cell earns its way back to nightly sweeps the moment it produces
+// something new again (see the dryStreak reset in sourceLeads.ts), and the
+// 7-night ceiling below means even a fully-dry cell is never unswept for
+// more than a week, so a newly-opened restaurant still gets found promptly.
+const DRY_SKIP_NIGHTS: Record<number, number> = { 0: 0, 1: 3, 2: 3 }; // dryStreak -> nights to skip; 3+ uses the cap below
+const DRY_SKIP_NIGHTS_MAX = 7; // dryStreak >= 3
+
+export function shouldSkipCell(state: CellSweepState | undefined, nowMs: number): boolean {
+  if (!state) return false; // never swept — always sweep (covers all 14 just-added cells)
+  const skipNights = state.dryStreak >= 3 ? DRY_SKIP_NIGHTS_MAX : (DRY_SKIP_NIGHTS[state.dryStreak] ?? 0);
+  if (skipNights === 0) return false; // dryStreak 0 — swept nightly
+  const daysSinceSwept = (nowMs - Date.parse(state.lastSweptAt)) / 86_400_000;
+  return daysSinceSwept < skipNights;
+}
+
 export const CITY_GRIDS: Record<string, GridCell[]> = {
   "Miami, FL": [
     { name: "Hialeah", lat: 25.8576, lng: -80.2781, radiusM: 1500 },

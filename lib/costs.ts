@@ -158,6 +158,12 @@ export function buildCostLines(d: CostDrivers, a: CostAssumptions): CostLine[] {
 
   return [
     line("cost_source_per_lead_cents", "Lead sourcing (Google Places)", "acquire", d.leadsSourced, "leads sourced", a.cost_source_per_lead_cents),
+    // Label says "+ NeverBounce" but this number deliberately excludes it —
+    // NeverBounce stays a flat opex_items subscription line, never metered
+    // per-lead (see the comment on cost_enrich_per_lead_cents in
+    // lib/settings.ts). Kept as-is rather than fixed here: renaming the label
+    // without also either removing NeverBounce from opex_items or actually
+    // metering it would just move the inaccuracy, not close it.
     line("cost_enrich_per_lead_cents", "Enrichment (Claude + NeverBounce)", "acquire", d.leadsEnriched, "leads enriched", a.cost_enrich_per_lead_cents),
     line("cost_photo_score_per_photo_cents", "Photo scoring (Places Photo + Vision)", "acquire", d.photosScored, "photos scored", a.cost_photo_score_per_photo_cents),
     line("cost_email_per_send_cents", "Cold email (Gmail)", "acquire", d.emailsSent, "emails sent", a.cost_email_per_send_cents),

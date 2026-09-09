@@ -88,6 +88,25 @@ export async function getReplyPollHealth(nowMs: number = Date.now()): Promise<Re
   };
 }
 
+// ── Sourcing backlog gate ────────────────────────────────────────────────────
+// Sourcing is the largest variable cost in the pipeline, and it buys nothing
+// once there's already more unsent inventory than the send rate can work
+// through — see worker/jobs/sourceLeads.ts's own gate, which calls this
+// before spending a single Places call. Pure — split out for the same reason
+// isReplyPollStale is above: unit-testable without a DB, and the worker gate
+// and any future reporting surface call the SAME decision instead of two
+// copies that could quietly drift apart.
+export const SOURCING_BACKLOG_MAX_DAYS = 14;
+
+export function isSourcingBacklogDeep(
+  backlogCount: number,
+  dailyCap: number,
+  maxDays: number = SOURCING_BACKLOG_MAX_DAYS
+): boolean {
+  if (dailyCap <= 0) return false; // can't compute a meaningful ratio — don't block on it
+  return backlogCount / dailyCap > maxDays;
+}
+
 // Live Anthropic reachability probe — a depleted balance / usage cap silently
 // disables both quality gates (they fail open), the #1 cause of a poisoned
 // night. Isolated in its own function (NOT part of getRunHealth) precisely so

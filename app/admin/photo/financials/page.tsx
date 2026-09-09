@@ -38,7 +38,7 @@ type SortKey = "contribution" | "revenue" | "spend" | "margin";
 // opex_items and rendered by <FixedOpexBreakdown> instead.
 const COST_EDITORS: { key: CostKey; label: string; help: string; suffix: string; step: string }[] = [
   { key: "cost_source_per_lead_cents", label: "Lead sourcing", help: "Google Places Text Search, amortized per surviving lead.", suffix: "¢ / lead", step: "0.1" },
-  { key: "cost_enrich_per_lead_cents", label: "Enrichment", help: "0 while the chain-check is off and NeverBounce is a fixed subscription (see Fixed opex).", suffix: "¢ / lead", step: "0.1" },
+  { key: "cost_enrich_per_lead_cents", label: "Enrichment", help: "Claude chain-check + web search, per enriched lead — the chain check has been on since 2026-08-21. NeverBounce is a fixed subscription, not metered here (see Fixed opex).", suffix: "¢ / lead", step: "0.1" },
   { key: "cost_photo_score_per_photo_cents", label: "Photo scoring", help: "Places Photo fetch + Claude Vision, per scored photo.", suffix: "¢ / photo", step: "0.1" },
   { key: "cost_email_per_send_cents", label: "Cold email", help: "Gmail is free; set if you move to a paid ESP.", suffix: "¢ / send", step: "0.1" },
   { key: "cost_sample_per_reply_cents", label: "Free sample", help: "Revenue-impact copy + the optional Claid first pass, per reply.", suffix: "¢ / reply", step: "1" },

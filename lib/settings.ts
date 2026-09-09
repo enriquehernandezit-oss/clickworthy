@@ -104,6 +104,15 @@ export type SettingsMap = {
   // Exists because the right number tracks the SEND rate, not the ambition:
   // sourcing 80/night to feed 5 sends/day just buys inventory that sits.
   sourcing_nightly_cap: number | null;
+  // Per-grid-cell adaptive cooldown state, keyed "City::CellName" — see
+  // shouldSkipCell() in worker/lib/grid.ts for the read/decision logic. There
+  // is no per-cell cache or last-swept timestamp otherwise, so every one of
+  // the 76 cells bills a full Nearby Search nightly forever, even ones a live
+  // probe found 80-95% saturated. Owned entirely by worker/jobs/sourceLeads.ts
+  // — nothing else reads or writes this. Defined inline (not imported from
+  // worker/lib/grid.ts) to keep this file's settings shapes self-contained,
+  // matching every other structured value here (PackageTier, OpexItem, ...).
+  sourcing_cell_state: Record<string, { lastSweptAt: string; dryStreak: number }>;
   worker_boot_info: WorkerBootInfo | null;
   // ISO timestamp, written by runReplyPoll() (worker/jobs/pollReplies.ts) the
   // moment it successfully lists the Gmail inbox — i.e. proof the poller that
@@ -177,6 +186,7 @@ const DEFAULTS: SettingsMap = {
   outreach_daily_draft_target: 20,
   sourcing_paused: false,
   sourcing_nightly_cap: null, // null = defer to config.nightlyEnrichCap (40)
+  sourcing_cell_state: {},
   worker_boot_info: null,
   reply_poll_last_run: null,
   reply_poll_last_alert: null,
@@ -227,10 +237,13 @@ const DEFAULTS: SettingsMap = {
     { label: "Google Workspace", cents: 2400, note: "sending mailbox" },
     { label: "NeverBounce", cents: 800, note: "1,000 verification credits/mo" },
     { label: "Domain", cents: 100, note: "clickworthytool.com" },
-    // One-time setup, first month only. VERIFY: Lemwarm normally bills monthly
-    // (~$30/mo) — if the card is charged again, drop oneTimeOn to make it
-    // recurring, which raises fixed opex from $43 to ~$73/mo.
-    { label: "Lemwarm", cents: 3000, note: "one-time setup fee", oneTimeOn: "2026-08-01" },
+    // VERIFIED 2026-09-09 against Lemwarm's own invoice history: 3 separate
+    // $29 charges (Jun/Jul/Aug), all "Paid" — genuinely recurring, not the
+    // one-time setup fee this used to be recorded as. That miscoding meant
+    // opexMonthlyCents() (which filters out anything with oneTimeOn) counted
+    // this as $0/mo — fixed opex was understated by $29 every month since
+    // setup. True recurring total is $72/mo, not $43.
+    { label: "Lemwarm", cents: 2900, note: "domain warming subscription" },
   ],
 
   outreach_sender_name: "Enrique",

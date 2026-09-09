@@ -7,6 +7,7 @@
 // like a bad/empty key but actually means the key param was never seen.
 
 import { requireKey } from "../config";
+import { sendAlert } from "@/lib/alerts";
 
 export type VerifyResult = "valid" | "invalid" | "disposable" | "catchall" | "unknown";
 
@@ -16,6 +17,37 @@ export type VerifyResult = "valid" | "invalid" | "disposable" | "catchall" | "un
 // `result` only; the flags are not a safe substitute for a definitive verdict.
 export type VerifyVerdict = { result: VerifyResult; flags: string[] };
 
+// A depleted balance hits EVERY verification call, and findVerifiedEmail()
+// catches each one individually and fails CLOSED (routes the lead to
+// needs_manual_email rather than risk an unverified send — see findEmail.ts)
+// — which is the right safety behavior, but it means a zero balance looks
+// EXACTLY like a normal night with no verifiable addresses. That's exactly
+// what happened 2026-09: credits ran out silently and 6 consecutive nights
+// read as "queued: 0" with nothing distinguishing it from a bad night, until
+// a live probe caught it by hand. Same in-memory-cooldown shape as
+// maybeAlertApiError in anthropic.ts — the worker is long-lived, a reboot
+// re-arming the alert is acceptable, and this is what turns a silent 2-week
+// gap into a same-hour one.
+let lastBalanceAlertAt = 0;
+const BALANCE_ALERT_COOLDOWN_MS = 60 * 60 * 1000;
+
+async function maybeAlertLowBalance(err: unknown): Promise<void> {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (!/insufficient credit balance/i.test(msg)) return; // not this failure mode
+  if (Date.now() - lastBalanceAlertAt < BALANCE_ALERT_COOLDOWN_MS) return;
+  lastBalanceAlertAt = Date.now();
+  await sendAlert(
+    "NeverBounce credits exhausted — email verification is DOWN",
+    `A NeverBounce call failed with an insufficient-credit error. Nothing can reach 'queued' while ` +
+      `this is down — findVerifiedEmail() fails safe (never emails an unverified address), which means ` +
+      `every lead routes to needs_manual_email instead, indistinguishable from a genuinely bad night ` +
+      `unless you're looking for this specific alert.\n\n` +
+      `Error: ${msg}\n\n` +
+      `Add credits at app.neverbounce.com -> Pricing (NOT the "Growth Tier" list-sync upgrade banner, ` +
+      `which is a different product and won't move the Credits balance in the top-right corner).`
+  ).catch(() => {}); // never let an alert failure mask the original error
+}
+
 export async function verifyEmail(email: string): Promise<VerifyVerdict> {
   const apiKey = requireKey("neverBounceApiKey", "NEVERBOUNCE_API_KEY");
   const url =
@@ -24,13 +56,50 @@ export async function verifyEmail(email: string): Promise<VerifyVerdict> {
 
   const res = await fetch(url);
   if (!res.ok) {
-    throw new Error(`NeverBounce check failed (${res.status}) for ${email}`);
+    const err = new Error(`NeverBounce check failed (${res.status}) for ${email}`);
+    await maybeAlertLowBalance(err);
+    throw err;
   }
   const body = (await res.json()) as { status?: string; result?: string; flags?: string[]; message?: string };
   if (body.status && body.status !== "success") {
-    throw new Error(`NeverBounce error for ${email}: ${body.message ?? body.status}`);
+    const err = new Error(`NeverBounce error for ${email}: ${body.message ?? body.status}`);
+    await maybeAlertLowBalance(err);
+    throw err;
   }
   return { result: (body.result as VerifyResult) ?? "unknown", flags: body.flags ?? [] };
+}
+
+// Account credit balance — used only by the once-daily sourcing report
+// (worker/jobs/sourcingReport.ts), never on a request path, so a slow or
+// failing NeverBounce call can't add latency to a page render. Same auth/
+// error shape as verifyEmail() (the `key` param trap applies here too).
+//
+// The nested shape NeverBounce's own docs describe (`result.credits_info`)
+// does NOT match the live v4.2 response, confirmed by a real call 2026-09-09
+// — credits_info sits at the TOP level. Parsed defensively for both shapes
+// in case that changes again.
+export type AccountBalance = { paidRemaining: number; freeRemaining: number };
+
+export async function getAccountInfo(): Promise<AccountBalance> {
+  const apiKey = requireKey("neverBounceApiKey", "NEVERBOUNCE_API_KEY");
+  const url = `https://api.neverbounce.com/v4.2/account/info?key=${encodeURIComponent(apiKey)}`;
+
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`NeverBounce account/info failed (${res.status})`);
+  const body = (await res.json()) as {
+    status?: string;
+    message?: string;
+    credits_info?: { paid_credits_remaining?: number; free_credits_remaining?: number };
+    result?: { credits_info?: { paid_credits_remaining?: number; free_credits_remaining?: number } };
+  };
+  if (body.status && body.status !== "success") {
+    throw new Error(`NeverBounce account/info error: ${body.message ?? body.status}`);
+  }
+  const credits = body.credits_info ?? body.result?.credits_info ?? {};
+  return {
+    paidRemaining: credits.paid_credits_remaining ?? 0,
+    freeRemaining: credits.free_credits_remaining ?? 0,
+  };
 }
 
 // Which verdicts we're willing to email:
