@@ -112,7 +112,23 @@ export type SettingsMap = {
   // — nothing else reads or writes this. Defined inline (not imported from
   // worker/lib/grid.ts) to keep this file's settings shapes self-contained,
   // matching every other structured value here (PackageTier, OpexItem, ...).
-  sourcing_cell_state: Record<string, { lastSweptAt: string; dryStreak: number }>;
+  // `mode` — "nearby" (or absent, for rows written before Text Search mode
+  // existed) is the cheap 20-result sweep; "text" is the deeper Nearby +
+  // paged-Text-Search combo (searchCellDeep, sourceLeads.ts), used once a
+  // cell has proven the shallow search alone is exhausted. See
+  // planCellSweep() in worker/lib/grid.ts.
+  sourcing_cell_state: Record<string, { lastSweptAt: string; dryStreak: number; mode?: "nearby" | "text" }>;
+  // Ceiling on how many cells may run the deeper (Nearby + Text Search)
+  // combo per night — that combo costs up to ~4 Places requests vs a plain
+  // sweep's 1 (~$0.14 vs ~$0.035 at the rate cost_source_per_lead_cents
+  // assumes below), so an unbounded number of cells promoting to `text` at
+  // once could spike a night's spend. A cell whose "text" turn is due but
+  // the budget is already spent is treated exactly like a skip that run (no
+  // calls, no state change) — see sourceLeads.ts. Defaults to 0 (off) —
+  // this is a real, visible cost add (~$47/mo at full 15/night use), so it
+  // ships built and tested but silent until turned on deliberately in
+  // Controls, rather than opting every install into extra spend by default.
+  sourcing_text_sweeps_per_night: number;
   // Written at the end of every sourceLeads.ts run — what the CAP actually
   // was that night, not just the config default. Snapshotting from
   // worker_boot_info's nightlyEnrichCap (below) meant the boot-time config
@@ -124,6 +140,7 @@ export type SettingsMap = {
     candidateCap: number; // 0 = no cap, matching sourceLeads.ts's own convention
     cellsSwept: number;
     cellsSkipped: number;
+    textSweeps: number; // of cellsSwept, how many used the deeper text-mode combo
     newCandidates: number;
     enqueued: number;
   } | null;
@@ -201,6 +218,7 @@ const DEFAULTS: SettingsMap = {
   sourcing_paused: false,
   sourcing_nightly_cap: null, // null = defer to config.nightlyEnrichCap (40)
   sourcing_cell_state: {},
+  sourcing_text_sweeps_per_night: 0, // off by default — see the field comment above
   sourcing_last_run: null,
   worker_boot_info: null,
   reply_poll_last_run: null,

@@ -196,6 +196,15 @@ export default async function ControlsPage() {
           suffix="/ night"
           formulaHint={boot?.nightlyEnrichCap ? `worker default: ${boot.nightlyEnrichCap}` : "worker default"}
         />
+        <NumberSetting
+          settingKey="sourcing_text_sweeps_per_night"
+          label="Deep-search cells per night"
+          help="A grid cell whose cheap 20-result search stays dry after a full rest can try a deeper, paged search instead — but that costs up to ~4x a plain sweep (~$0.14 vs ~$0.035/cell). Off (0) by default. At 15/night, full use costs roughly $47/mo on top of normal sourcing spend — start low and watch the nightly sourcing report, which shows how many ran and roughly what it cost."
+          value={values.sourcing_text_sweeps_per_night}
+          nullable={false}
+          min={0}
+          suffix="cells / night"
+        />
       </section>
 
       {/* Deliverability guard */}

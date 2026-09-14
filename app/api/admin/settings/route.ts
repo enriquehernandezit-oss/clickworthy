@@ -19,6 +19,10 @@ import { validateTemplateSyntax, TemplateRenderError } from "@/worker/lib/render
 // short text, or a whole bilingual template object).
 const BOOLEAN_KEYS = new Set(["outreach_paused", "outreach_autosend", "sourcing_paused"]);
 const POSITIVE_INT_KEYS = new Set(["bump_after_days", "outreach_daily_draft_target"]);
+// Unlike POSITIVE_INT_KEYS, 0 is a meaningful, allowed value here — it turns
+// the deep-search feature off — not just an empty-string "clear to a formula"
+// like NULLABLE_INT_KEYS below.
+const NON_NEG_INT_KEYS = new Set(["sourcing_text_sweeps_per_night"]);
 const NULLABLE_INT_KEYS = new Set(["outreach_daily_cap", "sourcing_nightly_cap"]);
 // Cost assumptions (lib/costs.ts): cents, may be fractional and may be 0.
 const NON_NEG_NUMBER_KEYS = new Set<string>(COST_KEYS);
@@ -48,6 +52,13 @@ export async function POST(request: NextRequest) {
     const n = Number(raw);
     if (!Number.isInteger(n) || n <= 0) return NextResponse.json({ error: "Value must be a positive integer" }, { status: 400 });
     await setSetting(key as "bump_after_days" | "outreach_daily_draft_target", n);
+    return NextResponse.json({ ok: true, key, value: n });
+  }
+
+  if (NON_NEG_INT_KEYS.has(key)) {
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 0) return NextResponse.json({ error: "Value must be zero or a positive integer" }, { status: 400 });
+    await setSetting(key as "sourcing_text_sweeps_per_night", n);
     return NextResponse.json({ ok: true, key, value: n });
   }
 

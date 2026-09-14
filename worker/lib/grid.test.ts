@@ -3,7 +3,17 @@
 // or error the whole nightly run. Run with `bun test`.
 
 import { expect, test, describe } from "bun:test";
-import { CITY_GRIDS, interleaveByCity, cellStateKey, shouldSkipCell, nextCellStates, type CellSweepState } from "./grid";
+import {
+  CITY_GRIDS,
+  interleaveByCity,
+  cellStateKey,
+  shouldSkipCell,
+  nextCellStates,
+  planCellSweep,
+  haversineM,
+  circleToRectangle,
+  type CellSweepState,
+} from "./grid";
 
 // The four cities the pipeline ships targeting (config.targetCities default).
 const SHIPPED_CITIES = ["Miami, FL", "New York, NY", "Chicago, IL", "Los Angeles, CA", "Nashville, TN", "Denver, CO", "San Diego, CA"];
@@ -130,40 +140,130 @@ describe("shouldSkipCell", () => {
 
 describe("nextCellStates — per-cell yield attribution", () => {
   const NOW_ISO = "2026-09-13T02:17:24.000Z";
+  const swept = (key: string, mode: "nearby" | "text" = "nearby") => new Map([[key, mode]]);
 
   test("a swept cell with a productive (non-chain) new place resets to dryStreak 0", () => {
     const prev = { "Miami, FL::Hialeah": { dryStreak: 2, lastSweptAt: "2026-09-10T02:17:00.000Z" } };
-    const next = nextCellStates(prev, ["Miami, FL::Hialeah"], new Set(["Miami, FL::Hialeah"]), NOW_ISO);
-    expect(next["Miami, FL::Hialeah"]).toEqual({ dryStreak: 0, lastSweptAt: NOW_ISO });
+    const next = nextCellStates(prev, swept("Miami, FL::Hialeah"), new Set(["Miami, FL::Hialeah"]), NOW_ISO);
+    expect(next["Miami, FL::Hialeah"]).toEqual({ dryStreak: 0, lastSweptAt: NOW_ISO, mode: "nearby" });
   });
 
   test("a swept cell whose only new places were chains still increments dryStreak — the bug this fixes", () => {
     // Caller passes productiveKeys built from POST-chain-filter candidates only,
     // so a cell that found nothing but a McDonald's is correctly "not productive".
     const prev = { "Miami, FL::Hialeah": { dryStreak: 1, lastSweptAt: "2026-09-10T02:17:00.000Z" } };
-    const next = nextCellStates(prev, ["Miami, FL::Hialeah"], new Set(), NOW_ISO);
-    expect(next["Miami, FL::Hialeah"]).toEqual({ dryStreak: 2, lastSweptAt: NOW_ISO });
+    const next = nextCellStates(prev, swept("Miami, FL::Hialeah"), new Set(), NOW_ISO);
+    expect(next["Miami, FL::Hialeah"]).toEqual({ dryStreak: 2, lastSweptAt: NOW_ISO, mode: "nearby" });
   });
 
   test("a cell with no prior state starts at dryStreak 1 when its sweep is unproductive", () => {
-    const next = nextCellStates({}, ["New York, NY::Ridgewood"], new Set(), NOW_ISO);
-    expect(next["New York, NY::Ridgewood"]).toEqual({ dryStreak: 1, lastSweptAt: NOW_ISO });
+    const next = nextCellStates({}, swept("New York, NY::Ridgewood"), new Set(), NOW_ISO);
+    expect(next["New York, NY::Ridgewood"]).toEqual({ dryStreak: 1, lastSweptAt: NOW_ISO, mode: "nearby" });
   });
 
-  test("cells NOT in sweptKeys (skipped on cooldown, or a failed Nearby call) are carried over untouched", () => {
+  test("cells NOT in the swept map (skipped on cooldown, budget, or a failed call) are carried over untouched", () => {
     const prev = {
       "Miami, FL::Hialeah": { dryStreak: 5, lastSweptAt: "2026-09-06T02:17:00.000Z" },
       "Chicago, IL::Pilsen": { dryStreak: 0, lastSweptAt: "2026-09-12T02:17:00.000Z" },
     };
-    // Neither key is in sweptKeys — one was resting, one's Nearby call failed.
-    const next = nextCellStates(prev, [], new Set(), NOW_ISO);
+    // Neither key is swept — one was resting, one's Nearby call failed.
+    const next = nextCellStates(prev, new Map(), new Set(), NOW_ISO);
     expect(next).toEqual(prev);
   });
 
   test("only swept cells are updated; unswept cells in the same run are untouched", () => {
     const prev = { "Chicago, IL::Pilsen": { dryStreak: 3, lastSweptAt: "2026-09-06T02:17:00.000Z" } };
-    const next = nextCellStates(prev, ["Miami, FL::Hialeah"], new Set(["Miami, FL::Hialeah"]), NOW_ISO);
+    const next = nextCellStates(prev, swept("Miami, FL::Hialeah"), new Set(["Miami, FL::Hialeah"]), NOW_ISO);
     expect(next["Chicago, IL::Pilsen"]).toEqual(prev["Chicago, IL::Pilsen"]); // untouched
-    expect(next["Miami, FL::Hialeah"]).toEqual({ dryStreak: 0, lastSweptAt: NOW_ISO }); // new
+    expect(next["Miami, FL::Hialeah"]).toEqual({ dryStreak: 0, lastSweptAt: NOW_ISO, mode: "nearby" }); // new
+  });
+
+  test("records the ACTUAL mode used, not necessarily what was planned", () => {
+    // e.g. a "text" plan that fell back to a plain nearby sweep because the
+    // nightly Text Search budget was already spent (see sourceLeads.ts).
+    const next = nextCellStates({}, swept("Denver, CO::Globeville", "text"), new Set(), NOW_ISO);
+    expect(next["Denver, CO::Globeville"]?.mode).toBe("text");
+  });
+});
+
+describe("planCellSweep — skip / nearby / text decision", () => {
+  const NOW = Date.parse("2026-09-14T12:00:00.000Z");
+  const daysAgo = (n: number) => new Date(NOW - n * 86_400_000).toISOString();
+
+  test("a never-swept cell starts on the cheap nearby search", () => {
+    expect(planCellSweep(undefined, NOW)).toBe("nearby");
+  });
+
+  test("a nearby-mode cell that's still productive (dryStreak 0) stays on nearby", () => {
+    expect(planCellSweep({ dryStreak: 0, lastSweptAt: daysAgo(1), mode: "nearby" }, NOW)).toBe("nearby");
+  });
+
+  test("a nearby-mode cell that just went dry STILL RESTS first — no promotion mid-rest", () => {
+    // CAUGHT 2026-09-14 before this ever ran in production: an earlier
+    // version promoted here immediately, with no rest spent — which would
+    // have pulled every cell currently resting under the cooldown fix (19 of
+    // them, checked live) straight back into spending, undoing that fix on
+    // its very first night. The rest gate must apply before mode decides
+    // anything.
+    expect(planCellSweep({ dryStreak: 1, lastSweptAt: daysAgo(0), mode: "nearby" }, NOW)).toBe("skip");
+    expect(planCellSweep({ dryStreak: 1, lastSweptAt: daysAgo(2), mode: "nearby" }, NOW)).toBe("skip"); // still resting
+  });
+
+  test("a nearby-mode cell promotes to text once its rest is OVER and it's still dry", () => {
+    expect(planCellSweep({ dryStreak: 1, lastSweptAt: daysAgo(4), mode: "nearby" }, NOW)).toBe("text"); // 3-night rest elapsed
+    expect(planCellSweep({ dryStreak: 2, lastSweptAt: daysAgo(4), mode: "nearby" }, NOW)).toBe("text");
+  });
+
+  test("a legacy row with no mode field (written before Text Search existed) is treated exactly like nearby mode", () => {
+    expect(planCellSweep({ dryStreak: 0, lastSweptAt: daysAgo(1) }, NOW)).toBe("nearby");
+    expect(planCellSweep({ dryStreak: 1, lastSweptAt: daysAgo(0) }, NOW)).toBe("skip"); // rests first, same as an explicit "nearby" row
+    expect(planCellSweep({ dryStreak: 1, lastSweptAt: daysAgo(4) }, NOW)).toBe("text"); // promotes once rest is over
+  });
+
+  test("a text-mode cell follows the same 3/7-night backoff as shouldSkipCell", () => {
+    expect(planCellSweep({ dryStreak: 1, lastSweptAt: daysAgo(0), mode: "text" }, NOW)).toBe("skip");
+    expect(planCellSweep({ dryStreak: 1, lastSweptAt: daysAgo(4), mode: "text" }, NOW)).toBe("text"); // rest over
+    expect(planCellSweep({ dryStreak: 3, lastSweptAt: daysAgo(6), mode: "text" }, NOW)).toBe("skip");
+    expect(planCellSweep({ dryStreak: 3, lastSweptAt: daysAgo(8), mode: "text" }, NOW)).toBe("text"); // 7-night cap over
+  });
+
+  test("a text-mode cell that's productive again (dryStreak 0) sweeps every night, still in text mode", () => {
+    expect(planCellSweep({ dryStreak: 0, lastSweptAt: daysAgo(1), mode: "text" }, NOW)).toBe("text");
+  });
+});
+
+describe("haversineM", () => {
+  test("zero distance from a point to itself", () => {
+    expect(haversineM(40.7128, -74.006, 40.7128, -74.006)).toBeCloseTo(0, 1);
+  });
+
+  test("a known distance: roughly 1 degree of latitude is ~111.32 km", () => {
+    expect(haversineM(0, 0, 1, 0)).toBeCloseTo(111_320, -3); // within ~1km
+  });
+});
+
+describe("circleToRectangle", () => {
+  test("is symmetric around the center", () => {
+    const r = circleToRectangle(40.7128, -74.006, 1500);
+    const centerLat = (r.low.latitude + r.high.latitude) / 2;
+    const centerLng = (r.low.longitude + r.high.longitude) / 2;
+    expect(centerLat).toBeCloseTo(40.7128, 6);
+    expect(centerLng).toBeCloseTo(-74.006, 6);
+  });
+
+  test("longitude degrees are wider than latitude degrees away from the equator (cos correction)", () => {
+    // At 40N, cos(40°) ≈ 0.766, so a given radius spans MORE longitude degrees
+    // than latitude degrees to cover the same real distance.
+    const r = circleToRectangle(40, -74, 1500);
+    const latSpan = r.high.latitude - r.low.latitude;
+    const lngSpan = r.high.longitude - r.low.longitude;
+    expect(lngSpan).toBeGreaterThan(latSpan);
+  });
+
+  test("at the equator, latitude and longitude spans are equal (no cos correction needed)", () => {
+    const r = circleToRectangle(0, 0, 1500);
+    const latSpan = r.high.latitude - r.low.latitude;
+    const lngSpan = r.high.longitude - r.low.longitude;
+    expect(lngSpan).toBeCloseTo(latSpan, 6);
   });
 });

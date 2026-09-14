@@ -235,7 +235,13 @@ export function NumberSetting({
   step,
   min = 1,
 }: {
-  settingKey: "outreach_daily_cap" | "bump_after_days" | "outreach_daily_draft_target" | "sourcing_nightly_cap" | CostKey;
+  settingKey:
+    | "outreach_daily_cap"
+    | "bump_after_days"
+    | "outreach_daily_draft_target"
+    | "sourcing_nightly_cap"
+    | "sourcing_text_sweeps_per_night"
+    | CostKey;
   label: string;
   help: string;
   value: number | null;

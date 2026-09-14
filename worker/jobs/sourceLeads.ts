@@ -29,14 +29,35 @@ import { isSourcingBacklogDeep, resolveCandidateCap } from "@/lib/pipelineHealth
 import { dailyCap } from "./sendOutreach";
 import {
   searchNearbyRestaurants,
+  searchTextNearestRestaurants,
   priceLevelToInt,
   ownerPhotos,
   type Place,
 } from "../lib/places";
 import { passesHardFilters } from "../lib/filters";
 import { isKnownChain } from "../lib/chains";
-import { CITY_GRIDS, interleaveByCity, cellStateKey, shouldSkipCell, nextCellStates } from "../lib/grid";
+import { CITY_GRIDS, interleaveByCity, cellStateKey, planCellSweep, nextCellStates, type GridCell } from "../lib/grid";
 import { ENRICH_QUEUE, type EnrichJobData } from "./enrichRestaurant";
+
+// A "text mode" cell (see planCellSweep, grid.ts) gets BOTH Nearby Search's
+// cheap top-20 AND Text Search paged out to ~60 more, real-distance-sorted
+// (searchTextNearestRestaurants) — merged and deduped by place id. Nearby
+// stays in the mix rather than being replaced by Text Search alone: a live
+// check (2026-09-13) found only 3 of Text Search's own first-20 results
+// overlapped with Nearby's actual nearest 20, so Text Search's result POOL
+// (not just its claimed ordering) can't be assumed to be a superset of
+// Nearby's — dropping Nearby would risk a text-mode cell finding LESS than a
+// plain nearby-mode cell would have, which defeats the point of promoting it.
+async function searchCellDeep(cell: GridCell): Promise<Place[]> {
+  const [nearby, deep] = await Promise.all([
+    searchNearbyRestaurants(cell.lat, cell.lng, cell.radiusM),
+    searchTextNearestRestaurants(cell.lat, cell.lng, cell.radiusM, 3),
+  ]);
+  const byId = new Map<string, Place>();
+  for (const p of nearby) byId.set(p.id, p);
+  for (const p of deep) if (!byId.has(p.id)) byId.set(p.id, p);
+  return [...byId.values()];
+}
 
 export { SOURCE_QUEUE } from "@/lib/queues";
 
@@ -91,18 +112,23 @@ export async function runSourcing(boss: PgBoss, data: SourceJobData): Promise<vo
   // Precedence: explicit per-run limit > the Controls setting > config/env.
   const candidateCap = resolveCandidateCap(data.limit, capOverride, config.nightlyEnrichCap); // 0 = no cap
 
-  // Per-cell adaptive cooldown — see shouldSkipCell() in grid.ts for the
+  // Per-cell adaptive cooldown — see planCellSweep() in grid.ts for the
   // decision itself. Read once; every cell's updated state is written back in
   // one shot after the sweep (step 2.5 below), never mutated mid-loop.
-  const cellState = await getSetting("sourcing_cell_state");
+  const [cellState, textBudget] = await Promise.all([
+    getSetting("sourcing_cell_state"),
+    getSetting("sourcing_text_sweeps_per_night"),
+  ]);
   const nowMs = Date.now();
-  let cellsSkippedCooldown = 0;
 
-  // --- 1. DISCOVER: sweep every grid cell for every city, dedup by place id. ---
-  const discovered = new Map<string, { place: Place; city: string; cellKey: string }>();
-  const sweptCellKeys = new Set<string>(); // successfully swept this run — NOT skipped, NOT failed
-  let cellsSwept = 0;
-  let cellFailures = 0;
+  // --- 1. PLAN: decide skip / nearby / text for every cell, WITHOUT calling
+  //        Places yet. Split from the actual sweep (step 1b below) so the
+  //        scarce text-search budget can be allocated fairly across cities
+  //        BEFORE any cell spends it — see the interleave step. ---
+  type CellRef = { city: string; cell: GridCell; cellKey: string };
+  const nearbyCells: CellRef[] = [];
+  const textCandidates: CellRef[] = []; // tentative "text" plan, pending budget
+  let cellsSkippedCooldown = 0;
 
   for (const city of cities) {
     const cells = CITY_GRIDS[city];
@@ -120,31 +146,62 @@ export async function runSourcing(boss: PgBoss, data: SourceJobData): Promise<vo
 
     for (const cell of cells) {
       const cellKey = cellStateKey(city, cell.name);
-
-      if (shouldSkipCell(cellState[cellKey], nowMs)) {
-        cellsSkippedCooldown++;
-        continue; // no Places call, no sleep — this cell costs nothing tonight
-      }
-
-      try {
-        const places = await searchNearbyRestaurants(cell.lat, cell.lng, cell.radiusM);
-        cellsSwept++;
-        sweptCellKeys.add(cellKey);
-        for (const place of places) {
-          if (!discovered.has(place.id)) discovered.set(place.id, { place, city, cellKey });
-        }
-      } catch (err) {
-        // One cell's failure must not strand the rest of the run (a single
-        // NO_RETRY pg-boss job). Count it; alert only if the whole sweep failed.
-        // NOT added to sweptCellKeys — a transient API failure must not start
-        // or extend a cell's dry streak; its cooldown state is left untouched
-        // so the next un-skipped night retries it fresh.
-        cellFailures++;
-        console.error(`[source] nearby FAILED for ${city}/${cell.name}:`, err instanceof Error ? err.message : err);
-      }
-      await sleep(config.placesThrottleMs);
+      const plan = planCellSweep(cellState[cellKey], nowMs);
+      if (plan === "skip") cellsSkippedCooldown++;
+      else if (plan === "nearby") nearbyCells.push({ city, cell, cellKey });
+      else textCandidates.push({ city, cell, cellKey });
     }
   }
+
+  // --- 1a. Fairly allocate the nightly text-search budget across cities —
+  //         the same fairness problem interleaveByCity already solves for
+  //         the candidate cap below, and the zone-fair-share allocator
+  //         (worker/lib/sendAllocation.ts) solves for the daily send cap.
+  //         Without this, cells are considered in the same fixed city order
+  //         every night (Miami -> NYC -> ... -> San Diego, config.targetCities),
+  //         so whichever cities sit early in that list would claim the whole
+  //         budget first, every night, indefinitely — caught 2026-09-14
+  //         before this ever ran in production. Cells past the budget are
+  //         treated exactly like a cooldown skip: no calls, no state change,
+  //         they compete again fresh next time they're due. ---
+  const orderedTextCandidates = interleaveByCity(textCandidates);
+  const budgetedText = orderedTextCandidates.slice(0, textBudget);
+  cellsSkippedCooldown += orderedTextCandidates.length - budgetedText.length;
+
+  // --- 1b. SWEEP: nearby cells first (cheap, unbudgeted), then the
+  //         budgeted text-mode cells. Dedup by place id across everything. ---
+  const discovered = new Map<string, { place: Place; city: string; cellKey: string }>();
+  const sweptCellModes = new Map<string, "nearby" | "text">(); // successfully swept this run -> mode actually used
+  let cellsSwept = 0;
+  let cellFailures = 0;
+  let textSweepsUsed = 0;
+
+  async function sweepCell(ref: CellRef, plan: "nearby" | "text"): Promise<void> {
+    try {
+      const places =
+        plan === "text"
+          ? await searchCellDeep(ref.cell)
+          : await searchNearbyRestaurants(ref.cell.lat, ref.cell.lng, ref.cell.radiusM);
+      cellsSwept++;
+      if (plan === "text") textSweepsUsed++;
+      sweptCellModes.set(ref.cellKey, plan);
+      for (const place of places) {
+        if (!discovered.has(place.id)) discovered.set(place.id, { place, city: ref.city, cellKey: ref.cellKey });
+      }
+    } catch (err) {
+      // One cell's failure must not strand the rest of the run (a single
+      // NO_RETRY pg-boss job). Count it; alert only if the whole sweep failed.
+      // NOT added to sweptCellModes — a transient API failure must not start
+      // or extend a cell's dry streak; its cooldown state is left untouched
+      // so the next un-skipped night retries it fresh.
+      cellFailures++;
+      console.error(`[source] ${plan} search FAILED for ${ref.city}/${ref.cell.name}:`, err instanceof Error ? err.message : err);
+    }
+    await sleep(config.placesThrottleMs);
+  }
+
+  for (const ref of nearbyCells) await sweepCell(ref, "nearby");
+  for (const ref of budgetedText) await sweepCell(ref, "text");
 
   // --- 2. Keep only genuinely NEW places (skip everything already in the DB). ---
   const allIds = [...discovered.keys()];
@@ -174,10 +231,10 @@ export async function runSourcing(boss: PgBoss, data: SourceJobData): Promise<vo
   //          extends its dry streak. Skipped and failed cells are untouched —
   //          see their sites above for why. Written in one shot, after the
   //          sweep, never mid-loop. See nextCellStates() in grid.ts. ---
-  if (sweptCellKeys.size > 0) {
+  if (sweptCellModes.size > 0) {
     const productiveCellKeys = new Set(newCandidates.map((c) => c.cellKey));
     const nowIso = new Date(nowMs).toISOString();
-    const nextState = nextCellStates(cellState, sweptCellKeys, productiveCellKeys, nowIso);
+    const nextState = nextCellStates(cellState, sweptCellModes, productiveCellKeys, nowIso);
     await setSetting("sourcing_cell_state", nextState);
   }
 
@@ -249,9 +306,10 @@ export async function runSourcing(boss: PgBoss, data: SourceJobData): Promise<vo
   }
 
   console.log(
-    `[source] done: swept ${cellsSwept} cells (${cellFailures} failed, ${cellsSkippedCooldown} skipped on cooldown), ` +
-      `discovered ${discovered.size} unique, ${chainsSkipped} chains skipped, ${newCandidates.length} new ` +
-      `(${toProcess.length} processed this run), ${enqueued} enqueued, ${rejected} filtered out` +
+    `[source] done: swept ${cellsSwept} cells (${textSweepsUsed} deep/text, ${cellFailures} failed, ` +
+      `${cellsSkippedCooldown} skipped on cooldown/budget), discovered ${discovered.size} unique, ` +
+      `${chainsSkipped} chains skipped, ${newCandidates.length} new (${toProcess.length} processed this run), ` +
+      `${enqueued} enqueued, ${rejected} filtered out` +
       (config.dryRun ? " (DRY RUN)" : "")
   );
 
@@ -266,17 +324,18 @@ export async function runSourcing(boss: PgBoss, data: SourceJobData): Promise<vo
       candidateCap,
       cellsSwept,
       cellsSkipped: cellsSkippedCooldown,
+      textSweeps: textSweepsUsed,
       newCandidates: newCandidates.length,
       enqueued,
     });
   }
 
   // The whole sweep failing looks identical to a tapped-out grid in the logs —
-  // surface each distinctly. A cooldown-skipped cell is NOT a failure (see
-  // shouldSkipCell in grid.ts), so cellsSwept === 0 only means a real outage
-  // when nothing was skipped on cooldown either — otherwise every cell just
-  // happened to be resting the same night, which is expected behavior, not
-  // an alert-worthy one.
+  // surface each distinctly. A cooldown- or budget-skipped cell is NOT a
+  // failure (see planCellSweep in grid.ts), so cellsSwept === 0 only means a
+  // real outage when nothing was skipped on cooldown/budget either —
+  // otherwise every cell just happened to be resting the same night, which is
+  // expected behavior, not an alert-worthy one.
   if (cellsSwept === 0 && cellsSkippedCooldown === 0 && !config.dryRun) {
     await sendAlert(
       "Sourcing swept zero cells",

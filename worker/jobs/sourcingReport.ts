@@ -11,8 +11,14 @@ import { gte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { restaurants } from "@/db/schema";
 import { sendAlert } from "@/lib/alerts";
+import { getSetting } from "@/lib/settings";
 import { config } from "../config";
 import { getAccountInfo } from "../lib/neverbounce";
+
+// Same rate the Cost decision for this feature was made against
+// (lib/settings.ts's sourcing_text_sweeps_per_night comment, cost_source_per_
+// lead_cents) — a deep sweep is up to 4 Places Search calls at ~$0.035 each.
+const DEEP_SWEEP_CENTS = 4 * 3.5;
 
 // The plan is 1,000 credits/month. Below this, flag it in the report rather
 // than let it run out silently again — see the balance line below.
@@ -59,6 +65,16 @@ export async function buildSourcingReport(): Promise<{
     .from(restaurants)
     .where(sql`${restaurants.enrichmentStatus} = 'queued'`);
 
+  // sourcing_last_run is written once, at the end of sourceLeads.ts's own
+  // run — a plain settings read, not a query, so no DB cost to show this.
+  // Omitted entirely when the feature never ran (off, or no cell needed it)
+  // rather than printing a "$0.00" line every night.
+  const lastRun = await getSetting("sourcing_last_run");
+  const deepSearchLine =
+    lastRun && lastRun.textSweeps > 0
+      ? `Deep searches:       ${lastRun.textSweeps} cell(s), ~$${((lastRun.textSweeps * DEEP_SWEEP_CENTS) / 100).toFixed(2)}`
+      : null;
+
   // Read-only, once-daily — never on a request path (see getAccountInfo's own
   // comment). Degrades to an "unknown" line rather than failing the whole
   // report if NeverBounce is unreachable; the low-balance ALERT is separate
@@ -92,6 +108,7 @@ export async function buildSourcingReport(): Promise<{
     `With verified email: ${agg.withEmail}   (NeverBounce working if > 0)`,
     `With photo score:    ${agg.withScore}   (owner-photo scoring)`,
     `With signature dish: ${agg.withDish}`,
+    ...(deepSearchLine ? [deepSearchLine] : []),
     balanceLine,
     "",
     "New leads by status:",

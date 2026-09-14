@@ -62,7 +62,14 @@ export function interleaveByCity<T extends { city: string }>(items: T[]): T[] {
 // pattern as worker_boot_info / package_tiers), owned and read/written
 // entirely by sourceLeads.ts. Exported here so the pure decision below and
 // its test can share the type without importing the worker job.
-export type CellSweepState = { lastSweptAt: string; dryStreak: number };
+//
+// `mode` — which search a cell is currently assigned: `nearby` (or absent,
+// for rows written before Text Search mode existed) is the cheap 20-result
+// sweep; `text` is the deeper Nearby+Text-Search-pages combo (see
+// searchCellDeep in sourceLeads.ts), used once a cell has proven the shallow
+// search alone is exhausted. A cell promoted to `text` stays there — see
+// planCellSweep below.
+export type CellSweepState = { lastSweptAt: string; dryStreak: number; mode?: "nearby" | "text" };
 
 export function cellStateKey(city: string, cellName: string): string {
   return `${city}::${cellName}`;
@@ -93,6 +100,76 @@ export function shouldSkipCell(state: CellSweepState | undefined, nowMs: number)
   return nightsElapsed <= restNights;
 }
 
+// What to actually DO with a cell tonight: skip it, sweep it with the cheap
+// shallow search, or sweep it with the deeper combo. Nearby Search hard-caps
+// at 20 results with no pagination — a cell that's gone dry on the shallow
+// search hasn't necessarily run out of real supply, it may just have more
+// than 20 restaurants in range.
+//
+// The rest gate (shouldSkipCell) applies FIRST, for both modes uniformly —
+// a newly-dry cell still gets its full 3-night (then 7-night) rest under the
+// cheap search, at zero Places cost, exactly like a cell that never gets
+// promoted at all. Promotion to `text` only happens once that rest period has
+// run its course and the cell is STILL dry when it's due to sweep again.
+//
+// CAUGHT 2026-09-14, before this ever ran in production: an earlier version
+// of this function promoted on the very first dry night, with NO rest spent
+// — which sounds like it finds real supply sooner, but concretely meant
+// EVERY cell currently resting under the cooldown fix (19 of them, checked
+// live) would be pulled straight back out of that rest and cost up to 4x on
+// the very next run, directly undoing the savings that fix was built for.
+// Gating on shouldSkipCell first preserves that rest completely; the only
+// change from a plain nearby-mode cell's schedule is what happens once the
+// rest is over and it's still dry — try the deeper search instead of just
+// re-sweeping shallow again.
+//
+// A cell that reaches `text` mode stays there: searchCellDeep() already
+// includes a plain Nearby sweep (see sourceLeads.ts), so there's no shallower
+// mode to fall back to, and no reason to — see that function's own comment
+// for why the deeper search doesn't just replace Nearby outright.
+export type CellSweepPlan = "skip" | "nearby" | "text";
+
+export function planCellSweep(state: CellSweepState | undefined, nowMs: number): CellSweepPlan {
+  if (!state) return "nearby"; // never swept
+  if (shouldSkipCell(state, nowMs)) return "skip"; // still resting — regardless of mode
+  const mode = state.mode ?? "nearby"; // rows written before Text Search mode existed
+  if (mode === "nearby" && state.dryStreak === 0) return "nearby"; // still productive on the shallow search
+  return "text"; // due again and still dry, or already in text mode — try the deeper search
+}
+
+// Great-circle distance in meters. Used to sort Text Search results by REAL
+// distance — verified live 2026-09-13 that Text Search's own
+// rankPreference=DISTANCE does NOT return distance-ordered results despite
+// the parameter name (a page of "nearest" results had real distances from
+// the search center scattered 57m-878m, not increasing). Nearby Search's own
+// DISTANCE ranking was NOT re-verified and is trusted as-is — it's the
+// established, unchanged code path; only the new Text Search addition needed
+// this correction.
+export function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6_371_000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+// Text Search's locationRestriction only accepts a RECTANGLE, never a circle
+// (a circle is only allowed in locationBias, which is soft — it can leak
+// results from outside the area, which locationRestriction never does). The
+// circumscribed square is ~27% larger in area than the circle it replaces;
+// overlap with Nearby Search's own circle-based results is handled by
+// place-id dedup in searchCellDeep (sourceLeads.ts), not here.
+export function circleToRectangle(
+  lat: number,
+  lng: number,
+  radiusM: number
+): { low: { latitude: number; longitude: number }; high: { latitude: number; longitude: number } } {
+  const dLat = radiusM / 111_320;
+  const dLng = radiusM / (111_320 * Math.cos((lat * Math.PI) / 180));
+  return { low: { latitude: lat - dLat, longitude: lng - dLng }, high: { latitude: lat + dLat, longitude: lng + dLng } };
+}
+
 // Builds next-run cell state from what THIS sweep actually did. Pure so the
 // attribution logic (which cells count as "productive") is unit-testable
 // without a DB — see sourceLeads.ts step 2.5 for how it's called.
@@ -103,21 +180,30 @@ export function shouldSkipCell(state: CellSweepState | undefined, nowMs: number)
 // forever — crediting it as "this cell is productive" meant a cell with a
 // McDonald's nearby never rested even once (caught 2026-09-13: 59/76 cells
 // showed dryStreak 0 while the grid's real yield had collapsed to 24/night).
-// Cells not in `sweptKeys` (skipped on cooldown, or a failed Nearby call —
-// see sourceLeads.ts) are carried over untouched: a transient API failure or
-// a deliberate rest must not start or extend a dry streak.
+//
+// `swept` maps each swept cell's key to the mode ACTUALLY used for it this
+// run (which can differ from what planCellSweep proposed — e.g. a "text"
+// plan that fell back to a plain "nearby" sweep because the nightly Text
+// Search budget was already spent; see sourceLeads.ts). Recording the real
+// mode, not the planned one, keeps state honest: a budget-limited cell simply
+// tries for promotion again next time it's due, rather than being stuck
+// claiming a `text` assignment it never actually got to use. Cells NOT in
+// `swept` (skipped on cooldown/budget, or a failed API call — see
+// sourceLeads.ts) are carried over untouched: a transient failure or a
+// deliberate rest must not start or extend a dry streak.
 export function nextCellStates(
   prev: Record<string, CellSweepState>,
-  sweptKeys: Iterable<string>,
+  swept: ReadonlyMap<string, "nearby" | "text">,
   productiveKeys: ReadonlySet<string>,
   nowIso: string
 ): Record<string, CellSweepState> {
   const next: Record<string, CellSweepState> = { ...prev };
-  for (const key of sweptKeys) {
+  for (const [key, mode] of swept) {
     const prevStreak = prev[key]?.dryStreak ?? 0;
     next[key] = {
       lastSweptAt: nowIso,
       dryStreak: productiveKeys.has(key) ? 0 : prevStreak + 1,
+      mode,
     };
   }
   return next;

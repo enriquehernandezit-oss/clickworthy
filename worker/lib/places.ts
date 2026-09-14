@@ -7,7 +7,8 @@
 //   GET  https://places.googleapis.com/v1/{photo.name}/media?maxWidthPx=...&key=...
 //     -> redirects to the raw image bytes.
 
-import { requireKey } from "../config";
+import { requireKey, config } from "../config";
+import { circleToRectangle, haversineM } from "./grid";
 
 const SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
 const NEARBY_URL = "https://places.googleapis.com/v1/places:searchNearby";
@@ -62,6 +63,14 @@ export type Place = {
   delivery?: boolean;
   takeout?: boolean;
   dineIn?: boolean;
+  // Only populated by the grid sourcing calls below (searchNearbyRestaurants /
+  // searchTextNearestRestaurants) — not requested by the Text Search / Details
+  // functions further down, which have no use for it.
+  location?: { latitude: number; longitude: number };
+  // Text Search has no server-side excludedTypes (unlike Nearby Search), so
+  // searchTextNearestRestaurants filters out fine_dining_restaurant client-side
+  // using this field instead. Also grid-only.
+  primaryType?: string;
 };
 
 type SearchResponse = {
@@ -97,6 +106,11 @@ const NEARBY_FIELD_MASK = [
   "places.delivery",
   "places.photos.name",
   "places.photos.authorAttributions",
+  // Same Enterprise SKU as everything else above, so no cost bump. Nearby
+  // Search's own DISTANCE ranking isn't in question (unlike Text Search's,
+  // below) — this just lets searchCellDeep (sourceLeads.ts) sort a MERGED
+  // Nearby+Text result set consistently when it needs to.
+  "places.location",
 ].join(",");
 
 // Place Details mask (no "places." prefix — Details returns a single object).
@@ -155,6 +169,72 @@ export async function searchNearbyRestaurants(
   }
   const body = (await res.json()) as SearchResponse;
   return body.places ?? [];
+}
+
+// The deeper half of a "text mode" cell sweep (see planCellSweep, grid.ts):
+// Text Search paged out to ~60 results, ranked by REAL distance computed
+// client-side from the `location` field — NOT by Text Search's own
+// rankPreference=DISTANCE claim, which was verified live 2026-09-13 to NOT
+// return distance-ordered results (a page of "nearest" results had real
+// distances from the search center scattered 57m-878m in no particular
+// order). Sorting here is what makes "the next ~40 places beyond Nearby's
+// top 20" a real, trustworthy set rather than an assumption about API
+// ordering that turned out to be false.
+//
+// Used ALONGSIDE Nearby Search (searchCellDeep, sourceLeads.ts), never
+// instead of it: only 3 of Text Search's own first 20 results overlapped
+// with Nearby's actual nearest 20 in that same live check, so Text Search's
+// result POOL (not just its ordering) can't be assumed to be a superset of
+// Nearby's — merging both is what guarantees a text-mode cell never finds
+// LESS than a plain nearby-mode cell would have.
+export async function searchTextNearestRestaurants(
+  lat: number,
+  lng: number,
+  radiusM: number,
+  maxPages = 3
+): Promise<Place[]> {
+  const apiKey = requireKey("googleMapsApiKey", "GOOGLE_MAPS_API_KEY");
+  const collected: Place[] = [];
+  let pageToken: string | undefined;
+
+  for (let page = 0; page < maxPages; page++) {
+    const res = await fetch(SEARCH_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": `${NEARBY_FIELD_MASK},nextPageToken`,
+      },
+      body: JSON.stringify({
+        textQuery: "restaurant",
+        includedType: "restaurant",
+        strictTypeFiltering: true,
+        rankPreference: "DISTANCE",
+        pageSize: 20,
+        // Text Search's locationRestriction only accepts a RECTANGLE, never a
+        // circle (see circleToRectangle's own comment, grid.ts).
+        locationRestriction: { rectangle: circleToRectangle(lat, lng, radiusM) },
+        ...(pageToken ? { pageToken } : {}),
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`Places searchText (grid) failed (${res.status}): ${await res.text()}`);
+    }
+    const body = (await res.json()) as SearchResponse;
+    // No server-side excludedTypes on Text Search (unlike Nearby Search) — the
+    // same fine-dining exclusion has to happen client-side here instead.
+    const places = (body.places ?? []).filter((p) => p.primaryType !== "fine_dining_restaurant");
+    collected.push(...places);
+
+    if (!body.nextPageToken || !body.places?.length) break;
+    pageToken = body.nextPageToken;
+    if (page < maxPages - 1) await new Promise((r) => setTimeout(r, config.placesThrottleMs));
+  }
+
+  return collected
+    .map((p) => ({ p, d: p.location ? haversineM(lat, lng, p.location.latitude, p.location.longitude) : Infinity }))
+    .sort((a, b) => a.d - b.d)
+    .map(({ p }) => p);
 }
 
 // Full Place Details for a NEW candidate (Enterprise fields the nearby mask
