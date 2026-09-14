@@ -35,8 +35,9 @@ import {
   getRejectionBuckets,
   getEmailYield,
   getAnomalies,
-  EMAIL_READY_TARGET,
+  emailReadyTarget,
 } from "@/lib/pipelineHealth";
+import { dailyCap } from "@/worker/jobs/sendOutreach";
 
 const arg = Number(process.argv[2]);
 const nights = Number.isFinite(arg) && arg > 0 ? Math.floor(arg) : 10;
@@ -85,7 +86,8 @@ for (const r of trend) {
   );
 }
 const { avg: avgReady, runNights: runNightCount } = avgEmailReady(trend);
-console.log(`\n  avg email-ready / run night: ${avgReady.toFixed(1)}  (target ${EMAIL_READY_TARGET}, over ${runNightCount} run nights)`);
+const target = emailReadyTarget(await dailyCap());
+console.log(`\n  avg email-ready / run night: ${avgReady.toFixed(1)}  (target ${target}, over ${runNightCount} run nights)`);
 
 // ── 3. Last night deep-dive ────────────────────────────────────────────────
 const NIGHT = (await getLastSourcingNight()) ?? "1970-01-01";

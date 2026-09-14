@@ -9,16 +9,34 @@
 import type { Place } from "./places";
 import { priceLevelToInt } from "./places";
 import { isKnownChain } from "./chains";
+import { classifyWebsite } from "./websitePlatform";
 
 export type FilterResult = { pass: true } | { pass: false; reason: string };
 
 export type FilterThresholds = {
-  minReviews: number;
+  minReviews: number; // floor for a place with an OWNED, emailable website
+  // Floor for everything else (no website, or a website that's really just a
+  // Facebook/Instagram page or an ordering-platform listing — see
+  // minReviewsFor() below). These route to the phone call_list, not email, so
+  // the email-hit-rate rationale behind minReviews doesn't apply to them.
+  minReviewsNoWebsite: number;
   maxReviews: number | null; // null = no ceiling
   maxPriceLevel: number; // 1 = $, 2 = $$, ...
   requireWebsite: boolean;
   maxRating: number | null; // null = no rating ceiling (wide net)
 };
+
+// Which floor applies: the stricter one for a website that could actually
+// yield an email (none/free_subdomain/diy_builder/custom — everything
+// enrichRestaurant.ts doesn't treat as a phone-only dead end), the looser one
+// otherwise. Mirrors enrichRestaurant.ts's own isDeadEndWebsite check exactly
+// so a place's filter floor and its eventual outreach segment never disagree.
+function minReviewsFor(websiteUri: string | undefined, t: FilterThresholds): number {
+  if (!websiteUri) return t.minReviewsNoWebsite;
+  const tier = classifyWebsite(websiteUri).tier;
+  const isDeadEndWebsite = tier === "social_only" || tier === "ordering_platform";
+  return isDeadEndWebsite ? t.minReviewsNoWebsite : t.minReviews;
+}
 
 // Grid-era defaults: any operational, affordable, real-but-not-famous
 // restaurant with a website we can scrape an email from. No rating ceiling —
@@ -46,10 +64,20 @@ export type FilterThresholds = {
 // cost to re-admit (scripts/rescreen-rejected.ts). A 10-19-review place is
 // small or newly opened — exactly the profile least likely to already employ
 // a photographer, and "new opening" is already a segment sold the Grand
-// Opening package. Revert toward 20 if this band's email-hit-rate or
-// photo-fit-gate pass rate comes in much worse than the 20-plus band.
+// Opening package.
+//
+// Split back apart 2026-09-13, for EMAIL leads only: a live probe of the
+// 10-19-review band found 0 scraped emails out of 25 (0%), against 16-23% at
+// every review count above 20 — this band wasn't finding smaller independents
+// with real photo need, it was pure dilution of the (already scarce) email
+// slots the nightly candidateCap spends on. But the reasoning that motivated
+// the Sep 8 drop is still correct for the phone segment: a 10-19-review place
+// with no website (or only a Facebook/ordering-platform page) can't produce
+// an email either way, so there's no email-hit-rate to protect by raising ITS
+// floor — keep it at 10 via minReviewsNoWebsite. See minReviewsFor() above.
 export const DEFAULT_FILTER_THRESHOLDS: FilterThresholds = {
-  minReviews: 10,
+  minReviews: 20,
+  minReviewsNoWebsite: 10,
   maxReviews: 2000,
   maxPriceLevel: 2,
   // No longer required: a good restaurant with NO website used to be dropped
@@ -85,8 +113,11 @@ export function passesHardFilters(
 
   // Enough reviews to be a real, operating business — not a fake/placeholder
   // listing — but below the ceiling that marks an established destination.
+  // Which floor applies depends on whether this place could ever become an
+  // EMAIL lead — see minReviewsFor() above.
   if (reviews === null) return { pass: false, reason: "no review count" };
-  if (reviews < t.minReviews) return { pass: false, reason: `only ${reviews} reviews (<${t.minReviews})` };
+  const minReviews = minReviewsFor(place.websiteUri, t);
+  if (reviews < minReviews) return { pass: false, reason: `only ${reviews} reviews (<${minReviews})` };
   if (t.maxReviews !== null && reviews > t.maxReviews) {
     return { pass: false, reason: `${reviews} reviews (>${t.maxReviews}) — established destination` };
   }

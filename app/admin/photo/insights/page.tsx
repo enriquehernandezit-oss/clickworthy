@@ -6,10 +6,11 @@ import {
   deriveNightFindings,
   derivePatterns,
   yieldPct,
-  EMAIL_READY_TARGET,
+  emailReadyTarget,
   type NightSession,
   type Insight,
 } from "@/lib/pipelineHealth";
+import { dailyCap } from "@/worker/jobs/sendOutreach";
 
 // The Insights tab: a scrollable history of each night's pipeline session,
 // read from the FROZEN pipeline_night_snapshots (written the morning after by
@@ -61,9 +62,16 @@ function InsightLine({ insight }: { insight: Insight }) {
 }
 
 export default async function InsightsPage() {
-  const rows = await db.select().from(pipelineNightSnapshots).orderBy(desc(pipelineNightSnapshots.night)).limit(30);
+  const [rows, cap] = await Promise.all([
+    db.select().from(pipelineNightSnapshots).orderBy(desc(pipelineNightSnapshots.night)).limit(30),
+    dailyCap(),
+  ]);
   const sessions = rows.map(toSession);
-  const patterns = derivePatterns(sessions);
+  // Target scales with the LIVE daily send cap, not a flat historical number
+  // — see emailReadyTarget()'s own comment for why a flat 20 read as a false
+  // "below target" alarm once the send cap dropped to 5/day.
+  const target = emailReadyTarget(cap);
+  const patterns = derivePatterns(sessions, target);
 
   return (
     <>
@@ -101,9 +109,9 @@ export default async function InsightsPage() {
           {/* Per-night sessions, newest first. */}
           <section className="mt-8 flex flex-col gap-4">
             {sessions.map((s) => {
-              const findings = deriveNightFindings(s);
+              const findings = deriveNightFindings(s, target);
               const y = yieldPct(s);
-              const hit = s.emailReady >= EMAIL_READY_TARGET;
+              const hit = s.emailReady >= target;
               return (
                 <div key={s.night} className="rounded-xl border border-line bg-surface p-5">
                   {/* header */}
@@ -123,7 +131,7 @@ export default async function InsightsPage() {
                       <span className="font-mono-label text-2xl font-semibold tabular-nums" style={{ color: hit ? "var(--teal)" : "var(--gold)" }}>
                         {s.emailReady}
                       </span>
-                      <span className="text-xs text-faint">/ {EMAIL_READY_TARGET} email-ready</span>
+                      <span className="text-xs text-faint">/ {target} email-ready</span>
                     </div>
                   </div>
 

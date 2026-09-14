@@ -25,7 +25,7 @@ import { restaurants } from "@/db/schema";
 import { config } from "../config";
 import { getSetting, setSetting } from "@/lib/settings";
 import { sendAlert } from "@/lib/alerts";
-import { isSourcingBacklogDeep } from "@/lib/pipelineHealth";
+import { isSourcingBacklogDeep, resolveCandidateCap } from "@/lib/pipelineHealth";
 import { dailyCap } from "./sendOutreach";
 import {
   searchNearbyRestaurants,
@@ -35,7 +35,7 @@ import {
 } from "../lib/places";
 import { passesHardFilters } from "../lib/filters";
 import { isKnownChain } from "../lib/chains";
-import { CITY_GRIDS, interleaveByCity, cellStateKey, shouldSkipCell, type CellSweepState } from "../lib/grid";
+import { CITY_GRIDS, interleaveByCity, cellStateKey, shouldSkipCell, nextCellStates } from "../lib/grid";
 import { ENRICH_QUEUE, type EnrichJobData } from "./enrichRestaurant";
 
 export { SOURCE_QUEUE } from "@/lib/queues";
@@ -89,7 +89,7 @@ export async function runSourcing(boss: PgBoss, data: SourceJobData): Promise<vo
 
   const cities = data.cities ?? config.targetCities;
   // Precedence: explicit per-run limit > the Controls setting > config/env.
-  const candidateCap = data.limit ?? capOverride ?? config.nightlyEnrichCap; // 0 = no cap
+  const candidateCap = resolveCandidateCap(data.limit, capOverride, config.nightlyEnrichCap); // 0 = no cap
 
   // Per-cell adaptive cooldown — see shouldSkipCell() in grid.ts for the
   // decision itself. Read once; every cell's updated state is written back in
@@ -157,30 +157,29 @@ export async function runSourcing(boss: PgBoss, data: SourceJobData): Promise<vo
   const existingIds = new Set(existingRows.map((r) => r.pid));
   const newAll = [...discovered.values()].filter((c) => !existingIds.has(c.place.id));
 
-  // --- 2.5. Update per-cell cooldown state from what THIS run actually swept.
-  //          A swept cell that produced at least one new-to-DB place (even one
-  //          later cut by chains/candidateCap — still genuinely new) resets to
-  //          nightly; one that swept clean comes up empty extends its dry
-  //          streak. Skipped and failed cells are untouched — see their sites
-  //          above for why. Written in one shot, after the sweep, never mid-loop. ---
-  if (sweptCellKeys.size > 0) {
-    const cellsWithNewLead = new Set(newAll.map((c) => c.cellKey));
-    const nowIso = new Date(nowMs).toISOString();
-    const nextState: Record<string, CellSweepState> = { ...cellState };
-    for (const key of sweptCellKeys) {
-      const prevStreak = cellState[key]?.dryStreak ?? 0;
-      nextState[key] = {
-        lastSweptAt: nowIso,
-        dryStreak: cellsWithNewLead.has(key) ? 0 : prevStreak + 1,
-      };
-    }
-    await setSetting("sourcing_cell_state", nextState);
-  }
-
   // Drop known national franchises up front — free (the Nearby result carries
   // displayName). They're not recorded, so they re-skip for free on future sweeps.
+  // MUST happen before step 2.5 below: a chain is never inserted, so it would
+  // otherwise reappear as "new" every night forever, making a cell with a
+  // nearby McDonald's look permanently productive and never rest (caught
+  // 2026-09-13 — 59/76 cells showed dryStreak 0 while real grid yield had
+  // collapsed to 24/night).
   const newCandidates = newAll.filter((c) => !isKnownChain(c.place.displayName?.text, c.place.websiteUri));
   const chainsSkipped = newAll.length - newCandidates.length;
+
+  // --- 2.5. Update per-cell cooldown state from what THIS run actually swept.
+  //          A swept cell that produced at least one new-to-DB, non-chain
+  //          place (even one later cut by candidateCap — still genuinely new)
+  //          resets to nightly; one that swept clean (or found only chains)
+  //          extends its dry streak. Skipped and failed cells are untouched —
+  //          see their sites above for why. Written in one shot, after the
+  //          sweep, never mid-loop. See nextCellStates() in grid.ts. ---
+  if (sweptCellKeys.size > 0) {
+    const productiveCellKeys = new Set(newCandidates.map((c) => c.cellKey));
+    const nowIso = new Date(nowMs).toISOString();
+    const nextState = nextCellStates(cellState, sweptCellKeys, productiveCellKeys, nowIso);
+    await setSetting("sourcing_cell_state", nextState);
+  }
 
   // --- 3. Cap the number of new candidates we spend on this run. Interleave
   //        across cities FIRST so the cap is split roughly evenly (the grid
@@ -255,6 +254,22 @@ export async function runSourcing(boss: PgBoss, data: SourceJobData): Promise<vo
       `(${toProcess.length} processed this run), ${enqueued} enqueued, ${rejected} filtered out` +
       (config.dryRun ? " (DRY RUN)" : "")
   );
+
+  // Record what THIS run actually did — read back by computeNightSession()
+  // (lib/pipelineHealth.ts) for the Insights snapshot, so the frozen "nightly
+  // cap" for a night reflects the live sourcing_nightly_cap override (if any)
+  // actually in force, not just the compiled-in config default (see that
+  // setting's own comment in lib/settings.ts for the bug this replaces).
+  if (!config.dryRun) {
+    await setSetting("sourcing_last_run", {
+      at: new Date(nowMs).toISOString(),
+      candidateCap,
+      cellsSwept,
+      cellsSkipped: cellsSkippedCooldown,
+      newCandidates: newCandidates.length,
+      enqueued,
+    });
+  }
 
   // The whole sweep failing looks identical to a tapped-out grid in the logs —
   // surface each distinctly. A cooldown-skipped cell is NOT a failure (see

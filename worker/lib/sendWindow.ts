@@ -84,13 +84,38 @@ function zonedNow(tz: string, nowMs: number): { hour: number; weekday: number } 
   return { hour: Number(hourStr) % 24, weekday: WEEKDAYS[wdStr] ?? 1 };
 }
 
+// Where a zone stands relative to today's send window, right now:
+//   "not_today" — it's a weekend in that zone; nothing sends there today.
+//   "before"    — a weekday, but the window hasn't opened yet (will later today).
+//   "open"      — inside the window right now — safe to send.
+//   "closed"    — a weekday, but the window has already passed for today.
+//
+// This is the finer-grained answer isInLocalWindow's plain boolean couldn't
+// give: the fair-share allocator (worker/lib/sendAllocation.ts) needs to know
+// whether a zone with pending approved leads will still get a chance to send
+// today (before/open) or is done (not_today/closed), which is exactly what
+// let Eastern zones silently claim the whole daily cap before Pacific zones
+// ever opened (caught 2026-09-13 — 0 sends to LA/San Diego/Denver in 14 days).
+export type WindowPhase = "not_today" | "before" | "open" | "closed";
+
+export function windowPhaseForZone(tz: string, nowMs: number): WindowPhase {
+  const { hour, weekday } = zonedNow(tz, nowMs);
+  if (weekday < 1 || weekday > 5) return "not_today";
+  if (hour < SEND_WINDOW.startHour) return "before";
+  if (hour < SEND_WINDOW.endHour) return "open";
+  return "closed";
+}
+
+export function windowPhase(city: string | null | undefined, nowMs: number): WindowPhase {
+  return windowPhaseForZone(resolveTimeZone(city), nowMs);
+}
+
 // Is it currently inside the recipient's local send window? Weekday
 // (Mon–Fri) AND startHour ≤ localHour < endHour, evaluated in the recipient's
-// own zone.
+// own zone. A thin wrapper over windowPhase — kept because most call sites
+// only need the yes/no answer.
 export function isInLocalWindow(city: string | null | undefined, nowMs: number): boolean {
-  const { hour, weekday } = zonedNow(resolveTimeZone(city), nowMs);
-  const isWeekday = weekday >= 1 && weekday <= 5;
-  return isWeekday && hour >= SEND_WINDOW.startHour && hour < SEND_WINDOW.endHour;
+  return windowPhase(city, nowMs) === "open";
 }
 
 // Human-readable window description for the Controls page — e.g.

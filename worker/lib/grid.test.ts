@@ -3,7 +3,7 @@
 // or error the whole nightly run. Run with `bun test`.
 
 import { expect, test, describe } from "bun:test";
-import { CITY_GRIDS, interleaveByCity, cellStateKey, shouldSkipCell, type CellSweepState } from "./grid";
+import { CITY_GRIDS, interleaveByCity, cellStateKey, shouldSkipCell, nextCellStates, type CellSweepState } from "./grid";
 
 // The four cities the pipeline ships targeting (config.targetCities default).
 const SHIPPED_CITIES = ["Miami, FL", "New York, NY", "Chicago, IL", "Los Angeles, CA", "Nashville, TN", "Denver, CO", "San Diego, CA"];
@@ -95,23 +95,75 @@ describe("shouldSkipCell", () => {
     expect(shouldSkipCell(state(0, 1), NOW)).toBe(false);
   });
 
-  test("dryStreak 1-2 skips for 3 nights, then resumes", () => {
-    expect(shouldSkipCell(state(1, 0), NOW)).toBe(true); // swept today, dry once — skip
-    expect(shouldSkipCell(state(1, 2), NOW)).toBe(true); // 2 of 3 skip-nights elapsed — still skip
-    expect(shouldSkipCell(state(1, 3), NOW)).toBe(false); // 3 full nights elapsed — sweep again
-    expect(shouldSkipCell(state(2, 2), NOW)).toBe(true); // dryStreak 2 behaves the same as 1
+  test("dryStreak 1-2 rests 3 FULL nights, then resumes on night 4", () => {
+    expect(shouldSkipCell(state(1, 0), NOW)).toBe(true); // swept tonight, dry once — skip
+    expect(shouldSkipCell(state(1, 2), NOW)).toBe(true); // 2 of 3 rest-nights elapsed — still skip
+    expect(shouldSkipCell(state(1, 3), NOW)).toBe(true); // 3rd rest night — still skip (caught 2026-09-13: this used to sweep here, resting only 2 nights)
+    expect(shouldSkipCell(state(1, 4), NOW)).toBe(false); // 4th night — rest is over, sweep again
+    expect(shouldSkipCell(state(2, 3), NOW)).toBe(true); // dryStreak 2 behaves the same as 1
   });
 
-  test("dryStreak 3+ skips for 7 nights, then resumes — the cap, never longer", () => {
-    expect(shouldSkipCell(state(3, 6), NOW)).toBe(true); // 6 of 7 skip-nights elapsed — still skip
-    expect(shouldSkipCell(state(3, 7), NOW)).toBe(false); // 7 full nights — sweep again
-    expect(shouldSkipCell(state(10, 6), NOW)).toBe(true); // a much longer streak is still capped at 7, not longer
-    expect(shouldSkipCell(state(10, 7), NOW)).toBe(false);
+  test("dryStreak 3+ rests 7 FULL nights, then resumes on night 8 — the cap, never longer", () => {
+    expect(shouldSkipCell(state(3, 6), NOW)).toBe(true); // 6 of 7 rest-nights elapsed — still skip
+    expect(shouldSkipCell(state(3, 7), NOW)).toBe(true); // 7th rest night — still skip
+    expect(shouldSkipCell(state(3, 8), NOW)).toBe(false); // 8th night — sweep again
+    expect(shouldSkipCell(state(10, 7), NOW)).toBe(true); // a much longer streak is still capped at 7, not longer
+    expect(shouldSkipCell(state(10, 8), NOW)).toBe(false);
   });
 
   test("no cell ever goes unswept for more than 7 nights, at any dry streak", () => {
     for (const dryStreak of [1, 2, 3, 5, 20]) {
       expect(shouldSkipCell(state(dryStreak, 8), NOW), `dryStreak ${dryStreak} at 8 days`).toBe(false);
     }
+  });
+
+  test("a run a few seconds early or late lands on the same night count either way", () => {
+    // The real bug: the cron fires a bit later each night, so lastSweptAt drifts
+    // forward relative to a naive 24h clock. Rounding to the nearest night must
+    // absorb both directions of drift around the 3-night boundary.
+    const justUnder3 = new Date(NOW - (3 * 86_400_000 - 90_000)).toISOString(); // 90s short of 3 days
+    const justOver3 = new Date(NOW - (3 * 86_400_000 + 90_000)).toISOString(); // 90s past 3 days
+    expect(shouldSkipCell({ dryStreak: 1, lastSweptAt: justUnder3 }, NOW)).toBe(true);
+    expect(shouldSkipCell({ dryStreak: 1, lastSweptAt: justOver3 }, NOW)).toBe(true);
+  });
+});
+
+describe("nextCellStates — per-cell yield attribution", () => {
+  const NOW_ISO = "2026-09-13T02:17:24.000Z";
+
+  test("a swept cell with a productive (non-chain) new place resets to dryStreak 0", () => {
+    const prev = { "Miami, FL::Hialeah": { dryStreak: 2, lastSweptAt: "2026-09-10T02:17:00.000Z" } };
+    const next = nextCellStates(prev, ["Miami, FL::Hialeah"], new Set(["Miami, FL::Hialeah"]), NOW_ISO);
+    expect(next["Miami, FL::Hialeah"]).toEqual({ dryStreak: 0, lastSweptAt: NOW_ISO });
+  });
+
+  test("a swept cell whose only new places were chains still increments dryStreak — the bug this fixes", () => {
+    // Caller passes productiveKeys built from POST-chain-filter candidates only,
+    // so a cell that found nothing but a McDonald's is correctly "not productive".
+    const prev = { "Miami, FL::Hialeah": { dryStreak: 1, lastSweptAt: "2026-09-10T02:17:00.000Z" } };
+    const next = nextCellStates(prev, ["Miami, FL::Hialeah"], new Set(), NOW_ISO);
+    expect(next["Miami, FL::Hialeah"]).toEqual({ dryStreak: 2, lastSweptAt: NOW_ISO });
+  });
+
+  test("a cell with no prior state starts at dryStreak 1 when its sweep is unproductive", () => {
+    const next = nextCellStates({}, ["New York, NY::Ridgewood"], new Set(), NOW_ISO);
+    expect(next["New York, NY::Ridgewood"]).toEqual({ dryStreak: 1, lastSweptAt: NOW_ISO });
+  });
+
+  test("cells NOT in sweptKeys (skipped on cooldown, or a failed Nearby call) are carried over untouched", () => {
+    const prev = {
+      "Miami, FL::Hialeah": { dryStreak: 5, lastSweptAt: "2026-09-06T02:17:00.000Z" },
+      "Chicago, IL::Pilsen": { dryStreak: 0, lastSweptAt: "2026-09-12T02:17:00.000Z" },
+    };
+    // Neither key is in sweptKeys — one was resting, one's Nearby call failed.
+    const next = nextCellStates(prev, [], new Set(), NOW_ISO);
+    expect(next).toEqual(prev);
+  });
+
+  test("only swept cells are updated; unswept cells in the same run are untouched", () => {
+    const prev = { "Chicago, IL::Pilsen": { dryStreak: 3, lastSweptAt: "2026-09-06T02:17:00.000Z" } };
+    const next = nextCellStates(prev, ["Miami, FL::Hialeah"], new Set(["Miami, FL::Hialeah"]), NOW_ISO);
+    expect(next["Chicago, IL::Pilsen"]).toEqual(prev["Chicago, IL::Pilsen"]); // untouched
+    expect(next["Miami, FL::Hialeah"]).toEqual({ dryStreak: 0, lastSweptAt: NOW_ISO }); // new
   });
 });

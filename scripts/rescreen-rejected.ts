@@ -80,7 +80,8 @@ const candidates = await db
 console.log(
   `\n=== rescreen-rejected ${commit ? "(COMMIT)" : "(DRY RUN)"} ===\n` +
     `candidates (rejected on the review floor): ${candidates.length}\n` +
-    `current floor: minReviews=${DEFAULT_FILTER_THRESHOLDS.minReviews}\n`
+    `current floor: minReviews=${DEFAULT_FILTER_THRESHOLDS.minReviews} (website leads), ` +
+    `minReviewsNoWebsite=${DEFAULT_FILTER_THRESHOLDS.minReviewsNoWebsite} (phone leads)\n`
 );
 
 const batch = limit ? candidates.slice(0, limit) : candidates;

@@ -113,6 +113,20 @@ export type SettingsMap = {
   // worker/lib/grid.ts) to keep this file's settings shapes self-contained,
   // matching every other structured value here (PackageTier, OpexItem, ...).
   sourcing_cell_state: Record<string, { lastSweptAt: string; dryStreak: number }>;
+  // Written at the end of every sourceLeads.ts run — what the CAP actually
+  // was that night, not just the config default. Snapshotting from
+  // worker_boot_info's nightlyEnrichCap (below) meant the boot-time config
+  // default (40) got frozen into every night's snapshot even when the live
+  // sourcing_nightly_cap setting (50) was what actually ran — caught
+  // 2026-09-13. See resolveCandidateCap() in lib/pipelineHealth.ts.
+  sourcing_last_run: {
+    at: string; // ISO
+    candidateCap: number; // 0 = no cap, matching sourceLeads.ts's own convention
+    cellsSwept: number;
+    cellsSkipped: number;
+    newCandidates: number;
+    enqueued: number;
+  } | null;
   worker_boot_info: WorkerBootInfo | null;
   // ISO timestamp, written by runReplyPoll() (worker/jobs/pollReplies.ts) the
   // moment it successfully lists the Gmail inbox — i.e. proof the poller that
@@ -187,6 +201,7 @@ const DEFAULTS: SettingsMap = {
   sourcing_paused: false,
   sourcing_nightly_cap: null, // null = defer to config.nightlyEnrichCap (40)
   sourcing_cell_state: {},
+  sourcing_last_run: null,
   worker_boot_info: null,
   reply_poll_last_run: null,
   reply_poll_last_alert: null,

@@ -77,15 +77,50 @@ export function cellStateKey(city: string, cellName: string): string {
 // something new again (see the dryStreak reset in sourceLeads.ts), and the
 // 7-night ceiling below means even a fully-dry cell is never unswept for
 // more than a week, so a newly-opened restaurant still gets found promptly.
-const DRY_SKIP_NIGHTS: Record<number, number> = { 0: 0, 1: 3, 2: 3 }; // dryStreak -> nights to skip; 3+ uses the cap below
+const DRY_SKIP_NIGHTS: Record<number, number> = { 0: 0, 1: 3, 2: 3 }; // dryStreak -> nights to rest; 3+ uses the cap below
 const DRY_SKIP_NIGHTS_MAX = 7; // dryStreak >= 3
 
 export function shouldSkipCell(state: CellSweepState | undefined, nowMs: number): boolean {
   if (!state) return false; // never swept — always sweep (covers all 14 just-added cells)
-  const skipNights = state.dryStreak >= 3 ? DRY_SKIP_NIGHTS_MAX : (DRY_SKIP_NIGHTS[state.dryStreak] ?? 0);
-  if (skipNights === 0) return false; // dryStreak 0 — swept nightly
-  const daysSinceSwept = (nowMs - Date.parse(state.lastSweptAt)) / 86_400_000;
-  return daysSinceSwept < skipNights;
+  const restNights = state.dryStreak >= 3 ? DRY_SKIP_NIGHTS_MAX : (DRY_SKIP_NIGHTS[state.dryStreak] ?? 0);
+  if (restNights === 0) return false; // dryStreak 0 — swept nightly
+  // Whole nights, not exact ms — the cron fires a few seconds later each
+  // night (source-leads took 25-49s to run), so a raw ms/86_400_000 divide
+  // drifted below the intended rest period and "rest 3 nights" actually
+  // rested only 2 (caught 2026-09-13). Rounding to the nearest night makes a
+  // run a few seconds early or late land on the same night count either way.
+  const nightsElapsed = Math.round((nowMs - Date.parse(state.lastSweptAt)) / 86_400_000);
+  return nightsElapsed <= restNights;
+}
+
+// Builds next-run cell state from what THIS sweep actually did. Pure so the
+// attribution logic (which cells count as "productive") is unit-testable
+// without a DB — see sourceLeads.ts step 2.5 for how it's called.
+//
+// `productiveKeys` must be built from candidates that survive the chain
+// filter (worker/lib/chains.ts), NOT from every new-to-DB place. A known
+// chain is never inserted, so it reappears in `discovered` every night
+// forever — crediting it as "this cell is productive" meant a cell with a
+// McDonald's nearby never rested even once (caught 2026-09-13: 59/76 cells
+// showed dryStreak 0 while the grid's real yield had collapsed to 24/night).
+// Cells not in `sweptKeys` (skipped on cooldown, or a failed Nearby call —
+// see sourceLeads.ts) are carried over untouched: a transient API failure or
+// a deliberate rest must not start or extend a dry streak.
+export function nextCellStates(
+  prev: Record<string, CellSweepState>,
+  sweptKeys: Iterable<string>,
+  productiveKeys: ReadonlySet<string>,
+  nowIso: string
+): Record<string, CellSweepState> {
+  const next: Record<string, CellSweepState> = { ...prev };
+  for (const key of sweptKeys) {
+    const prevStreak = prev[key]?.dryStreak ?? 0;
+    next[key] = {
+      lastSweptAt: nowIso,
+      dryStreak: productiveKeys.has(key) ? 0 : prevStreak + 1,
+    };
+  }
+  return next;
 }
 
 export const CITY_GRIDS: Record<string, GridCell[]> = {

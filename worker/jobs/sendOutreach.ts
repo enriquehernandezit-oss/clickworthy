@@ -20,7 +20,8 @@ import { sendEmail } from "../lib/gmail";
 import { composeTouch1, hasComplianceFooter, normalizeLanguage, type ComposeIdentity } from "../lib/outreachEmail";
 import { isSuppressed } from "../lib/suppression";
 import { withRetry } from "../lib/retry";
-import { isInLocalWindow } from "../lib/sendWindow";
+import { isInLocalWindow, resolveTimeZone, windowPhaseForZone } from "../lib/sendWindow";
+import { pickTouch1, touch1ReservedToday, type ZoneDay } from "../lib/sendAllocation";
 
 // Max real sends per send-cron tick, per send function. The daily total is
 // still bounded by dailyCap()/sentToday(); this just spreads that total across
@@ -109,16 +110,60 @@ export async function sentToday(): Promise<number> {
   return n ?? 0;
 }
 
-// Approved-but-unsent Touch 1 rows — the pile that still has first claim on
-// today's cap. The bump sender subtracts this so it can never spend a slot an
-// already-approved Touch 1 needs (Touch 1 = the priority metric). kind, not
-// touchNumber, so an approved bump isn't miscounted as reserved Touch 1.
-export async function approvedTouch1Pending(): Promise<number> {
-  const [{ n }] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(outreachJobs)
-    .where(and(eq(outreachJobs.kind, "touch1"), eq(outreachJobs.status, "approved"), isNull(outreachJobs.sentAt)));
-  return n ?? 0;
+// Per-time-zone snapshot of today's Touch 1 demand — approved-but-unsent rows
+// grouped by recipient zone (NOT city: Miami and New York share America/New_York,
+// and should be pooled together for fairness) plus how many touch1 rows each
+// zone has already sent today. Feeds the fair-share allocator in
+// worker/lib/sendAllocation.ts, which is what replaced the old
+// approvedTouch1Pending() — that counted EVERY approved touch1 regardless of
+// the daily cap, which is exactly how 15 approved-but-out-of-window leads
+// reserved all 5 of a 5/day cap for bumps forever (fixed 2026-09-13).
+//
+// Exported so sendBumps.ts can compute the same reservation without a second,
+// possibly-drifting query.
+export async function zoneSnapshot(nowMs: number): Promise<{ zones: ZoneDay[]; rotation: number }> {
+  const [pendingRows, sentRows] = await Promise.all([
+    db
+      .select({ city: restaurants.city, n: sql<number>`count(*)::int` })
+      .from(outreachJobs)
+      .innerJoin(restaurants, eq(outreachJobs.restaurantId, restaurants.id))
+      .where(and(eq(outreachJobs.kind, "touch1"), eq(outreachJobs.status, "approved"), isNull(outreachJobs.sentAt)))
+      .groupBy(restaurants.city),
+    db
+      .select({ city: restaurants.city, n: sql<number>`count(*)::int` })
+      .from(outreachJobs)
+      .innerJoin(restaurants, eq(outreachJobs.restaurantId, restaurants.id))
+      .where(and(eq(outreachJobs.kind, "touch1"), gte(outreachJobs.sentAt, startOfToday())))
+      .groupBy(restaurants.city),
+  ]);
+
+  const byZone = new Map<string, { pending: number; sent: number }>();
+  for (const { city, n } of pendingRows) {
+    const zone = resolveTimeZone(city);
+    const entry = byZone.get(zone) ?? { pending: 0, sent: 0 };
+    entry.pending += n;
+    byZone.set(zone, entry);
+  }
+  for (const { city, n } of sentRows) {
+    const zone = resolveTimeZone(city);
+    const entry = byZone.get(zone) ?? { pending: 0, sent: 0 };
+    entry.sent += n;
+    byZone.set(zone, entry);
+  }
+
+  const zones: ZoneDay[] = [...byZone.entries()].map(([zone, { pending, sent }]) => ({
+    zone,
+    phase: windowPhaseForZone(zone, nowMs),
+    pending,
+    sent,
+  }));
+
+  // A day index in AST (matches startOfToday()'s AST boundary) so the odd
+  // remainder slot in the water-filling allocator rotates to a different zone
+  // once a day, rather than every tick or never.
+  const rotation = Math.floor((nowMs - 4 * 3_600_000) / 86_400_000);
+
+  return { zones, rotation };
 }
 
 // Deliverability guard: if too many recent recipients opted out or bounced,
@@ -372,13 +417,19 @@ async function sendApproved(): Promise<void> {
     .orderBy(asc(outreachJobs.approvedAt))
     .limit(500);
 
-  // Business-hours gate: only send to recipients whose LOCAL time is inside
+  // Business-hours gate: only consider recipients whose LOCAL time is inside
   // the 9am–12pm Mon–Fri window right now. Out-of-window rows aren't cancelled
   // — they simply wait for a later tick when their city's window opens.
   const now = Date.now();
-  const inWindow = approved.filter(({ r }) => isInLocalWindow(r.city, now));
-  // Then the two volume ceilings: the daily cap headroom and the per-tick cap.
-  const ready = inWindow.slice(0, Math.min(remaining, SEND_BATCH_PER_TICK));
+  const inWindow = approved.map((row) => ({ ...row, zone: resolveTimeZone(row.r.city) })).filter((row) => isInLocalWindow(row.r.city, now));
+
+  // Fair-share pick across zones (worker/lib/sendAllocation.ts) instead of a
+  // plain oldest-first slice. A plain slice let whichever zones open FIRST
+  // (Eastern, then Central) exhaust the whole daily cap before Denver or the
+  // Pacific zones ever got a chance — 0 sends to LA/San Diego/Denver in 14
+  // days despite leads approved there since Aug 29 (caught 2026-09-13).
+  const { zones, rotation } = await zoneSnapshot(now);
+  const ready = pickTouch1(inWindow, zones, { cap, perTick: Math.min(remaining, SEND_BATCH_PER_TICK), rotation });
 
   console.log(
     `[send] ${approved.length} approved, ${inWindow.length} in send-window, sending ${ready.length} this tick ` +

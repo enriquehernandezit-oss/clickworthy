@@ -18,7 +18,8 @@ import { getSetting } from "@/lib/settings";
 import { sendAlert } from "@/lib/alerts";
 import { sendEmail } from "../lib/gmail";
 import { threadToReplyInto } from "./sendTouch2";
-import { deliverabilityHealthy, dailyCap, sentToday, approvedTouch1Pending } from "./sendOutreach";
+import { deliverabilityHealthy, dailyCap, sentToday, zoneSnapshot } from "./sendOutreach";
+import { touch1ReservedToday } from "../lib/sendAllocation";
 import { composeBump, hasComplianceFooter, normalizeLanguage, type ComposeIdentity } from "../lib/outreachEmail";
 import { isSuppressed } from "../lib/suppression";
 import { withRetry } from "../lib/retry";
@@ -156,12 +157,20 @@ async function sendApprovedBumps(): Promise<void> {
   // sentToday() already counts both (both are touchNumber 1). But Touch 1 is
   // the priority path (new email-ready leads), and bumps tick 5x faster (reply
   // cron */4 vs send cron */20), so without reserving headroom a bump backlog
-  // could consume the whole cap before Touch 1's tick even fires — zero Touch 1
-  // sent that day. So bumps only draw from what's left AFTER every
-  // already-approved Touch 1 has a slot. If Touch 1 fills the cap, bumps wait.
+  // could consume the whole cap before Touch 1's tick even fires. So bumps
+  // only draw from what's left after Touch 1's fair-share reservation
+  // (worker/lib/sendAllocation.ts) across every time zone.
+  //
+  // touch1ReservedToday is bounded by `cap` itself — unlike the old
+  // approvedTouch1Pending(), which counted EVERY approved-but-unsent touch1
+  // regardless of the cap. With 15 approved (most out-of-window for the day)
+  // against a cap of 5, that reserved all 5 permanently: bumps got 0 budget
+  // every single run, and 38 approved bumps sat unsent for two weeks (fixed
+  // 2026-09-13).
   const cap = await dailyCap();
   const already = await sentToday();
-  const touch1Reserved = await approvedTouch1Pending();
+  const { zones, rotation } = await zoneSnapshot(Date.now());
+  const touch1Reserved = touch1ReservedToday(zones, cap, rotation);
   const remaining = Math.max(0, cap - already - touch1Reserved);
 
   if (remaining === 0) {

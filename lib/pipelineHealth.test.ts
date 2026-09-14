@@ -4,7 +4,14 @@
 // `bun test`.
 
 import { expect, test, describe } from "bun:test";
-import { isReplyPollStale, REPLY_POLL_STALE_MINUTES, isSourcingBacklogDeep, SOURCING_BACKLOG_MAX_DAYS } from "./pipelineHealth";
+import {
+  isReplyPollStale,
+  REPLY_POLL_STALE_MINUTES,
+  isSourcingBacklogDeep,
+  SOURCING_BACKLOG_MAX_DAYS,
+  emailReadyTarget,
+  resolveCandidateCap,
+} from "./pipelineHealth";
 
 // Fixed reference instant — deterministic regardless of when the test runs.
 const NOW = Date.parse("2026-08-27T12:00:00.000Z");
@@ -76,5 +83,41 @@ describe("isSourcingBacklogDeep", () => {
 
   test("the exported default matches the documented 14-day ceiling", () => {
     expect(SOURCING_BACKLOG_MAX_DAYS).toBe(14);
+  });
+});
+
+describe("emailReadyTarget", () => {
+  test("today's real cap (5/day) gives 4 — not the old flat 20", () => {
+    expect(emailReadyTarget(5)).toBe(4);
+  });
+
+  test("scales up with a higher daily cap", () => {
+    expect(emailReadyTarget(50)).toBe(36); // ceil(50*5/7) = ceil(35.71) = 36
+  });
+
+  test("rounds up a fractional target rather than down", () => {
+    expect(emailReadyTarget(1)).toBe(1); // ceil(5/7) = ceil(0.71) = 1, not 0
+  });
+
+  test("zero cap gives zero target", () => {
+    expect(emailReadyTarget(0)).toBe(0);
+  });
+});
+
+describe("resolveCandidateCap", () => {
+  test("an explicit per-run limit wins over everything else", () => {
+    expect(resolveCandidateCap(5, 50, 40)).toBe(5);
+  });
+
+  test("the Controls override wins when no explicit limit is given", () => {
+    expect(resolveCandidateCap(undefined, 50, 40)).toBe(50);
+  });
+
+  test("falls back to the config default when neither is set", () => {
+    expect(resolveCandidateCap(undefined, null, 40)).toBe(40);
+  });
+
+  test("an explicit limit of 0 (no cap) is honored, not treated as falsy", () => {
+    expect(resolveCandidateCap(0, 50, 40)).toBe(0);
   });
 });

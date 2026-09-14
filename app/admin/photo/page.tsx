@@ -13,9 +13,10 @@ import {
   getRejectionBuckets,
   getEmailYield,
   getAnomalies,
-  EMAIL_READY_TARGET,
+  emailReadyTarget,
   type TrendRow,
 } from "@/lib/pipelineHealth";
+import { dailyCap } from "@/worker/jobs/sendOutreach";
 
 // The morning briefing: "did anything break overnight, and did the pipeline
 // hit its number?" Ported from scripts/nightly-analysis.ts §1/2/4/5/8 via the
@@ -213,7 +214,7 @@ const attentionToneClass: Record<AttentionItem["tone"], string> = {
 
 export default async function AdminOverviewPage() {
   const night = await getLastSourcingNight();
-  const [health, trend, funnel, buckets, emailYield, activity, attention] = await Promise.all([
+  const [health, trend, funnel, buckets, emailYield, activity, attention, cap] = await Promise.all([
     getRunHealth(),
     getEmailReadyTrend(10),
     night ? getNightFunnel(night) : Promise.resolve(null),
@@ -221,8 +222,13 @@ export default async function AdminOverviewPage() {
     getEmailYield(7),
     getActivity(),
     getNeedsAttention(),
+    dailyCap(),
   ]);
   const anomalies = await getAnomalies(night ?? "1970-01-01", funnel);
+  // Scales with the LIVE daily send cap — see emailReadyTarget()'s own
+  // comment for why a flat historical target read as a false alarm once the
+  // send cap dropped to 5/day.
+  const target = emailReadyTarget(cap);
 
   const { avg, runNights } = avgEmailReady(trend);
   const latestYield = emailYield.find((r) => r.sites > 0);
@@ -308,7 +314,7 @@ export default async function AdminOverviewPage() {
           <SectionHeading>Email-ready per night</SectionHeading>
           <span className="text-xs text-muted">
             avg <span className="font-mono-label font-semibold text-text">{avg.toFixed(1)}</span> / run night vs target{" "}
-            <span className="font-mono-label text-gold">{EMAIL_READY_TARGET}</span>
+            <span className="font-mono-label text-gold">{target}</span>
             <span className="text-faint"> · {runNights} run nights</span>
           </span>
         </div>
@@ -317,7 +323,7 @@ export default async function AdminOverviewPage() {
           drafts are composed from the whole queued pool, which builds up across nights.
         </p>
         <div className="mt-3">
-          <NightBars trend={trend} target={EMAIL_READY_TARGET} />
+          <NightBars trend={trend} target={target} />
         </div>
       </section>
 

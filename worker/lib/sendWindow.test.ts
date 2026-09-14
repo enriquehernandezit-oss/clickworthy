@@ -4,7 +4,16 @@
 // shifts the UTC offset without shifting the local window.
 
 import { expect, test, describe } from "bun:test";
-import { isInLocalWindow, resolveTimeZone, describeSendWindow, uncoveredCities, hasExplicitTimeZone, SENDER_TIME_ZONE } from "./sendWindow";
+import {
+  isInLocalWindow,
+  windowPhase,
+  windowPhaseForZone,
+  resolveTimeZone,
+  describeSendWindow,
+  uncoveredCities,
+  hasExplicitTimeZone,
+  SENDER_TIME_ZONE,
+} from "./sendWindow";
 import { config } from "../config";
 
 // A weekday during US Daylight Saving Time (summer): Wed 2026-08-26.
@@ -82,6 +91,37 @@ describe("isInLocalWindow — weekends are skipped", () => {
   // Sun 2026-08-30.
   test("Sunday is blocked", () => {
     expect(isInLocalWindow("Miami, FL", Date.UTC(2026, 7, 30, 15))).toBe(false);
+  });
+});
+
+describe("windowPhase / windowPhaseForZone — the finer-grained answer the fair-share allocator needs", () => {
+  // Same reference instants as above: 15:00 UTC Aug = 11am ET / 10am CT / 9am
+  // MT / 8am PT.
+  test("before the window opens", () => {
+    expect(windowPhase("Los Angeles, CA", AUG(15))).toBe("before"); // 8am PT
+  });
+  test("open, at the start boundary (inclusive)", () => {
+    expect(windowPhase("Denver, CO", AUG(15))).toBe("open"); // 9am MT exactly
+  });
+  test("open, mid-window", () => {
+    expect(windowPhase("Miami, FL", AUG(15))).toBe("open"); // 11am ET
+  });
+  test("closed, at the end boundary (exclusive means already closed)", () => {
+    expect(windowPhase("Miami, FL", AUG(16))).toBe("closed"); // 12pm ET exactly
+  });
+  test("closed, well after the window", () => {
+    expect(windowPhase("Miami, FL", AUG(20))).toBe("closed"); // 4pm ET
+  });
+  test("not_today on a weekend, even during business hours", () => {
+    expect(windowPhase("Miami, FL", Date.UTC(2026, 7, 29, 15))).toBe("not_today"); // Sat 11am ET
+  });
+  test("windowPhaseForZone takes an IANA zone directly, matching windowPhase(city) via resolveTimeZone", () => {
+    expect(windowPhaseForZone("America/Los_Angeles", AUG(15))).toBe(windowPhase("Los Angeles, CA", AUG(15)));
+  });
+  test("isInLocalWindow is exactly windowPhase === 'open'", () => {
+    for (const t of [AUG(13), AUG(15), AUG(16), AUG(20), Date.UTC(2026, 7, 29, 15)]) {
+      expect(isInLocalWindow("Miami, FL", t)).toBe(windowPhase("Miami, FL", t) === "open");
+    }
   });
 });
 

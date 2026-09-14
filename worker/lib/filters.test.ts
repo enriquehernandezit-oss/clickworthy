@@ -72,6 +72,45 @@ describe("passesHardFilters — defaults", () => {
   });
 });
 
+// Split review floor (2026-09-13) — a live probe found 0/25 scraped emails in
+// the 10-19-review band, but only for places that could ever REACH email
+// discovery (an owned website). A no-website or dead-end-website (social/
+// ordering-platform) place routes to the phone call_list regardless of review
+// count, so raising its floor back to 20 would just lose phone leads for no
+// email-yield reason — it keeps the looser 10 via minReviewsNoWebsite.
+describe("passesHardFilters — split review floor by website type", () => {
+  test("15 reviews with an owned website fails (below the 20 email-lead floor)", () => {
+    const r = passesHardFilters(place({ userRatingCount: 15, websiteUri: "https://example.com" }));
+    expect(r.pass).toBe(false);
+    if (!r.pass) expect(r.reason).toContain("only 15 reviews (<20)");
+  });
+
+  test("15 reviews with no website at all passes (10 is the phone-lead floor)", () => {
+    expect(passesHardFilters(place({ userRatingCount: 15, websiteUri: undefined })).pass).toBe(true);
+  });
+
+  test("15 reviews on an Instagram-only listing passes — a dead-end website is a phone lead too", () => {
+    expect(passesHardFilters(place({ userRatingCount: 15, websiteUri: "https://instagram.com/joesdiner" })).pass).toBe(true);
+  });
+
+  test("15 reviews on a DoorDash/ordering-platform listing passes for the same reason", () => {
+    expect(passesHardFilters(place({ userRatingCount: 15, websiteUri: "https://www.doordash.com/store/joes-diner-123" })).pass).toBe(true);
+  });
+
+  test("15 reviews on a free-subdomain site (Weebly/Wix) still fails — a real mailbox can exist there", () => {
+    const r = passesHardFilters(place({ userRatingCount: 15, websiteUri: "https://joesdiner.weebly.com" }));
+    expect(r.pass).toBe(false);
+  });
+
+  test("20 reviews with an owned website passes (exactly at the email-lead floor)", () => {
+    expect(passesHardFilters(place({ userRatingCount: 20, websiteUri: "https://example.com" })).pass).toBe(true);
+  });
+
+  test("9 reviews fails even for a no-website/phone lead (below the 10 floor)", () => {
+    expect(passesHardFilters(place({ userRatingCount: 9, websiteUri: undefined })).pass).toBe(false);
+  });
+});
+
 describe("passesHardFilters — injectable thresholds", () => {
   test("maxReviews=null lifts the ceiling (a well-reviewed place passes)", () => {
     const t: FilterThresholds = { ...DEFAULT_FILTER_THRESHOLDS, maxReviews: null };

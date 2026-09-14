@@ -19,8 +19,27 @@ import { getSetting } from "@/lib/settings";
 // AST the prior evening). Shared by every date-bucketed query below.
 const AST_DAY = sql`date_trunc('day', (created_at at time zone 'UTC') at time zone 'America/Puerto_Rico')`;
 
-// The stated priority metric's target: email-ready leads per run night.
-export const EMAIL_READY_TARGET = 20;
+// How many email-ready leads a night SHOULD produce, given the actual daily
+// send cap. Replaces the flat EMAIL_READY_TARGET=20 (2026-09-13): that number
+// was set when the send cap was much higher, and at today's 5/day cap it
+// meant Insights reported "below target 25 nights running" for a pipeline
+// that was, in fact, comfortably out-producing what could be sent — a false
+// alarm baked into the dashboard itself. 5/7 assumes sourcing runs nightly
+// (7x/week) to feed a 5-days-a-week send cadence (Mon-Fri); ceil so a
+// fractional target still reads as "produce at least this many.
+export function emailReadyTarget(dailyCap: number): number {
+  return Math.ceil((dailyCap * 5) / 7);
+}
+
+// Precedence for how many NEW candidates a sourcing run spends on: an
+// explicit per-run limit (a manual/one-off sweep) wins over the Controls
+// override, which wins over the compiled-in config default. Pure and shared
+// so worker/jobs/sourceLeads.ts's actual decision and anything reporting on
+// it (this file's computeNightSession) can't drift apart — see the
+// sourcing_last_run setting below for why that drift used to happen.
+export function resolveCandidateCap(limit: number | undefined, override: number | null, configCap: number): number {
+  return limit ?? override ?? configCap;
+}
 
 const asRows = <T>(r: unknown) => r as T[];
 
@@ -319,7 +338,14 @@ export async function computeNightSession(night: string): Promise<NightSession> 
       return y ?? { havers: 0, got: 0 };
     })(),
   ]);
-  const cap = (await getRunHealth()).nightlyCap;
+  // The cap actually used THAT night, from sourceLeads.ts's own end-of-run
+  // record — not the boot-time config default via getRunHealth(), which kept
+  // recording 40 (the compiled default) even after the live
+  // sourcing_nightly_cap Controls override raised it to 50 (caught
+  // 2026-09-13). Falls back to the old boot-cap source for nights snapshotted
+  // before sourcing_last_run existed.
+  const lastRun = await getSetting("sourcing_last_run");
+  const cap = lastRun?.candidateCap ?? (await getRunHealth()).nightlyCap;
 
   return {
     night,
@@ -354,14 +380,14 @@ export function yieldPct(s: { siteHavers: number; siteGotEmail: number }): numbe
 // into the mid-30s. Above this reads as "healthy".
 const YIELD_BASELINE_PCT = 30;
 
-export function deriveNightFindings(s: NightSession): Insight[] {
+export function deriveNightFindings(s: NightSession, target: number): Insight[] {
   const out: Insight[] = [];
 
   // The headline metric.
-  if (s.emailReady >= EMAIL_READY_TARGET)
-    out.push({ tone: "good", text: `Hit the target: ${s.emailReady} email-ready (≥ ${EMAIL_READY_TARGET}).` });
+  if (s.emailReady >= target)
+    out.push({ tone: "good", text: `Hit the target: ${s.emailReady} email-ready (≥ ${target}).` });
   else
-    out.push({ tone: s.emailReady === 0 ? "bad" : "warn", text: `${s.emailReady} email-ready, below the ${EMAIL_READY_TARGET} target.` });
+    out.push({ tone: s.emailReady === 0 ? "bad" : "warn", text: `${s.emailReady} email-ready, below the ${target} target.` });
 
   // Where the funnel leaked most.
   if (s.sourced > 0) {
@@ -390,7 +416,7 @@ export function deriveNightFindings(s: NightSession): Insight[] {
 }
 
 // Cross-night patterns from the recent snapshot series (newest first).
-export function derivePatterns(series: NightSession[]): Insight[] {
+export function derivePatterns(series: NightSession[], target: number): Insight[] {
   const out: Insight[] = [];
   if (series.length < 3) return out;
   const recent = series.slice(0, 7); // up to a week
@@ -398,7 +424,7 @@ export function derivePatterns(series: NightSession[]): Insight[] {
   // Streak below target.
   let belowStreak = 0;
   for (const s of series) {
-    if (s.emailReady < EMAIL_READY_TARGET) belowStreak++;
+    if (s.emailReady < target) belowStreak++;
     else break;
   }
   if (belowStreak >= 3) out.push({ tone: "warn", text: `Email-ready has been below target ${belowStreak} nights running.` });
