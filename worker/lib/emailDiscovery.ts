@@ -25,7 +25,13 @@
 const FETCH_TIMEOUT_MS = 8000;
 const CONTACT_PATH_HINTS = ["contact", "contacto", "about", "nosotros", "reservations", "reservas"];
 
-const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
+// No `%` in the local part — a raw URL with a stray encoded character sitting
+// right before an address (e.g. "...?redirect=%20info@site.com") matches and
+// glues the escape onto the front of a real mailbox, producing "%20info@..."
+// instead of "info@...". mailto: hrefs use extractMailtoEmails() instead,
+// which decodes %-escapes properly before this regex ever sees them, so this
+// only affects addresses sitting in plain page text.
+const EMAIL_RE = /[a-z0-9._+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
 
 // Junk/placeholder addresses that show up in page source but aren't contacts.
 const JUNK_PATTERNS = [
@@ -74,6 +80,11 @@ const JUNK_LOCALPARTS = new Set([
   // Corporate/loyalty-program mailboxes — same wrong-audience class as
   // marketing/newsletter. Found on a real lead 2026-08-27: loyalty@acfp.com.
   "loyalty", "rewards", "giftcards", "franchise", "franchising", "catering-corporate",
+  // Template/placeholder names left in by a site builder or theme demo — not
+  // a real mailbox. Found scraping needs_manual_email 2026-09-15:
+  // johndoe@gmail.com sitting in page markup with nothing else nearby to
+  // suggest it was ever replaced.
+  "johndoe", "john.doe", "janedoe", "jane.doe", "yourname", "test", "sample",
 ]);
 
 // Plus-addressed local parts ("proyectoweber+theirsite.com@gmail.com") are the
@@ -305,8 +316,15 @@ export function stripNonContentBlocks(html: string): string {
 
 function extractEmails(html: string): string[] {
   const found = new Set<string>();
+  // Dropping `%` from EMAIL_RE's character class isn't enough on its own: for
+  // "...%20info@site.com" the regex just starts its match one character later,
+  // at the "2" — a digit, which IS a valid local-part character — capturing
+  // "20info@site.com" instead. Stripping whole %XX byte sequences first (only
+  // from the plain-text path; mailto: hrefs already decode properly via
+  // extractMailtoEmails) removes the fragment before EMAIL_RE ever sees it.
+  const plainText = stripNonContentBlocks(html).replace(/%[0-9a-fA-F]{2}/g, "");
   const raws = [
-    ...(stripNonContentBlocks(html).match(EMAIL_RE) ?? []), // plain text, minus CSS/JS/comments
+    ...(plainText.match(EMAIL_RE) ?? []), // plain text, minus CSS/JS/comments and %-escapes
     ...extractCfEmails(html),          // Cloudflare-obfuscated
     ...extractMailtoEmails(html),      // mailto: hrefs
     ...extractJsonLdEmails(html),      // schema.org
@@ -314,7 +332,7 @@ function extractEmails(html: string): string[] {
   ];
   for (const raw of raws) {
     const email = raw.toLowerCase().trim();
-    if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(email)) continue;
+    if (!/^[a-z0-9._+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(email)) continue; // no `%` — see EMAIL_RE's own comment
     if (JUNK_PATTERNS.some((j) => email.includes(j))) continue;
     const localPart = email.split("@")[0];
     if (JUNK_LOCALPARTS.has(localPart)) continue; // wrong-audience mailbox (donations@, careers@, …)

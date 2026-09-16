@@ -71,14 +71,25 @@ console.log(
 );
 
 if (!commit) {
+  // Free: runs the same discoverEmail() scrape --commit would, but stops
+  // there — no NeverBounce call, no write. Shows exactly what would be
+  // attempted (and roughly how many credits it'd cost) before spending any.
   const preview = candidates.slice(0, limit || candidates.length);
-  console.table(
-    preview.map((c) => ({ id: c.id, name: c.name, dish: c.signatureDish ?? "—", website: c.website }))
-  );
+  let wouldFind = 0;
+  const rows: { id: number; name: string; dish: string; found: string }[] = [];
+  for (const c of preview) {
+    const discovered = await discoverEmail(c.website!).catch(() => null);
+    if (discovered) wouldFind++;
+    rows.push({ id: c.id, name: c.name, dish: c.signatureDish ?? "—", found: discovered ? discovered.email : "—" });
+    await sleep(120);
+  }
+  console.table(rows);
   console.log(
-    `\nDry run — no API calls, no writes.` +
+    `\nDry run — no NeverBounce calls, no writes.` +
       (limit ? ` (showing first ${preview.length})` : "") +
-      `\nPass --commit to discover + verify + write.`
+      `\nWould find a scrapable address for ${wouldFind}/${preview.length} ` +
+      `(~${wouldFind} NeverBounce checks, ~$${(wouldFind * 0.008).toFixed(2)} at $0.008/check, if --commit finds the same).` +
+      `\nPass --commit to verify + write.`
   );
   process.exit(0);
 }

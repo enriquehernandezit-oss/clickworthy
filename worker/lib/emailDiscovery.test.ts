@@ -350,6 +350,24 @@ describe("wrong-recipient guards", () => {
     const found = await discoverEmail("https://ifrasindiankitchen.com/", html);
     expect(found?.email).toBe("order_info@ifrasindiankitchen.com");
   });
+
+  // Caught 2026-09-15 scraping needs_manual_email: a site-builder template
+  // placeholder left in live markup, indistinguishable from a real address by
+  // shape alone.
+  test("drops a template placeholder address (johndoe@gmail.com)", async () => {
+    const html = page(`<a href="mailto:johndoe@gmail.com">email us</a>`);
+    expect(await discoverEmail("https://example.com/", html)).toBeNull();
+  });
+
+  // Caught the same pass: a raw URL sitting in plain page text with a stray
+  // %20 right before a real address glued the escape onto the local part —
+  // "%20info@..." instead of "info@...". mailto: hrefs are unaffected
+  // (extractMailtoEmails decodes first), so this only bites plain text.
+  test("never lets a URL-encoded space glue onto the front of a plain-text address", async () => {
+    const html = page(`<p>Redirecting to <a href="/go?next=%20info@sultanbaklava.com">continue</a></p>`);
+    const found = await discoverEmail("https://sultanbaklava.com/", html);
+    expect(found?.email).toBe("info@sultanbaklava.com");
+  });
 });
 
 // ---------------------------------------------------------------------------
